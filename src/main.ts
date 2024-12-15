@@ -1,7 +1,7 @@
 import './style.css'
 import { Elm } from './Dashboard.elm'
 import { db } from './db'
-import { applications, bookings, user } from './db/schema'
+import { applications, bookings, user, csgApplications } from './db/schema'
 import { desc, eq, sql } from 'drizzle-orm'
 
 // Define TypeScript types that match Elm's expectations
@@ -10,15 +10,21 @@ type Application = {
   userId: string
   userEmail: string | null
   createdAt: string
-  dateSubmitted: string
-  dateCompleted: string
-  status: 'quote' | 'review' | 'completed'
+  dateStarted: string
+  dateCompleted: string | null
+  status: 'quote' | 'review' | 'completed' | 'submitted_to_csg' | 'call_booked'
   state: string | null
   data: Record<string, any>
   name: string
   booking: {
     email: string
     phone: string | null
+    url: string
+    status: string
+  } | null
+  csgApplication: {
+    key: string
+    brokerEmail: string | null
   } | null
 }
 
@@ -49,6 +55,12 @@ const formatApplicationData = async (rawApplications: any[]): Promise<Applicatio
     .from(user)
     .where(sql`id IN ${userIds}`)
 
+  // Get related CSG applications
+  const relatedCsgApps = await db
+    .select()
+    .from(csgApplications)
+    .where(sql`application_id IN ${applicationIds}`)
+
   // Create lookup maps
   const bookingsByAppId = new Map(
     relatedBookings.map(booking => [booking.applicationId, booking])
@@ -56,10 +68,14 @@ const formatApplicationData = async (rawApplications: any[]): Promise<Applicatio
   const usersById = new Map(
     relatedUsers.map(user => [user.id, user])
   )
+  const csgAppsByAppId = new Map(
+    relatedCsgApps.map(csgApp => [csgApp.applicationId, csgApp])
+  )
 
   return rawApplications.map(app => {
     const relatedBooking = bookingsByAppId.get(app.id)
     const relatedUser = usersById.get(app.userId)
+    const relatedCsgApp = csgAppsByAppId.get(app.id)
 
     const safeDate = (dateStr: string | number): string => {
       try {
@@ -69,27 +85,47 @@ const formatApplicationData = async (rawApplications: any[]): Promise<Applicatio
       }
     }
 
+    // Determine the status based on the new rules
+    let status = determineStatus(app.status, !!relatedCsgApp, !!relatedBooking)
+
     return {
       id: app.id,
       userId: app.userId,
       userEmail: relatedUser?.email || null,
       createdAt: safeDate(app.createdAt),
-      dateSubmitted: safeDate(app.createdAt),
-      dateCompleted: safeDate(app.updatedAt),
-      status: determineStatus(app.status),
+      dateStarted: safeDate(app.createdAt),
+      dateCompleted: null,
+      status,
       state: null,
       data: typeof app.data === 'string' ? JSON.parse(app.data) : app.data,
       name: app.name || 'Unknown',
       booking: relatedBooking ? {
         email: relatedBooking.email,
-        phone: relatedBooking.phone
+        phone: relatedBooking.phone,
+        url: relatedBooking.url,
+        status: relatedBooking.status
+      } : null,
+      csgApplication: relatedCsgApp ? {
+        key: relatedCsgApp.key,
+        brokerEmail: relatedCsgApp.brokerEmail
       } : null
     }
   })
 }
 
 // Helper function to determine status
-const determineStatus = (status: string): 'quote' | 'review' | 'completed' => {
+const determineStatus = (
+  status: string,
+  hasCsgApp: boolean,
+  hasBooking: boolean
+): 'completed' | 'review' | 'quote' | 'submitted_to_csg' | 'call_booked' => {
+  if (hasCsgApp) {
+    return 'submitted_to_csg'
+  }
+  if (hasBooking) {
+    return 'call_booked'
+  }
+  
   switch (status.toLowerCase()) {
     case 'completed':
       return 'completed'
@@ -283,7 +319,7 @@ app.ports.exportToCsv?.subscribe(async ({ searchTerm, hasContactFilter, hasCSGFi
 })
 
 function convertToCSV(data: Application[]): string {
-  const headers = ['ID', 'Name', 'Carrier', 'Status', 'Email', 'Phone', 'Date Submitted', 'Date Completed']
+  const headers = ['ID', 'Name', 'Carrier', 'Status', 'Email', 'Phone', 'Date Started', 'Date Completed']
   const rows = data.map(item => {
     const applicantInfo = item.data?.applicant_info || {}
     const fullName = `${applicantInfo.f_name || ''} ${applicantInfo.l_name || ''}`.trim()
@@ -295,8 +331,8 @@ function convertToCSV(data: Application[]): string {
       item.status,
       item.booking?.email || item.userEmail || '',
       item.booking?.phone || '',
-      new Date(item.dateSubmitted).toLocaleDateString(),
-      new Date(item.dateCompleted).toLocaleDateString()
+      new Date(item.dateStarted).toLocaleDateString(),
+      item.dateCompleted ? new Date(item.dateCompleted).toLocaleDateString() : ''
     ]
   })
   
