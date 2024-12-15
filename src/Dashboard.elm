@@ -78,19 +78,28 @@ type alias Application =
     , userId : String
     , userEmail : Maybe String
     , createdAt : String
-    , dateSubmitted : String
-    , dateCompleted : String
+    , dateStarted : String
+    , dateCompleted : Maybe String
     , status : Status
     , state : Maybe String
     , data : Decode.Value
     , carrier : String
     , booking : Maybe Booking
+    , csgApplication : Maybe CsgApplication
+    }
+
+
+type alias CsgApplication =
+    { key : String
+    , brokerEmail : Maybe String
     }
 
 
 type alias Booking =
     { email : String
     , phone : Maybe String
+    , url : String
+    , status : String
     }
 
 
@@ -98,6 +107,8 @@ type Status
     = CompletedApp
     | WaitingReview
     | QuoteSent
+    | SubmittedToCSG
+    | CallBooked
 
 
 
@@ -404,15 +415,14 @@ viewApplications model =
                         [ tr [ class "border-b text-left" ]
                             [ th [ class "w-8 py-3 px-4" ]
                                 [ input [ type_ "checkbox", class "rounded border-gray-300" ] [] ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Name" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Carrier" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Status" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Phone Number" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Email address" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Date Submitted" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Date Completed" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Process Actions" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600" ] [ text "Actions" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-48" ] [ text "Name" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-32" ] [ text "Carrier" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-32" ] [ text "Status" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-36" ] [ text "Phone Number" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-48" ] [ text "Email address" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-28" ] [ text "Date Started" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-28" ] [ text "Date Completed" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-24" ] [ text "" ]
                             ]
                         ]
                     , tbody []
@@ -471,33 +481,22 @@ viewApplicationRow app =
                 |> Maybe.withDefault dateString
     in
     tr [ class "border-b hover:bg-gray-50" ]
-        [ td [ class "py-3 px-4" ]
+        [ td [ class "py-3 px-4 w-8" ]
             [ input [ type_ "checkbox", class "rounded border-gray-300" ] [] ]
-        , td [ class "py-3 px-4" ] [ text getName ]
-        , td [ class "py-3 px-4" ] [ text app.carrier ]
-        , td [ class "py-3 px-4" ] [ viewStatus app.status ]
-        , td [ class "py-3 px-4 text-gray-600" ] [ text getPhone ]
-        , td [ class "py-3 px-4 text-gray-600" ] [ text getEmail ]
-        , td [ class "py-3 px-4 text-gray-600" ] [ text (formatDate app.dateSubmitted) ]
-        , td [ class "py-3 px-4 text-gray-600" ] [ text (formatDate app.dateCompleted) ]
-        , td [ class "py-3 px-4" ]
+        , td [ class "py-3 px-4 w-48" ] [ text getName ]
+        , td [ class "py-3 px-4 w-32" ] [ text app.carrier ]
+        , td [ class "py-3 px-4 w-32" ] [ viewStatus app.status ]
+        , td [ class "py-3 px-4 text-gray-600 w-36 whitespace-nowrap" ] [ text getPhone ]
+        , td [ class "py-3 px-4 text-gray-600 w-48 truncate" ] [ text getEmail ]
+        , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ] [ text (formatDate app.dateStarted) ]
+        , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ]
+            [ text (app.dateCompleted |> Maybe.map formatDate |> Maybe.withDefault "") ]
+        , td [ class "py-3 px-4 w-24" ]
             [ button
                 [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
                 , onClick (ViewApplication app.id)
                 ]
-                [ text "View Application" ]
-            ]
-        , td [ class "py-3 px-4" ]
-            [ div [ class "flex gap-2" ]
-                [ button [ class "text-gray-400 hover:text-gray-600" ]
-                    [ text "📋" ]
-
-                -- Copy icon
-                , button [ class "text-gray-400 hover:text-gray-600" ]
-                    [ text "🗑" ]
-
-                -- Delete icon
-                ]
+                [ text "View" ]
             ]
         ]
 
@@ -514,7 +513,13 @@ viewStatus status =
                     ( "Waiting Review", "text-red-600 bg-red-50" )
 
                 QuoteSent ->
-                    ( "Quote Sent", "text-blue-600 bg-blue-50" )
+                    ( "Started", "text-blue-600 bg-blue-50" )
+
+                SubmittedToCSG ->
+                    ( "Submitted to CSG", "text-purple-600 bg-purple-50" )
+
+                CallBooked ->
+                    ( "Intro Call", "text-orange-600 bg-orange-50" )
     in
     div [ class ("flex items-center gap-2 " ++ statusColor ++ " px-3 py-1 rounded-full w-fit") ]
         [ div [ class "w-2 h-2 rounded-full bg-current" ] []
@@ -558,13 +563,14 @@ applicationDecoder =
         |> Pipeline.required "userId" Decode.string
         |> Pipeline.optional "userEmail" (Decode.nullable Decode.string) Nothing
         |> Pipeline.required "createdAt" Decode.string
-        |> Pipeline.required "dateSubmitted" Decode.string
-        |> Pipeline.required "dateCompleted" Decode.string
+        |> Pipeline.required "dateStarted" Decode.string
+        |> Pipeline.optional "dateCompleted" (Decode.nullable Decode.string) Nothing
         |> Pipeline.required "status" statusDecoder
         |> Pipeline.optional "state" (Decode.nullable Decode.string) Nothing
         |> Pipeline.required "data" Decode.value
         |> Pipeline.required "name" (Decode.map cleanCarrierName Decode.string)
         |> Pipeline.optional "booking" (Decode.nullable bookingDecoder) Nothing
+        |> Pipeline.optional "csgApplication" (Decode.nullable csgApplicationDecoder) Nothing
 
 
 
@@ -610,6 +616,12 @@ statusDecoder =
                     "quote" ->
                         Decode.succeed QuoteSent
 
+                    "submitted_to_csg" ->
+                        Decode.succeed SubmittedToCSG
+
+                    "call_booked" ->
+                        Decode.succeed CallBooked
+
                     _ ->
                         Decode.succeed QuoteSent
             )
@@ -624,10 +636,23 @@ bookingDecoder =
     Decode.succeed Booking
         |> Pipeline.required "email" Decode.string
         |> Pipeline.optional "phone" (Decode.nullable Decode.string) Nothing
+        |> Pipeline.required "url" Decode.string
+        |> Pipeline.required "status" Decode.string
 
 
 
 -- |> jdebug "Booking Decoder"
+
+
+csgApplicationDecoder : Decode.Decoder CsgApplication
+csgApplicationDecoder =
+    Decode.succeed CsgApplication
+        |> Pipeline.required "key" Decode.string
+        |> Pipeline.optional "brokerEmail" (Decode.nullable Decode.string) Nothing
+
+
+
+-- |> jdebug "CSG Application Decoder"
 
 
 cleanCarrierName : String -> String
