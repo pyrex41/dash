@@ -79,7 +79,6 @@ type alias Application =
     , userEmail : Maybe String
     , createdAt : String
     , dateStarted : String
-    , dateCompleted : Maybe String
     , status : Status
     , state : Maybe String
     , data : Decode.Value
@@ -420,8 +419,8 @@ viewApplications model =
                             , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-32" ] [ text "Status" ]
                             , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-36" ] [ text "Phone Number" ]
                             , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-48" ] [ text "Email address" ]
+                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-28" ] [ text "Effective Date" ]
                             , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-28" ] [ text "Date Started" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-28" ] [ text "Date Completed" ]
                             , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-24" ] [ text "" ]
                             ]
                         ]
@@ -474,6 +473,11 @@ viewApplicationRow app =
                 |> List.head
                 |> Maybe.withDefault ""
 
+        getEffectiveDate =
+            app.data
+                |> Decode.decodeValue (Decode.at [ "applicant_info", "effective_date" ] Decode.string)
+                |> Result.toMaybe
+
         formatDate dateString =
             dateString
                 |> String.split "T"
@@ -488,9 +492,9 @@ viewApplicationRow app =
         , td [ class "py-3 px-4 w-32" ] [ viewStatus app.status ]
         , td [ class "py-3 px-4 text-gray-600 w-36 whitespace-nowrap" ] [ text getPhone ]
         , td [ class "py-3 px-4 text-gray-600 w-48 truncate" ] [ text getEmail ]
-        , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ] [ text (formatDate app.dateStarted) ]
         , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ]
-            [ text (app.dateCompleted |> Maybe.map formatDate |> Maybe.withDefault "") ]
+            [ text (getEffectiveDate |> Maybe.map formatDate |> Maybe.withDefault "") ]
+        , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ] [ text (formatDate app.dateStarted) ]
         , td [ class "py-3 px-4 w-24" ]
             [ button
                 [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
@@ -564,7 +568,6 @@ applicationDecoder =
         |> Pipeline.optional "userEmail" (Decode.nullable Decode.string) Nothing
         |> Pipeline.required "createdAt" Decode.string
         |> Pipeline.required "dateStarted" Decode.string
-        |> Pipeline.optional "dateCompleted" (Decode.nullable Decode.string) Nothing
         |> Pipeline.required "status" statusDecoder
         |> Pipeline.optional "state" (Decode.nullable Decode.string) Nothing
         |> Pipeline.required "data" Decode.value

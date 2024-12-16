@@ -1,0 +1,47 @@
+.
+├── backend
+│   ├── bun.lockb
+│   ├── package.json
+│   └── src
+│       ├── db
+│       │   ├── index.ts
+│       │   ├── query.ts
+│       │   └── schema.ts
+│       └── index.ts
+├── bun.lockb
+├── dist
+│   ├── assets
+│   │   ├── index-DfGxPVii.css
+│   │   └── index-DngGinJE.js
+│   ├── index.html
+│   └── vite.svg
+├── drizzle.config.ts
+├── frontend
+│   ├── bun.lockb
+│   ├── elm-stuff
+│   │   └── 0.19.1
+│   │       ├── Dashboard.elmi
+│   │       ├── Dashboard.elmo
+│   │       ├── d.dat
+│   │       ├── i.dat
+│   │       ├── lock
+│   │       └── o.dat
+│   ├── elm.json
+│   ├── index.html
+│   ├── package.json
+│   ├── postcss.config.cjs
+│   ├── public
+│   │   └── vite.svg
+│   ├── src
+│   │   ├── Dashboard.elm
+│   │   ├── main.ts
+│   │   ├── style.css
+│   │   ├── typescript.svg
+│   │   └── vite-env.d.ts
+│   ├── tailwind.config.js
+│   └── vite.config.ts
+├── package.json
+├── repopack-output.txt
+└── tree.txt
+
+10 directories, 34 files
