@@ -128,7 +128,6 @@ export const bookings = sqliteTable('bookings', {
   applicationIdIndex: index('idx_bookings_application_id').on(table.applicationId),
 }));
 
-// Add this at the bottom of schema.ts
 export const schema = {
   user,
   applications,
