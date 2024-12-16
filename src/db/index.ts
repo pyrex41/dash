@@ -7,11 +7,13 @@ const tursoDbUrl = import.meta.env.VITE_TURSO_DATABASE_URL;
 const tursoAuthToken = import.meta.env.VITE_TURSO_AUTH_TOKEN;
 
 const client = createClient({
-    url: tursoDbUrl,
+    url: dbFile, //tursoDbUrl,
     authToken: tursoAuthToken,
-    // syncUrl: tursoDbUrl,
-    // syncInterval: 60 // 60 seconds, adjust as needed
+    syncUrl: tursoDbUrl,
+    syncInterval: 60 // 60 seconds, adjust as needed
 });
+
+client.sync();
 
 export const db = drizzle(client, { schema });
 
