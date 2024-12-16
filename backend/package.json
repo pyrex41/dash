@@ -1,0 +1,19 @@
+{
+    "name": "dashboard-backend",
+    "module": "src/index.ts",
+    "type": "module",
+    "scripts": {
+        "dev": "NODE_ENV=development bun run --watch src/index.ts",
+        "start": "NODE_ENV=production bun run src/index.ts"
+    },
+    "dependencies": {
+        "@elysiajs/cors": "^1.1.1",
+        "@elysiajs/static": "^1.1.1",
+        "@libsql/client": "^0.14.0",
+        "drizzle-orm": "^0.38.2",
+        "elysia": "^1.1.26"
+    },
+    "devDependencies": {
+        "bun-types": "latest"
+    }
+}
