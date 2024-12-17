@@ -82,6 +82,29 @@ const determineStatus = (
   }
 }
 
+// Add a new function to get a single application with schema
+export const getApplicationWithSchema = async (applicationId: string) => {
+  const result = await db
+    .select({
+      id: applications.id,
+      userId: applications.userId,
+      status: applications.status,
+      createdAt: applications.createdAt,
+      data: applications.data,
+      schema: applications.schema,
+      name: applications.name,
+    })
+    .from(applications)
+    .where(sql`${applications.id} = ${applicationId}`)
+    .limit(1)
+
+  if (result.length === 0) {
+    return null
+  }
+
+  return result[0]
+}
+
 export const getApplications = async (page: number, pageSize: number, searchTerm: string, hasContactFilter: boolean) => {
   const offset = page * pageSize
   const searchPattern = `%${searchTerm.toLowerCase()}%`
