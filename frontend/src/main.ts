@@ -22,6 +22,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
         console.log('Elm app initialized');
 
+        // Add logging to debug the port communication
+        app.ports.requestApplication?.subscribe(async ({ id }) => {
+            console.log('Requesting application:', id);
+            try {
+                const response = await fetch(`/api/applications/${id}`)
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`)
+                }
+                const application = await response.json()
+                console.log('Received application:', application);
+                app.ports.receiveApplication.send(application)
+            } catch (error) {
+                console.error('Error fetching application:', error)
+                app.ports.receiveApplication.send({
+                    error: "Failed to load application"
+                })
+            }
+        });
+
         // Port handlers for interacting with Elm
         app.ports.requestRefresh?.subscribe(({ page, pageSize, searchTerm, hasContactFilter }) => {
             console.log('Refresh requested:', { page, pageSize, searchTerm, hasContactFilter });

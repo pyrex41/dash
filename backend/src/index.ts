@@ -3,7 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
-import { getApplications, exportApplications } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema } from './db/query'
 
 // Resolve __dirname for ESM environments
 const __filename = fileURLToPath(import.meta.url)
@@ -12,7 +12,19 @@ const __dirname = dirname(__filename)
 // Detect environment
 const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV
 
-const app = new Elysia().use(cors())
+const app = new Elysia().use(cors({
+  origin: [
+    'http://localhost:5173',  // Development
+    'http://localhost:3000',  // Local production
+    'https://csgformat-pyrex41.replit.app',
+    'https://csgformat-pyrex41.replit.app/api/formatter'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'Content-Type'],
+  maxAge: 600
+}))
 
 // --------------------------
 // API Routes
@@ -25,7 +37,21 @@ app.group('/api', app => app
       const searchTerm = params?.searchTerm as string || ''
       const hasContactFilter = params?.hasContactFilter === 'true'
       
-      return await getApplications(page, pageSize, searchTerm, hasContactFilter)
+      console.log('GET /applications query params:', {
+        page,
+        pageSize,
+        searchTerm,
+        hasContactFilter
+      })
+      
+      const result = await getApplications(page, pageSize, searchTerm, hasContactFilter)
+      console.log('GET /applications response:', {
+        total: result.pagination.total,
+        totalPages: result.pagination.totalPages,
+        applicationCount: result.applications.length
+      })
+      
+      return result
     } catch (error) {
       console.error('Error fetching applications:', error)
       return {
@@ -44,10 +70,81 @@ app.group('/api', app => app
       const searchTerm = params?.searchTerm as string || ''
       const hasContactFilter = params?.hasContactFilter === 'true'
       
-      return await exportApplications(searchTerm, hasContactFilter)
+      console.log('GET /applications/export query params:', {
+        searchTerm,
+        hasContactFilter
+      })
+      
+      const result = await exportApplications(searchTerm, hasContactFilter)
+      console.log('GET /applications/export response:', {
+        exportedCount: result.length
+      })
+      
+      return result
     } catch (error) {
       console.error('Error exporting applications:', error)
       return []
+    }
+  })
+  .get('/applications/:id', async ({ params }) => {
+    try {
+      const application = await getApplicationWithSchema(params.id)
+      
+      console.log('GET /application response:', {
+        id: application?.id,
+        hasData: !!application?.data,
+        hasSchema: !!application?.schema,
+        schemaDetails: application?.schema?.sections?.map(section => ({
+          title: section.title,
+          fields: section.body?.map(field => ({
+            id: field.id,
+            label: field.displayLabel,
+            type: field.type,
+            value: application?.data?.[field.id]
+          }))
+        })),
+        rawData: application?.data
+      })
+      
+      if (!application) {
+        return new Response('Application not found', { 
+          status: 404,
+          headers: { 'Content-Type': 'application/json' }
+        })
+      }
+      
+      return application
+    } catch (error) {
+      console.error('Error fetching application:', error)
+      return new Response('Server error', { 
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    }
+  })
+  .get('/proxy-formatter/*', async ({ request }) => {
+    const formatterBaseUrl = 'https://csgformat-pyrex41.replit.app/api/formatter'
+    const path = request.url.split('/proxy-formatter/')[1]
+    
+    console.log('Proxying formatter request:', {
+      path,
+      fullUrl: `${formatterBaseUrl}/${path}`
+    })
+    
+    try {
+      const response = await fetch(`${formatterBaseUrl}/${path}`)
+      const data = await response.json()
+      
+      console.log('Formatter response:', {
+        status: response.status,
+        hasData: !!data,
+        sections: data?.sections?.length
+      })
+      
+      return data
+    } catch (error) {
+      console.error('Error proxying to formatter:', error)
+      return new Response('Proxy error', { status: 500 })
     }
   })
 )

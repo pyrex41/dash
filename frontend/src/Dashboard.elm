@@ -1,5 +1,6 @@
 port module Dashboard exposing (Model, Msg, init, update, view)
 
+import ApplicationView
 import Browser
 import Debounce exposing (Debounce)
 import Html exposing (..)
@@ -36,6 +37,12 @@ port requestRefresh : { page : Int, pageSize : Int, searchTerm : String, hasCont
 port exportToCsv : { searchTerm : String, hasContactFilter : Bool, hasCSGFilter : Bool } -> Cmd msg
 
 
+port requestApplication : { id : String } -> Cmd msg
+
+
+port receiveApplication : (Decode.Value -> msg) -> Sub msg
+
+
 
 -- MAIN
 
@@ -70,6 +77,8 @@ type alias Model =
     , pageSize : Int
     , total : Int
     , totalPages : Int
+    , applicationView : Maybe ApplicationView.Model
+    , showApplicationModal : Bool
     }
 
 
@@ -132,6 +141,8 @@ init _ =
       , pageSize = 20
       , total = 0
       , totalPages = 0
+      , applicationView = Nothing
+      , showApplicationModal = False
       }
     , requestRefresh
         { page = 0
@@ -149,6 +160,7 @@ init _ =
 type Msg
     = NoOp
     | ViewApplication String
+    | ApplicationReceived (Result Decode.Error ApplicationView.ApplicationWithSchema)
     | CompleteApplication String
     | SearchTermChanged String
     | ToggleContactFilter Bool
@@ -159,7 +171,7 @@ type Msg
     | SearchDebouncerMsg Debounce.Msg
     | PerformSearch String
     | ChangePage Int
-
+    | ApplicationViewMsg ApplicationView.Msg
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -168,7 +180,48 @@ update msg model =
             ( model, Cmd.none )
 
         ViewApplication id ->
-            ( model, Cmd.none )
+            {-- let
+                _ = Debug.log "ViewApplication" id
+            in --}
+            ( { model 
+                | showApplicationModal = True
+                , applicationView = Nothing
+              }
+            , requestApplication { id = id }
+            )
+
+        ApplicationReceived result ->
+            {-- let
+                _ = Debug.log "ApplicationReceived" result
+            in --}
+            case result of
+                Ok application ->
+                    {-- let
+                        _ = Debug.log "Creating ApplicationView with" application
+                        (viewModel, viewCmd) =
+                            ApplicationView.init (Just application)
+                    in --}
+                    let
+                        (viewModel, viewCmd) =
+                            ApplicationView.init (Just application)
+                    in
+                    ( { model 
+                        | applicationView = Just viewModel
+                        , isLoading = False 
+                      }
+                    , Cmd.map ApplicationViewMsg viewCmd
+                    )
+
+                Err error ->
+                    {-- let
+                        _ = Debug.log "ApplicationReceived Error" (Decode.errorToString error)
+                    in --}
+                    ( { model 
+                        | error = Just (Decode.errorToString error)
+                        , isLoading = False 
+                      }
+                    , Cmd.none
+                    )
 
         CompleteApplication id ->
             ( model, Cmd.none )
@@ -288,6 +341,28 @@ update msg model =
                 }
             )
 
+        ApplicationViewMsg viewMsg ->
+            case viewMsg of
+                ApplicationView.CloseModal ->
+                    ( { model 
+                        | applicationView = Nothing
+                        , showApplicationModal = False
+                      }
+                    , Cmd.none
+                    )
+                _ ->
+                    case model.applicationView of
+                        Just viewModel ->
+                            let
+                                (newViewModel, viewCmd) = 
+                                    ApplicationView.update viewMsg viewModel
+                            in
+                            ( { model | applicationView = Just newViewModel }
+                            , Cmd.map ApplicationViewMsg viewCmd
+                            )
+                        Nothing ->
+                            ( model, Cmd.none )
+
 
 
 -- Add completion logic here
@@ -296,12 +371,31 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
-    div [ class "min-h-screen bg-white" ]
+    div [ class "min-h-screen bg-white relative" ]
         [ viewHeader
         , div [ class "max-w-7xl mx-auto" ]
             [ viewMetrics model
             , viewApplications model
             ]
+        , if model.showApplicationModal then
+            div [ 
+                class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                , onClick (ApplicationViewMsg ApplicationView.CloseModal)
+                ]
+                [ div [ 
+                    class "bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+                    , stopPropagation "click"
+                    ]
+                    [ case model.applicationView of
+                        Just viewModel ->
+                            Html.map ApplicationViewMsg (ApplicationView.view viewModel)
+                        Nothing ->
+                            div [ class "p-4 flex justify-center items-center" ]
+                                [ div [ class "animate-spin h-8 w-8 border-4 border-purple-600 border-t-transparent rounded-full" ] [] ]
+                    ]
+                ]
+          else
+            text ""
         ]
 
 
@@ -506,7 +600,7 @@ viewApplicationRow app =
 
 
 viewStatus : Status -> Html Msg
-viewStatus status =
+viewStatus status = 
     let
         ( statusText, statusColor ) =
             case status of
@@ -537,27 +631,31 @@ viewStatus status =
 
 subscriptions : Model -> Sub Msg
 subscriptions _ =
-    receiveApplications
-        (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
+    Sub.batch
+        [ receiveApplications
+            (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
+        , receiveApplication
+            (Decode.decodeValue ApplicationView.applicationDecoder >> ApplicationReceived)
+        ]
 
 
 
 -- DECODERS
-{--
-jdebug : String -> Decode.Decoder a -> Decode.Decoder a
-jdebug message decoder =
-    Decode.value
-        |> Decode.andThen (debugHelper message decoder)
 
 
-debugHelper : String -> Decode.Decoder a -> Decode.Value -> Decode.Decoder a
-debugHelper message decoder value =
-    let
-        _ =
-            Debug.log message (Decode.decodeValue decoder value)
-    in
-    decoder
---}
+-- jdebug : String -> Decode.Decoder a -> Decode.Decoder a
+-- jdebug message decoder =
+--     Decode.value
+--         |> Decode.andThen (debugHelper message decoder)
+
+
+-- debugHelper : String -> Decode.Decoder a -> Decode.Value -> Decode.Decoder a
+-- debugHelper message decoder value =
+--     let
+--         _ =
+--             Debug.log message (Decode.decodeValue decoder value)
+--     in
+--     decoder
 
 
 applicationDecoder : Decode.Decoder Application
@@ -574,10 +672,7 @@ applicationDecoder =
         |> Pipeline.required "name" (Decode.map cleanCarrierName Decode.string)
         |> Pipeline.optional "booking" (Decode.nullable bookingDecoder) Nothing
         |> Pipeline.optional "csgApplication" (Decode.nullable csgApplicationDecoder) Nothing
-
-
-
--- |> jdebug "Application Decoder"
+        --|> jdebug "Application Decoder"
 
 
 applicationListDecoder : Decode.Decoder ApplicationsResponse
@@ -587,10 +682,6 @@ applicationListDecoder =
         (Decode.field "pagination" paginationDecoder)
 
 
-
--- |> jdebug "Application List Decoder"
-
-
 paginationDecoder : Decode.Decoder PaginationInfo
 paginationDecoder =
     Decode.map4 PaginationInfo
@@ -598,10 +689,6 @@ paginationDecoder =
         (Decode.field "page" Decode.int)
         (Decode.field "pageSize" Decode.int)
         (Decode.field "totalPages" Decode.int)
-
-
-
--- |> jdebug "Pagination Decoder"
 
 
 statusDecoder : Decode.Decoder Status
@@ -630,10 +717,6 @@ statusDecoder =
             )
 
 
-
--- |> jdebug "Status Decoder"
-
-
 bookingDecoder : Decode.Decoder Booking
 bookingDecoder =
     Decode.succeed Booking
@@ -643,19 +726,11 @@ bookingDecoder =
         |> Pipeline.required "status" Decode.string
 
 
-
--- |> jdebug "Booking Decoder"
-
-
 csgApplicationDecoder : Decode.Decoder CsgApplication
 csgApplicationDecoder =
     Decode.succeed CsgApplication
         |> Pipeline.required "key" Decode.string
         |> Pipeline.optional "brokerEmail" (Decode.nullable Decode.string) Nothing
-
-
-
--- |> jdebug "CSG Application Decoder"
 
 
 cleanCarrierName : String -> String
@@ -758,3 +833,8 @@ viewPageButton currentPage page =
         , onClick (ChangePage page)
         ]
         [ text (String.fromInt (page + 1)) ]
+
+
+stopPropagation : String -> Attribute Msg
+stopPropagation event =
+    Html.Events.stopPropagationOn event (Decode.succeed ( NoOp, True ))
