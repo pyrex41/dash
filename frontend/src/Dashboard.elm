@@ -8,7 +8,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
-
+import SchemaDecoder as SD
 
 
 -- PORTS
@@ -160,7 +160,7 @@ init _ =
 type Msg
     = NoOp
     | ViewApplication String
-    | ApplicationReceived (Result Decode.Error ApplicationView.ApplicationWithSchema)
+    | ApplicationReceived (Result Decode.Error SD.ApplicationWithSchema)
     | CompleteApplication String
     | SearchTermChanged String
     | ToggleContactFilter Bool
@@ -635,7 +635,7 @@ subscriptions _ =
         [ receiveApplications
             (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
         , receiveApplication
-            (Decode.decodeValue ApplicationView.applicationDecoder >> ApplicationReceived)
+            (Decode.decodeValue SD.applicationDecoder >> ApplicationReceived)
         ]
 
 
