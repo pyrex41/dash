@@ -1,14 +1,16 @@
-port module Dashboard exposing (Model, Msg, init, update, view)
+port module Dashboard exposing (Model, Msg, init, subscriptions, update, view)
 
 import ApplicationView
 import Browser
+import Browser.Events
+import CSGSchema
 import Debounce exposing (Debounce)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
-import SchemaDecoder as SD
+
 
 
 -- PORTS
@@ -160,7 +162,7 @@ init _ =
 type Msg
     = NoOp
     | ViewApplication String
-    | ApplicationReceived (Result Decode.Error SD.ApplicationWithSchema)
+    | ApplicationReceived (Result Decode.Error ApplicationView.Application)
     | CompleteApplication String
     | SearchTermChanged String
     | ToggleContactFilter Bool
@@ -172,6 +174,9 @@ type Msg
     | PerformSearch String
     | ChangePage Int
     | ApplicationViewMsg ApplicationView.Msg
+    | CloseApplicationModal
+    | HandleKeyPress String
+
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
@@ -180,10 +185,7 @@ update msg model =
             ( model, Cmd.none )
 
         ViewApplication id ->
-            {-- let
-                _ = Debug.log "ViewApplication" id
-            in --}
-            ( { model 
+            ( { model
                 | showApplicationModal = True
                 , applicationView = Nothing
               }
@@ -191,34 +193,23 @@ update msg model =
             )
 
         ApplicationReceived result ->
-            {-- let
-                _ = Debug.log "ApplicationReceived" result
-            in --}
             case result of
                 Ok application ->
-                    {-- let
-                        _ = Debug.log "Creating ApplicationView with" application
-                        (viewModel, viewCmd) =
-                            ApplicationView.init (Just application)
-                    in --}
                     let
-                        (viewModel, viewCmd) =
-                            ApplicationView.init (Just application)
+                        ( viewModel, viewCmd ) =
+                            ApplicationView.init application
                     in
-                    ( { model 
+                    ( { model
                         | applicationView = Just viewModel
-                        , isLoading = False 
+                        , isLoading = False
                       }
                     , Cmd.map ApplicationViewMsg viewCmd
                     )
 
                 Err error ->
-                    {-- let
-                        _ = Debug.log "ApplicationReceived Error" (Decode.errorToString error)
-                    in --}
-                    ( { model 
+                    ( { model
                         | error = Just (Decode.errorToString error)
-                        , isLoading = False 
+                        , isLoading = False
                       }
                     , Cmd.none
                     )
@@ -342,26 +333,38 @@ update msg model =
             )
 
         ApplicationViewMsg viewMsg ->
-            case viewMsg of
-                ApplicationView.CloseModal ->
-                    ( { model 
-                        | applicationView = Nothing
-                        , showApplicationModal = False
-                      }
-                    , Cmd.none
+            case model.applicationView of
+                Just viewModel ->
+                    let
+                        ( newViewModel, viewCmd ) =
+                            ApplicationView.update viewMsg viewModel
+                    in
+                    ( { model | applicationView = Just newViewModel }
+                    , Cmd.map ApplicationViewMsg viewCmd
                     )
-                _ ->
-                    case model.applicationView of
-                        Just viewModel ->
-                            let
-                                (newViewModel, viewCmd) = 
-                                    ApplicationView.update viewMsg viewModel
-                            in
-                            ( { model | applicationView = Just newViewModel }
-                            , Cmd.map ApplicationViewMsg viewCmd
-                            )
-                        Nothing ->
-                            ( model, Cmd.none )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        CloseApplicationModal ->
+            ( { model
+                | applicationView = Nothing
+                , showApplicationModal = False
+              }
+            , Cmd.none
+            )
+
+        HandleKeyPress key ->
+            if key == "Escape" && model.showApplicationModal then
+                ( { model
+                    | applicationView = Nothing
+                    , showApplicationModal = False
+                  }
+                , Cmd.none
+                )
+
+            else
+                ( model, Cmd.none )
 
 
 
@@ -371,6 +374,15 @@ update msg model =
 
 view : Model -> Html Msg
 view model =
+    let
+        applicationId =
+            case model.applicationView of
+                Just viewModel ->
+                    viewModel.id
+
+                Nothing ->
+                    ""
+    in
     div [ class "min-h-screen bg-white relative" ]
         [ viewHeader
         , div [ class "max-w-7xl mx-auto" ]
@@ -378,22 +390,35 @@ view model =
             , viewApplications model
             ]
         , if model.showApplicationModal then
-            div [ 
-                class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-                , onClick (ApplicationViewMsg ApplicationView.CloseModal)
+            div
+                [ class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                , onClick CloseApplicationModal
                 ]
-                [ div [ 
-                    class "bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+                [ div
+                    [ class "bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
                     , stopPropagation "click"
                     ]
-                    [ case model.applicationView of
+                    [ div [ class "flex justify-between items-center p-4 border-b" ]
+                        [ div [] []
+                        , a
+                            [ class "text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1"
+                            , href ("/application/" ++ applicationId)
+                            , target "_blank"
+                            ]
+                            [ text "Open in new tab"
+                            , span [ class "text-xs" ] [ text "↗" ]
+                            ]
+                        ]
+                    , case model.applicationView of
                         Just viewModel ->
                             Html.map ApplicationViewMsg (ApplicationView.view viewModel)
+
                         Nothing ->
                             div [ class "p-4 flex justify-center items-center" ]
                                 [ div [ class "animate-spin h-8 w-8 border-4 border-purple-600 border-t-transparent rounded-full" ] [] ]
                     ]
                 ]
+
           else
             text ""
         ]
@@ -600,7 +625,7 @@ viewApplicationRow app =
 
 
 viewStatus : Status -> Html Msg
-viewStatus status = 
+viewStatus status =
     let
         ( statusText, statusColor ) =
             case status of
@@ -630,12 +655,17 @@ viewStatus status =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
+subscriptions model =
     Sub.batch
         [ receiveApplications
             (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
         , receiveApplication
-            (Decode.decodeValue SD.applicationDecoder >> ApplicationReceived)
+            (Decode.decodeValue applicationViewDecoder >> ApplicationReceived)
+        , if model.showApplicationModal then
+            Browser.Events.onKeyDown (Decode.map HandleKeyPress (Decode.field "key" Decode.string))
+
+          else
+            Sub.none
         ]
 
 
@@ -643,19 +673,19 @@ subscriptions _ =
 -- DECODERS
 
 
--- jdebug : String -> Decode.Decoder a -> Decode.Decoder a
--- jdebug message decoder =
---     Decode.value
---         |> Decode.andThen (debugHelper message decoder)
+jdebug : String -> Decode.Decoder a -> Decode.Decoder a
+jdebug message decoder =
+    Decode.value
+        |> Decode.andThen (debugHelper message decoder)
 
 
--- debugHelper : String -> Decode.Decoder a -> Decode.Value -> Decode.Decoder a
--- debugHelper message decoder value =
---     let
---         _ =
---             Debug.log message (Decode.decodeValue decoder value)
---     in
---     decoder
+debugHelper : String -> Decode.Decoder a -> Decode.Value -> Decode.Decoder a
+debugHelper message decoder value =
+    let
+        _ =
+            Debug.log message (Decode.decodeValue decoder value)
+    in
+    decoder
 
 
 applicationDecoder : Decode.Decoder Application
@@ -672,7 +702,10 @@ applicationDecoder =
         |> Pipeline.required "name" (Decode.map cleanCarrierName Decode.string)
         |> Pipeline.optional "booking" (Decode.nullable bookingDecoder) Nothing
         |> Pipeline.optional "csgApplication" (Decode.nullable csgApplicationDecoder) Nothing
-        --|> jdebug "Application Decoder"
+
+
+
+--|> jdebug "Application Decoder"
 
 
 applicationListDecoder : Decode.Decoder ApplicationsResponse
@@ -838,3 +871,11 @@ viewPageButton currentPage page =
 stopPropagation : String -> Attribute Msg
 stopPropagation event =
     Html.Events.stopPropagationOn event (Decode.succeed ( NoOp, True ))
+
+
+applicationViewDecoder : Decode.Decoder ApplicationView.Application
+applicationViewDecoder =
+    Decode.map3 ApplicationView.Application
+        (Decode.field "id" Decode.string)
+        (Decode.field "data" Decode.value)
+        (Decode.field "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder))

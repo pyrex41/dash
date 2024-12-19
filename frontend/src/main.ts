@@ -2,7 +2,7 @@
 console.log('Main script loading...');
 
 import './style.css';
-import { Elm } from './Dashboard.elm';
+import { Elm } from './Main.elm';
 
 console.log('Imports completed');
 
@@ -16,8 +16,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     try {
-        const app = Elm.Dashboard.init({
-            node: target
+        const app = Elm.Main.init({
+            node: target,
+            flags: {
+                // Add any flags you need to pass to Elm here
+            }
         });
 
         console.log('Elm app initialized');
