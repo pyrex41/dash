@@ -199,7 +199,7 @@ if (!isDev) {
         return new Response('Not found', { status: 404 })
       }
 
-      // Otherwise, serve the SPA's index.html
+      // Serve index.html for all routes - let the Elm router handle the routing
       try {
         const htmlPath = join(distPath, 'index.html')
         const html = await Bun.file(htmlPath).text()
