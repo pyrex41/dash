@@ -9,6 +9,7 @@ import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
+import Task
 import Time
 
 
@@ -19,6 +20,8 @@ type alias Model =
     , error : Maybe String
     , expandedSections : Dict String Bool
     , currentTime : Maybe Time.Posix
+    , showDebugFields : Bool
+    , isValid : Bool
     }
 
 
@@ -27,7 +30,10 @@ type Msg
     | ToggleSection String
     | UpdateField String String
     | SaveForm
+    | GotCurrentTime Time.Posix
+    | SubmitToCSG
     | NoOp
+    | GotRoutingNumber (Result Http.Error String)
 
 
 type alias Application =
@@ -49,16 +55,22 @@ init : Application -> ( Model, Cmd Msg )
 init app =
     let
         initialFormValues =
-            extractFormValues app.data
+            app.data
+                |> extractFormValues
+
+        model =
+            { flatData = initialFormValues
+            , schema = app.schema
+            , id = app.id
+            , error = Nothing
+            , expandedSections = Dict.singleton "applicant_info" True
+            , currentTime = Nothing
+            , showDebugFields = True
+            , isValid = False
+            }
     in
-    ( { flatData = initialFormValues
-      , schema = app.schema
-      , id = app.id
-      , error = Nothing
-      , expandedSections = Dict.singleton "applicant_info" True
-      , currentTime = Nothing
-      }
-    , Cmd.none
+    ( { model | isValid = validateData model }
+    , Task.perform GotCurrentTime Time.now
     )
 
 
@@ -78,30 +90,50 @@ extractFormValues jsonData =
 
 flattenJsonToDict : String -> Decode.Value -> Dict String JValue -> Dict String JValue
 flattenJsonToDict prefix value dict =
+    -- Try decoding as string first
     case Decode.decodeValue Decode.string value of
         Ok str ->
             Dict.insert prefix (StringValue str) dict
 
         Err _ ->
-            case Decode.decodeValue (Decode.dict Decode.value) value of
-                Ok nestedDict ->
-                    Dict.foldl
-                        (\k v acc ->
-                            let
-                                newPrefix =
-                                    if String.isEmpty prefix then
-                                        k
-
-                                    else
-                                        prefix ++ "." ++ k
-                            in
-                            flattenJsonToDict newPrefix v acc
-                        )
-                        dict
-                        nestedDict
+            -- Try decoding as int
+            case Decode.decodeValue Decode.int value of
+                Ok num ->
+                    Dict.insert prefix (IntValue num) dict
 
                 Err _ ->
-                    dict
+                    -- Try decoding as float
+                    case Decode.decodeValue Decode.float value of
+                        Ok num ->
+                            Dict.insert prefix (FloatValue num) dict
+
+                        Err _ ->
+                            -- Try decoding as bool
+                            case Decode.decodeValue Decode.bool value of
+                                Ok bool ->
+                                    Dict.insert prefix (BoolValue bool) dict
+
+                                Err _ ->
+                                    -- Finally try as nested object
+                                    case Decode.decodeValue (Decode.dict Decode.value) value of
+                                        Ok nestedDict ->
+                                            Dict.foldl
+                                                (\k v acc ->
+                                                    let
+                                                        newPrefix =
+                                                            if String.isEmpty prefix then
+                                                                k
+
+                                                            else
+                                                                prefix ++ "." ++ k
+                                                    in
+                                                    flattenJsonToDict newPrefix v acc
+                                                )
+                                                dict
+                                                nestedDict
+
+                                        Err _ ->
+                                            dict
 
 
 stringifyMaybe : Maybe JValue -> String
@@ -156,28 +188,43 @@ update msg model =
 
         UpdateField fieldId valueString ->
             let
-                oldValue =
-                    Dict.get fieldId model.flatData
-
                 value =
                     parseValue valueString
 
                 newFlatData =
                     Dict.insert fieldId value model.flatData
 
-                _ =
-                    Debug.log "UpdateField"
-                        { fieldId = fieldId
-                        , oldValue = oldValue
-                        , newValue = valueString
-                        , parsedValue = value
-                        , beforeUpdate = Dict.get fieldId model.flatData
-                        , afterUpdate = Dict.get fieldId newFlatData
-                        }
+                cmd =
+                    if fieldId == "payment.eft_routing_number" then
+                        if validRoutingNumber valueString then
+                            let
+                                _ =
+                                    Debug.log "Valid routing number" valueString
+                            in
+                            Http.get
+                                { url = "https://www.routingnumbers.info/api/name.json?rn=" ++ valueString
+                                , expect = Http.expectJson GotRoutingNumber routingNumberDecoder
+                                }
+
+                        else
+                            let
+                                _ =
+                                    Debug.log "Invalid routing number" valueString
+                            in
+                            Cmd.none
+
+                    else
+                        Cmd.none
             in
-            ( { model | flatData = newFlatData }
-            , Cmd.none
+            ( { model
+                | flatData = newFlatData
+                , isValid = validateData model
+              }
+            , cmd
             )
+
+        GotCurrentTime currentTime ->
+            ( { model | currentTime = Just currentTime }, Cmd.none )
 
         SaveForm ->
             if Dict.isEmpty model.flatData then
@@ -198,6 +245,35 @@ update msg model =
                     , expect = Http.expectWhatever (Result.mapError httpErrorToString >> (\_ -> NoOp))
                     }
                 )
+
+        GotRoutingNumber result ->
+            case result of
+                Ok institutionName ->
+                    let
+                        _ =
+                            Debug.log "Got institution name" institutionName
+
+                        newFlatData =
+                            Dict.insert "payment.eft_financial_institution_name" (StringValue institutionName) model.flatData
+                    in
+                    ( { model | flatData = newFlatData }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    let
+                        _ =
+                            Debug.log "Error getting routing number" error
+                    in
+                    ( model, Cmd.none )
+
+        SubmitToCSG ->
+            if model.isValid then
+                -- Add your CSG submission logic here
+                ( model, Cmd.none )
+
+            else
+                ( model, Cmd.none )
 
         NoOp ->
             ( model, Cmd.none )
@@ -236,8 +312,10 @@ view model =
         _ ->
             div [ class "space-y-6 pt-8" ]
                 [ viewForm model
-                , div [ class "flex justify-center pb-8" ]
-                    [ viewSaveButton ]
+                , div [ class "flex justify-center gap-4 pb-8" ]
+                    [ viewSaveButton
+                    , viewSubmitButton model.isValid
+                    ]
                 ]
 
 
@@ -248,11 +326,34 @@ viewSaveButton =
             bg-purple-600 text-white px-6 py-2.5 rounded-lg font-medium
             hover:bg-purple-700 transition-colors shadow-sm
             focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2
-            min-w-[120px] text-sm
+            w-[140px] text-sm
           """
         , onClick SaveForm
         ]
         [ text "Save" ]
+
+
+viewSubmitButton : Bool -> Html Msg
+viewSubmitButton isValid =
+    button
+        [ class <|
+            """
+            px-6 py-2.5 rounded-lg font-medium
+            w-[140px] text-sm
+            transition-colors shadow-sm
+            focus:outline-none focus:ring-2 focus:ring-offset-2
+            disabled:opacity-50 disabled:cursor-not-allowed
+          """
+                ++ (if isValid then
+                        " bg-green-600 text-white hover:bg-green-700 focus:ring-green-500"
+
+                    else
+                        " bg-gray-400 text-white"
+                   )
+        , disabled (not isValid)
+        , onClick SubmitToCSG
+        ]
+        [ text "Submit" ]
 
 
 viewForm : Model -> Html Msg
@@ -263,75 +364,188 @@ viewForm model =
         )
 
 
+validateSection : Model -> FormSection -> Bool
+validateSection model section =
+    let
+        hasEmptyRequired =
+            List.any
+                (\field ->
+                    let
+                        isRequired =
+                            case field.required of
+                                RequiredBool bool ->
+                                    bool
+
+                                RequiredDependsOn _ ->
+                                    True
+
+                        fieldValue =
+                            case field.fieldType of
+                                ComplexPhoneField ->
+                                    let
+                                        basePath =
+                                            section.id ++ "." ++ field.id
+
+                                        hasValue =
+                                            [ ".area_code", ".central_office_code", ".station_code" ]
+                                                |> List.map (\suffix -> Dict.get (basePath ++ suffix) model.flatData)
+                                                |> List.all (Maybe.map (not << String.isEmpty << stringifyJValue) >> Maybe.withDefault False)
+                                    in
+                                    if hasValue then
+                                        "has-value"
+
+                                    else
+                                        ""
+
+                                _ ->
+                                    Dict.get (section.id ++ "." ++ field.id) model.flatData
+                                        |> Maybe.map stringifyJValue
+                                        |> Maybe.withDefault ""
+
+                        isInvalid =
+                            isFieldVisible field section model.flatData
+                                && isRequired
+                                && String.isEmpty fieldValue
+                                && field.id
+                                /= "applicant_age"
+                    in
+                    isInvalid
+                )
+                section.body
+    in
+    hasEmptyRequired
+
+
 renderFormSection : Model -> FormSection -> Html Msg
 renderFormSection model section =
     let
+        hasVisibleFields =
+            List.any (\field -> isFieldVisible field section model.flatData) section.body
+
         isExpanded =
             Dict.get section.id model.expandedSections
                 |> Maybe.withDefault False
+
+        hasEmptyRequiredFields =
+            validateSection model section
+
+        headerBgClass =
+            if hasEmptyRequiredFields then
+                "bg-tokyo-orange/20"
+
+            else
+                "bg-gray-50"
     in
-    div
-        [ class """
-            border border-gray-200 rounded-lg shadow-sm mb-8 bg-white
-            transition-all duration-200 hover:shadow-md
-          """
-        ]
-        [ div
+    if hasVisibleFields then
+        div
             [ class """
-                flex items-center justify-between p-6 cursor-pointer
-                bg-gray-50 border-b border-gray-200
-                transition-colors duration-200
+                border border-gray-200 rounded-lg shadow-sm mb-8 bg-white
+                transition-all duration-200 hover:shadow-md
               """
-            , onClick (ToggleSection section.id)
             ]
-            [ div [ class "space-y-2" ]
-                [ h2 [ class "text-xl font-semibold text-gray-900 tracking-tight" ]
-                    [ text section.title ]
+            [ div
+                [ class <| """
+                    flex items-center justify-between p-6 cursor-pointer
+                    border-b border-gray-200
+                    transition-colors duration-200
+                  """ ++ " " ++ headerBgClass
+                , onClick (ToggleSection section.id)
                 ]
-            , span
-                [ class <|
-                    "text-gray-400 transition-transform duration-300"
-                        ++ (if isExpanded then
-                                " rotate-180"
+                [ div [ class "space-y-2" ]
+                    [ h2 [ class "text-xl font-semibold text-gray-900 tracking-tight" ]
+                        [ text section.title ]
+                    ]
+                , span
+                    [ class <|
+                        "text-gray-400 transition-transform duration-300"
+                            ++ (if isExpanded then
+                                    " rotate-180"
 
-                            else
-                                ""
-                           )
+                                else
+                                    ""
+                               )
+                    ]
+                    [ text "▼" ]
                 ]
-                [ text "▼" ]
+            , if isExpanded then
+                div [ class "p-6 space-y-6 border-t border-gray-100" ]
+                    (List.sortBy .order section.body
+                        |> List.map (renderFormField model section)
+                    )
+
+              else
+                text ""
             ]
-        , if isExpanded then
-            div [ class "p-6 space-y-6 border-t border-gray-100" ]
-                (List.sortBy .order section.body
-                    |> List.map (renderFormField model section)
-                )
 
-          else
-            text ""
-        ]
+    else
+        text ""
 
 
 renderFormField : Model -> FormSection -> FormField -> Html Msg
 renderFormField model section field =
     let
+        isRequired =
+            case field.required of
+                RequiredBool bool ->
+                    bool
+
+                RequiredDependsOn _ ->
+                    True
+
+        fieldValue =
+            case field.fieldType of
+                ComplexPhoneField ->
+                    let
+                        basePath =
+                            section.id ++ "." ++ field.id
+
+                        hasValue =
+                            [ ".area_code", ".central_office_code", ".station_code" ]
+                                |> List.map (\suffix -> Dict.get (basePath ++ suffix) model.flatData)
+                                |> List.all (Maybe.map (not << String.isEmpty << stringifyJValue) >> Maybe.withDefault False)
+                    in
+                    if hasValue then
+                        "has-value"
+
+                    else
+                        ""
+
+                _ ->
+                    Dict.get (section.id ++ "." ++ field.id) model.flatData
+                        |> Maybe.map stringifyJValue
+                        |> Maybe.withDefault ""
+
+        shouldHighlight =
+            isRequired && String.isEmpty fieldValue && field.id /= "applicant_age"
+
         baseInputClass =
             """
             w-full px-4 py-3 border border-gray-300 rounded-lg
             focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500
-            text-gray-700 bg-white transition-all duration-200
-            hover:border-gray-400 text-base
+            text-gray-700 transition-all duration-200
+            hover:border-gray-400 text-base bg-white
             """
 
         labelClass =
-            "block text-sm font-medium text-gray-700 mb-2"
+            "block text-sm font-medium mb-2 text-gray-700 p-2"
+                ++ (if shouldHighlight then
+                        " bg-tokyo-orange/20"
+
+                    else
+                        " bg-white"
+                   )
 
         displayLabel =
             case field.fieldType of
                 TextBlockField _ ->
-                    ""
+                    text ""
 
                 _ ->
-                    field.displayLabel
+                    if isRequired then
+                        span [] [ text field.displayLabel, span [ class "text-red-500" ] [ text " *" ] ]
+
+                    else
+                        text field.displayLabel
 
         wrapperClass =
             case field.fieldType of
@@ -340,22 +554,20 @@ renderFormField model section field =
 
                 _ ->
                     "mb-6"
+
+        debugLabel =
+            if model.showDebugFields then
+                div [ class "text-xs text-gray-400 mb-1" ]
+                    [ text (section.id ++ "." ++ field.id) ]
+
+            else
+                text ""
     in
     if isFieldVisible field section model.flatData then
         div [ class wrapperClass ]
-            [ label [ class labelClass ]
-                [ text displayLabel
-                , case field.required of
-                    RequiredBool bool ->
-                        if bool then
-                            span [ class "text-red-500 ml-1" ] [ text "*" ]
-
-                        else
-                            text ""
-
-                    RequiredDependsOn _ ->
-                        span [ class "text-blue-500 ml-1" ] [ text "*" ]
-                ]
+            [ debugLabel
+            , label [ class labelClass ]
+                [ displayLabel ]
             , case field.fieldType of
                 TextNameValueField fv ->
                     div [ class "flex items-center p-2 bg-gray-50 border border-gray-300 rounded-md text-gray-700" ]
@@ -412,20 +624,24 @@ renderFormField model section field =
 
                 ComplexPhoneField ->
                     let
-                        jValue =
-                            Dict.get (section.id ++ "." ++ field.id) model.flatData
-                                |> Maybe.withDefault NullValue
+                        basePath =
+                            section.id ++ "." ++ field.id
 
-                        rawValue =
-                            case jValue of
-                                StringValue str ->
-                                    str
+                        areaCode =
+                            Dict.get (basePath ++ ".area_code") model.flatData |> stringifyMaybe
 
-                                _ ->
-                                    ""
+                        officeCode =
+                            Dict.get (basePath ++ ".central_office_code") model.flatData |> stringifyMaybe
+
+                        stationCode =
+                            Dict.get (basePath ++ ".station_code") model.flatData |> stringifyMaybe
 
                         formattedValue =
-                            CSGSchema.formatPhoneNumber rawValue
+                            if String.isEmpty areaCode && String.isEmpty officeCode && String.isEmpty stationCode then
+                                ""
+
+                            else
+                                areaCode ++ "-" ++ officeCode ++ "-" ++ stationCode
                     in
                     input
                         [ type_ "tel"
@@ -433,7 +649,27 @@ renderFormField model section field =
                         , value formattedValue
                         , onInput
                             (\input ->
-                                UpdateField (section.id ++ "." ++ field.id) (String.filter Char.isDigit input)
+                                let
+                                    digits =
+                                        String.filter Char.isDigit input
+
+                                    newAreaCode =
+                                        String.left 3 digits
+
+                                    newOfficeCode =
+                                        String.slice 3 6 digits
+
+                                    newStationCode =
+                                        String.slice 6 10 digits
+                                in
+                                if String.length digits <= 3 then
+                                    UpdateField (basePath ++ ".area_code") digits
+
+                                else if String.length digits <= 6 then
+                                    UpdateField (basePath ++ ".central_office_code") newOfficeCode
+
+                                else
+                                    UpdateField (basePath ++ ".station_code") newStationCode
                             )
                         ]
                         []
@@ -452,12 +688,10 @@ renderFormField model section field =
                     if field.id == "applicant_age" then
                         let
                             dobValue =
-                                CSGSchema.calculateAge
-                                    (Dict.get "applicant_info.applicant_dob" model.flatData)
-                                    model.currentTime
+                                Dict.get "applicant_info.applicant_dob" model.flatData
 
                             ageString =
-                                dobValue
+                                CSGSchema.calculateAge dobValue model.currentTime
                                     |> Maybe.map String.fromInt
                                     |> Maybe.withDefault ""
                         in
@@ -738,3 +972,270 @@ renderFormField model section field =
 
     else
         text ""
+
+
+
+-- CARRIER FORMATTERS
+-- on hold -- using python formatter for now
+
+
+type alias PhoneNumber =
+    { areaCode : String
+    , centralOfficeCode : String
+    , stationCode : String
+    }
+
+
+formatPhoneNumber : String -> PhoneNumber
+formatPhoneNumber phone =
+    let
+        areaCode =
+            String.slice 0 3 phone
+
+        centralOfficeCode =
+            String.slice 3 5 phone
+
+        stationCode =
+            String.slice 5 8 phone
+    in
+    { areaCode = areaCode
+    , centralOfficeCode = centralOfficeCode
+    , stationCode = stationCode
+    }
+
+
+type ComprehensivePlan
+    = PlanA
+    | PlanB
+    | PlanC
+    | PlanD
+    | PlanF
+    | PlanG
+    | HighDeductiblePlanF
+    | Extended
+
+
+comprehensivePlanFromString : String -> Maybe ComprehensivePlan
+comprehensivePlanFromString plan =
+    case plan of
+        "A" ->
+            Just PlanA
+
+        "B" ->
+            Just PlanB
+
+        "C" ->
+            Just PlanC
+
+        "D" ->
+            Just PlanD
+
+        "F" ->
+            Just PlanF
+
+        "G" ->
+            Just PlanG
+
+        "High Deductible Plan F" ->
+            Just HighDeductiblePlanF
+
+        "Extended" ->
+            Just Extended
+
+        _ ->
+            Nothing
+
+
+type BasicPlan
+    = PlanK
+    | PlanL
+    | PlanM
+    | PlanN
+    | Basic
+    | PartialDeductible
+
+
+basicPlanFromString : String -> Maybe BasicPlan
+basicPlanFromString plan =
+    case plan of
+        "K" ->
+            Just PlanK
+
+        "L" ->
+            Just PlanL
+
+        "M" ->
+            Just PlanM
+
+        "Basic" ->
+            Just Basic
+
+        "N" ->
+            Just PlanN
+
+        "50% Part A Deductible" ->
+            Just PartialDeductible
+
+        _ ->
+            Nothing
+
+
+type LegacyPlan
+    = PlanE
+    | PlanH
+    | PlanI
+    | PlanJ
+    | PreStandardized
+
+
+legacyPlanFromString : String -> Maybe LegacyPlan
+legacyPlanFromString plan =
+    case plan of
+        "E" ->
+            Just PlanE
+
+        "H" ->
+            Just PlanH
+
+        "I" ->
+            Just PlanI
+
+        "J" ->
+            Just PlanJ
+
+        "Pre-Standardized" ->
+            Just PreStandardized
+
+        _ ->
+            Nothing
+
+
+type SupPlan
+    = CP ComprehensivePlan
+    | BP BasicPlan
+    | LP LegacyPlan
+
+
+anyPlanFromString : String -> Maybe SupPlan
+anyPlanFromString plan =
+    case comprehensivePlanFromString plan of
+        Just cp ->
+            Just (CP cp)
+
+        Nothing ->
+            case basicPlanFromString plan of
+                Just bp ->
+                    Just (BP bp)
+
+                Nothing ->
+                    case legacyPlanFromString plan of
+                        Just lp ->
+                            Just (LP lp)
+
+                        Nothing ->
+                            Nothing
+
+
+type BenefitType
+    = AdditionalBenefits
+    | FewerBenefitsLowerPremiums
+    | LowerPremiums
+    | Other
+
+
+getPlanSwitchReason : SupPlan -> Maybe SupPlan -> BenefitType
+getPlanSwitchReason targetPlan currentPlanMaybe =
+    case currentPlanMaybe of
+        Nothing ->
+            Other
+
+        Just currentPlan ->
+            case targetPlan of
+                BP PlanN ->
+                    case currentPlan of
+                        BP PlanN ->
+                            LowerPremiums
+
+                        BP _ ->
+                            AdditionalBenefits
+
+                        CP _ ->
+                            FewerBenefitsLowerPremiums
+
+                        _ ->
+                            Other
+
+                CP PlanG ->
+                    case currentPlan of
+                        CP PlanG ->
+                            LowerPremiums
+
+                        BP _ ->
+                            AdditionalBenefits
+
+                        CP PlanC ->
+                            FewerBenefitsLowerPremiums
+
+                        CP PlanF ->
+                            FewerBenefitsLowerPremiums
+
+                        CP HighDeductiblePlanF ->
+                            FewerBenefitsLowerPremiums
+
+                        CP Extended ->
+                            FewerBenefitsLowerPremiums
+
+                        _ ->
+                            Other
+
+                _ ->
+                    Other
+
+
+validateData : Model -> Bool
+validateData model =
+    let
+        invalidSections =
+            List.filter (\section -> validateSection model section) model.schema
+
+        _ =
+            Debug.log "Invalid sections" (List.map .id invalidSections)
+    in
+    List.all (\section -> not (validateSection model section)) model.schema
+
+
+
+-- ROUTING NUMBER STUFF
+
+
+validRoutingNumber : String -> Bool
+validRoutingNumber routingNumber =
+    let
+        isNineDigits =
+            String.length routingNumber == 9 && String.all Char.isDigit routingNumber
+
+        weights =
+            [ 3, 7, 1, 3, 7, 1, 3, 7, 1 ]
+
+        digits =
+            String.toList routingNumber
+                |> List.map (String.fromChar >> String.toInt >> Maybe.withDefault 0)
+
+        checksum =
+            List.map2 (*) digits weights
+                |> List.sum
+                |> modBy 10
+    in
+    if String.isEmpty routingNumber then
+        True
+
+    else if not isNineDigits then
+        False
+
+    else
+        checksum == 0
+
+
+routingNumberDecoder : Decoder String
+routingNumberDecoder =
+    Decode.field "name" Decode.string

@@ -3,6 +3,21 @@ import { createClient } from '@libsql/client'
 import { desc, sql } from 'drizzle-orm'
 import { applications, bookings, user, csgApplications } from './schema'
 
+const formatServer = process.env.FORMAT_SERVER_URL 
+console.log('formatServer', formatServer)
+
+const getFormatUrl = (applicationId: string) => {
+  return `${formatServer}/api/formatter/api/applications/${applicationId}/formatted`
+}
+
+const format_application = async (applicationId: string) => {
+  const url = getFormatUrl(applicationId)
+  console.log('format_application', url)
+  const response = await fetch(url)
+  const data = await response.json()
+  return data
+}
+
 // Database configuration
 const client = createClient({
   url: process.env.TURSO_DATABASE_URL!,
@@ -53,6 +68,7 @@ export const formatApplicationData = async (rawApplications: any[]) => {
       state: null,
       data: typeof app.data === 'string' ? JSON.parse(app.data) : app.data,
       name: app.name || 'Unknown',
+      naic: app.naic,
       booking: relatedBooking ? {
         email: relatedBooking.email,
         phone: relatedBooking.phone,
@@ -91,18 +107,75 @@ export const getApplicationWithSchema = async (applicationId: string) => {
       status: applications.status,
       createdAt: applications.createdAt,
       data: applications.data,
-      schema: applications.schema,
+      schema: applications.originalSchema,
       name: applications.name,
+      naic: applications.naic,
     })
     .from(applications)
     .where(sql`${applications.id} = ${applicationId}`)
     .limit(1)
+
+  const formattedData = await format_application(applicationId)
+  if (formattedData) {
+    result[0].data = formattedData.data
+  }
 
   if (result.length === 0) {
     return null
   }
 
   return result[0]
+}
+
+export const getFromattedApplicationWithSchema = async (applicationId: string) => {
+  const application = await getApplicationWithSchema(applicationId)
+  console.log('getFromattedApplicationWithSchema')
+  const newData = await format_application(application)
+  // Compare old and new data structures
+  const oldData = typeof application?.data === 'string' ? JSON.parse(application?.data) : application?.data
+  console.log('\nComparing old and new data:')
+
+  // Get all section keys from both objects
+  const allSections = new Set([...Object.keys(oldData || {}), ...Object.keys(newData || {})])
+
+  allSections.forEach(section => {
+    const oldSection = oldData?.[section]
+    const newSection = newData?.[section]
+
+    if (!oldSection) {
+      console.log(`\nSection '${section}' only exists in new data:`, newSection)
+    } else if (!newSection) {
+      console.log(`\nSection '${section}' only exists in old data:`, oldSection)
+    } else {
+      // Compare fields within section
+      const allFields = new Set([...Object.keys(oldSection), ...Object.keys(newSection)])
+      const differences: Record<string, {old?: any, new?: any}> = {}
+
+      allFields.forEach(field => {
+        if (!(field in oldSection)) {
+          differences[field] = {new: newSection[field]}
+        } else if (!(field in newSection)) {
+          differences[field] = {old: oldSection[field]}
+        } else if (oldSection[field] !== newSection[field]) {
+          differences[field] = {
+            old: oldSection[field],
+            new: newSection[field]
+          }
+        }
+      })
+
+      if (Object.keys(differences).length > 0) {
+        console.log(`\nDifferences in section '${section}':`)
+        Object.entries(differences).forEach(([field, diff]) => {
+          console.log(`  ${field}:`, diff)
+        })
+      }
+    }
+  })
+  return {
+    ...application,
+    data: newData
+  }
 }
 
 export const getApplications = async (page: number, pageSize: number, searchTerm: string, hasContactFilter: boolean) => {

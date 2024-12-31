@@ -15,5 +15,5 @@ const client = createClient({
 
 client.sync();
 
-export const db = drizzle(client, { schema });
+export const getDb = () => drizzle(client, { schema });
 
