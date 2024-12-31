@@ -4,6 +4,7 @@ import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
 import { getApplications, exportApplications, getApplicationWithSchema } from './db/query'
+import { format_application, getCarrierName } from './formatter'
 
 // Resolve __dirname for ESM environments
 const __filename = fileURLToPath(import.meta.url)
@@ -16,13 +17,11 @@ const app = new Elysia().use(cors({
   origin: [
     'http://localhost:5173',  // Development
     'http://localhost:3000',  // Local production
-    'https://csgformat-pyrex41.replit.app',
-    'https://csgformat-pyrex41.replit.app/api/formatter'
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposedHeaders: ['Content-Length', 'Content-Type'],
+  exposeHeaders: ['Content-Length', 'Content-Type'],
   maxAge: 600
 }))
 
@@ -94,15 +93,6 @@ app.group('/api', app => app
         id: application?.id,
         hasData: !!application?.data,
         hasSchema: !!application?.schema,
-        schemaDetails: application?.schema?.sections?.map(section => ({
-          title: section.title,
-          fields: section.body?.map(field => ({
-            id: field.id,
-            label: field.displayLabel,
-            type: field.type,
-            value: application?.data?.[field.id]
-          }))
-        })),
         rawData: application?.data
       })
       
@@ -120,31 +110,6 @@ app.group('/api', app => app
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       })
-    }
-  })
-  .get('/proxy-formatter/*', async ({ request }) => {
-    const formatterBaseUrl = 'https://csgformat-pyrex41.replit.app/api/formatter'
-    const path = request.url.split('/proxy-formatter/')[1]
-    
-    console.log('Proxying formatter request:', {
-      path,
-      fullUrl: `${formatterBaseUrl}/${path}`
-    })
-    
-    try {
-      const response = await fetch(`${formatterBaseUrl}/${path}`)
-      const data = await response.json()
-      
-      console.log('Formatter response:', {
-        status: response.status,
-        hasData: !!data,
-        sections: data?.sections?.length
-      })
-      
-      return data
-    } catch (error) {
-      console.error('Error proxying to formatter:', error)
-      return new Response('Proxy error', { status: 500 })
     }
   })
 )
@@ -179,14 +144,10 @@ if (!isDev) {
       assets: distPath,
       prefix: '/',
       alwaysStatic: true,
-      headers: (path) => {
-        const ext = '.' + path.split('.').pop()
-        const mime = mimeTypes[ext] || 'application/octet-stream'
-        return {
-          'Content-Type': mime,
-          'Cache-Control': 'public, max-age=31536000',
-          'X-Content-Type-Options': 'nosniff',
-        }
+      headers: {
+        'Content-Type': 'application/octet-stream',
+        'Cache-Control': 'public, max-age=31536000',
+        'X-Content-Type-Options': 'nosniff'
       }
     }))
 

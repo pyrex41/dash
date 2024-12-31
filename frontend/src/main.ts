@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error(`HTTP error! status: ${response.status}`)
                 }
                 const application = await response.json()
-                console.log('Received application:', application);
+                console.log('Received application schema sections:', application.schema.map(s => s.id));
                 app.ports.receiveApplication.send(application)
             } catch (error) {
                 console.error('Error fetching application:', error)
@@ -50,7 +50,7 @@ document.addEventListener('DOMContentLoaded', () => {
             fetch(`/api/applications?page=${page}&pageSize=${pageSize}&searchTerm=${searchTerm}&hasContactFilter=${hasContactFilter}`)
                 .then(response => response.json())
                 .then(data => {
-                    console.log('Data received:', data);
+                    console.log('Data received');
                     app.ports.receiveApplications.send(data);
                 })
                 .catch(error => {

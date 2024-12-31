@@ -2,10 +2,14 @@
 export default {
   content: [
     "./index.html",
-    "./src/**/*.{js,ts,jsx,tsx,elm}", // This will include all files in src with these extensions
+    "./src/**/*.{js,ts,jsx,tsx,elm}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        'tokyo-orange': '#FF6347'
+      },
+    },
   },
   plugins: [],
 }
