@@ -1,4 +1,4 @@
-module ApplicationPage exposing (Model, Msg, init, update, view)
+module ApplicationPage exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import ApplicationView
 import CSGSchema
@@ -9,7 +9,7 @@ import Json.Decode as Decode
 
 
 type alias Model =
-    { applicationView : Maybe ApplicationView.Model
+    { applicationViewModel : Maybe ApplicationView.Model
     , error : Maybe String
     , loading : Bool
     }
@@ -22,7 +22,7 @@ type Msg
 
 init : String -> ( Model, Cmd Msg )
 init applicationId =
-    ( { applicationView = Nothing
+    ( { applicationViewModel = Nothing
       , error = Nothing
       , loading = True
       }
@@ -44,7 +44,7 @@ update msg model =
                             ApplicationView.init application
                     in
                     ( { model
-                        | applicationView = Just viewModel
+                        | applicationViewModel = Just viewModel
                         , loading = False
                       }
                     , Cmd.map ApplicationViewMsg viewCmd
@@ -59,13 +59,13 @@ update msg model =
                     )
 
         ApplicationViewMsg viewMsg ->
-            case model.applicationView of
+            case model.applicationViewModel of
                 Just viewModel ->
                     let
                         ( newViewModel, viewCmd ) =
                             ApplicationView.update viewMsg viewModel
                     in
-                    ( { model | applicationView = Just newViewModel }
+                    ( { model | applicationViewModel = Just newViewModel }
                     , Cmd.map ApplicationViewMsg viewCmd
                     )
 
@@ -87,7 +87,7 @@ view model =
                         div [ class "p-8 text-red-600" ] [ text error ]
 
                     Nothing ->
-                        case model.applicationView of
+                        case model.applicationViewModel of
                             Just viewModel ->
                                 Html.map ApplicationViewMsg (ApplicationView.view viewModel)
 
@@ -95,6 +95,16 @@ view model =
                                 div [ class "p-8 text-gray-600" ] [ text "Application not found" ]
             ]
         ]
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    case model.applicationViewModel of
+        Just viewModel ->
+            Sub.map ApplicationViewMsg (ApplicationView.subscriptions viewModel)
+
+        Nothing ->
+            Sub.none
 
 
 

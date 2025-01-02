@@ -1,5 +1,6 @@
 module CSGSchema exposing (..)
 
+import Date exposing (Date, Unit(..))
 import Dict
 import Html exposing (Html, div, label, span, text)
 import Html.Attributes exposing (class, id, name, rel, selected, target, type_, value)
@@ -7,7 +8,7 @@ import Html.Events exposing (onClick, onInput)
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Pipeline
 import Json.Encode as Encode
-import Time
+import Time exposing (Month(..))
 
 
 type JsonValue
@@ -298,10 +299,6 @@ jdebug message decoder =
 
 debugHelper : String -> Decode.Decoder a -> Decode.Value -> Decode.Decoder a
 debugHelper message decoder value =
-    let
-        _ =
-            Debug.log message (Decode.decodeValue decoder value)
-    in
     decoder
 
 
@@ -684,49 +681,21 @@ jValueDecoder =
         ]
 
 
-calculateAge : Maybe JValue -> Maybe Time.Posix -> Maybe Int
-calculateAge maybeDobJValue maybeCurrentTime =
-    case ( maybeDobJValue, maybeCurrentTime ) of
-        ( Just jvalue, Just currentTime ) ->
+calculateAge : Maybe JValue -> Maybe Date -> Maybe Int
+calculateAge maybeDobJValue maybeCurrentDate =
+    case ( maybeDobJValue, maybeCurrentDate ) of
+        ( Just jvalue, Just currentDate ) ->
             case jvalue of
                 StringValue dobString ->
-                    case String.split "-" dobString of
-                        [ yearStr, monthStr, dayStr ] ->
-                            case String.toInt yearStr of
-                                Just birthYear ->
-                                    let
-                                        currentYear =
-                                            Time.toYear Time.utc currentTime
+                    case Date.fromIsoString dobString of
+                        Ok dob ->
+                            let
+                                age =
+                                    Date.diff Years dob currentDate
+                            in
+                            Just age
 
-                                        birthMonth =
-                                            String.toInt monthStr |> Maybe.withDefault 1
-
-                                        currentMonth =
-                                            Time.toMonth Time.utc currentTime |> monthToInt
-
-                                        birthDay =
-                                            String.toInt dayStr |> Maybe.withDefault 1
-
-                                        currentDay =
-                                            Time.toDay Time.utc currentTime
-
-                                        age =
-                                            if
-                                                currentMonth
-                                                    > birthMonth
-                                                    || (currentMonth == birthMonth && currentDay >= birthDay)
-                                            then
-                                                currentYear - birthYear
-
-                                            else
-                                                currentYear - birthYear - 1
-                                    in
-                                    Just age
-
-                                Nothing ->
-                                    Nothing
-
-                        _ ->
+                        Err _ ->
                             Nothing
 
                 _ ->
@@ -791,7 +760,6 @@ type alias FlatValues =
 isFieldVisible : FormField -> FormSection -> FlatValues -> Bool
 isFieldVisible field section formValues =
     let
-        -- Check field dependencies if they exist
         dependenciesSatisfied =
             case field.required of
                 RequiredDependsOn dependsOn ->
@@ -805,7 +773,6 @@ isFieldVisible field section formValues =
                         Nothing ->
                             True
 
-        -- Check section dependencies if they exist
         sectionVisible =
             case section.dependsOn of
                 Just (DependsOnType dependsOn) ->
@@ -816,8 +783,11 @@ isFieldVisible field section formValues =
 
                 Nothing ->
                     True
+
+        finalResult =
+            dependenciesSatisfied && sectionVisible
     in
-    dependenciesSatisfied && sectionVisible
+    finalResult
 
 
 checkSectionDependencies : MultiDependsOn -> FlatValues -> Bool
@@ -834,76 +804,84 @@ checkAttributeDependencies : SectionDependsOn -> FlatValues -> Bool
 checkAttributeDependencies sectionDependsOn flattenedData =
     case sectionDependsOn.logicOperator of
         "OR" ->
-            List.any
-                (\fieldValue ->
-                    let
-                        path =
-                            fieldValue.objectName ++ "." ++ fieldValue.attributeName
+            let
+                results =
+                    List.map
+                        (\fieldValue ->
+                            let
+                                path =
+                                    fieldValue.objectName ++ "." ++ fieldValue.attributeName
 
-                        actualValue =
-                            Dict.get path flattenedData
-                                |> Maybe.withDefault NullValue
+                                actualValue =
+                                    Dict.get path flattenedData
+                                        |> Maybe.withDefault NullValue
 
-                        expectedValue =
-                            case fieldValue.value of
-                                JsonString str ->
-                                    StringValue str
+                                expectedValue =
+                                    case fieldValue.value of
+                                        JsonString str ->
+                                            StringValue str
 
-                                JsonInt n ->
-                                    IntValue n
+                                        JsonInt n ->
+                                            IntValue n
 
-                                JsonFloat n ->
-                                    FloatValue n
+                                        JsonFloat n ->
+                                            FloatValue n
 
-                                JsonBool b ->
-                                    if b then
-                                        BoolValue True
+                                        JsonBool b ->
+                                            if b then
+                                                BoolValue True
 
-                                    else
-                                        BoolValue False
+                                            else
+                                                BoolValue False
 
-                                _ ->
-                                    NullValue
-                    in
-                    actualValue == expectedValue
-                )
-                sectionDependsOn.fieldValueList
+                                        _ ->
+                                            NullValue
+                            in
+                            actualValue == expectedValue
+                        )
+                        sectionDependsOn.fieldValueList
+            in
+            List.any identity results
 
         "AND" ->
-            List.all
-                (\fieldValue ->
-                    let
-                        path =
-                            fieldValue.objectName ++ "." ++ fieldValue.attributeName
+            let
+                results =
+                    List.map
+                        (\fieldValue ->
+                            let
+                                path =
+                                    fieldValue.objectName ++ "." ++ fieldValue.attributeName
 
-                        actualValue =
-                            Dict.get path flattenedData
-                                |> Maybe.withDefault NullValue
+                                actualValue =
+                                    Dict.get path flattenedData
+                                        |> Maybe.withDefault NullValue
 
-                        expectedValue =
-                            case fieldValue.value of
-                                JsonString str ->
-                                    StringValue str
+                                expectedValue =
+                                    case fieldValue.value of
+                                        JsonString str ->
+                                            StringValue str
 
-                                JsonInt n ->
-                                    IntValue n
+                                        JsonInt n ->
+                                            IntValue n
 
-                                JsonFloat n ->
-                                    FloatValue n
+                                        JsonFloat n ->
+                                            FloatValue n
 
-                                JsonBool b ->
-                                    if b then
-                                        BoolValue True
+                                        JsonBool b ->
+                                            if b then
+                                                BoolValue True
 
-                                    else
-                                        BoolValue False
+                                            else
+                                                BoolValue False
 
-                                _ ->
-                                    NullValue
-                    in
-                    actualValue == expectedValue
-                )
-                sectionDependsOn.fieldValueList
+                                        _ ->
+                                            NullValue
+                            in
+                            actualValue == expectedValue
+                        )
+                        sectionDependsOn.fieldValueList
+            in
+            List.all identity results
 
         _ ->
             False
@@ -1040,3 +1018,7 @@ formatPhoneNumber phone =
                 ]
     in
     formattedValue
+
+
+
+-- Handle as needed
