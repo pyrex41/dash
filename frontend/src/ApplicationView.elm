@@ -1,6 +1,8 @@
-module ApplicationView exposing (Application, Model, Msg(..), init, update, view)
+port module ApplicationView exposing (Application, Model, Msg(..), init, subscriptions, update, view)
 
-import CSGSchema exposing (ApplicationSchema, FormField, FormFieldType(..), FormSection, JValue(..), RequiredType(..), encodeFormValues, isFieldVisible, parseValue)
+import CSGSchema exposing (ApplicationSchema, FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), encodeFormValues, isFieldVisible, parseValue)
+import DataEncoder exposing (unflattenData)
+import Date exposing (Date, Unit(..))
 import Debug
 import Dict exposing (Dict)
 import Html exposing (..)
@@ -10,18 +12,34 @@ import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 import Task
-import Time
+import Time exposing (Month(..))
+
+
+
+-- Port for saving application data
+
+
+port saveApplication : { id : String, data : Encode.Value } -> Cmd msg
+
+
+
+-- Port for receiving save response
+
+
+port saveApplicationResponse : ({ success : Bool, error : Maybe String } -> msg) -> Sub msg
 
 
 type alias Model =
     { flatData : Dict String JValue
+    , medications : Dict String (List MedicationType)
     , schema : ApplicationSchema
     , id : String
     , error : Maybe String
     , expandedSections : Dict String Bool
-    , currentTime : Maybe Time.Posix
+    , currentDate : Maybe Date
     , showDebugFields : Bool
     , isValid : Bool
+    , underwritingType : Maybe Int
     }
 
 
@@ -30,10 +48,16 @@ type Msg
     | ToggleSection String
     | UpdateField String String
     | SaveForm
-    | GotCurrentTime Time.Posix
+    | SaveFormResponse { success : Bool, error : Maybe String }
+    | GotCurrentTime Date
     | SubmitToCSG
     | NoOp
     | GotRoutingNumber (Result Http.Error String)
+    | ToggleAddMedicationForm String
+    | UpdateMedicationField String String String
+    | SaveMedication String MedicationType
+    | CancelAddMedication String
+    | RemoveMedication String Int
 
 
 type alias Application =
@@ -57,20 +81,27 @@ init app =
         initialFormValues =
             app.data
                 |> extractFormValues
+                |> Debug.log "initialFormValues"
+
+        initialMedications =
+            extractMedications app.data
+                |> Debug.log "initialMedications"
 
         model =
             { flatData = initialFormValues
+            , medications = initialMedications
             , schema = app.schema
             , id = app.id
             , error = Nothing
             , expandedSections = Dict.singleton "applicant_info" True
-            , currentTime = Nothing
+            , currentDate = Nothing
             , showDebugFields = True
             , isValid = False
+            , underwritingType = Nothing
             }
     in
-    ( { model | isValid = validateData model }
-    , Task.perform GotCurrentTime Time.now
+    ( model
+    , Task.perform GotCurrentTime Date.today
     )
 
 
@@ -197,20 +228,12 @@ update msg model =
                 cmd =
                     if fieldId == "payment.eft_routing_number" then
                         if validRoutingNumber valueString then
-                            let
-                                _ =
-                                    Debug.log "Valid routing number" valueString
-                            in
                             Http.get
                                 { url = "https://www.routingnumbers.info/api/name.json?rn=" ++ valueString
                                 , expect = Http.expectJson GotRoutingNumber routingNumberDecoder
                                 }
 
                         else
-                            let
-                                _ =
-                                    Debug.log "Invalid routing number" valueString
-                            in
                             Cmd.none
 
                     else
@@ -223,36 +246,57 @@ update msg model =
             , cmd
             )
 
-        GotCurrentTime currentTime ->
-            ( { model | currentTime = Just currentTime }, Cmd.none )
+        GotCurrentTime currentDate ->
+            let
+                underwritingType =
+                    determineUnderwritingType model.flatData (Just currentDate)
+
+                underwritingInt =
+                    underwritingType |> Maybe.withDefault -1
+
+                flatData =
+                    Dict.insert "enrollment_application.underwriting_type" (IntValue underwritingInt) model.flatData
+            in
+            ( { model
+                | currentDate = Just currentDate
+                , flatData = flatData
+                , underwritingType = underwritingType
+              }
+            , Cmd.none
+            )
 
         SaveForm ->
-            if Dict.isEmpty model.flatData then
-                ( model, Cmd.none )
+            let
+                encodedData =
+                    unflattenData model.flatData
+                        |> addMedicationsToJson model.medications
 
-            else
-                let
-                    payload =
-                        Encode.object
-                            [ ( "id", Encode.string model.id )
-                            , ( "data", encodeFormValues model.flatData )
-                            ]
-                in
-                ( model
-                , Http.post
-                    { url = "/api/applications/" ++ model.id
-                    , body = Http.jsonBody payload
-                    , expect = Http.expectWhatever (Result.mapError httpErrorToString >> (\_ -> NoOp))
-                    }
-                )
+                newModel =
+                    { model | error = Nothing }
+            in
+            ( newModel
+            , saveApplication
+                { id = model.id
+                , data = encodedData
+                }
+            )
+
+        SaveFormResponse response ->
+            case response.error of
+                Just error ->
+                    ( { model | error = Just error }
+                    , Cmd.none
+                    )
+
+                Nothing ->
+                    ( { model | error = Nothing }
+                    , Cmd.none
+                    )
 
         GotRoutingNumber result ->
             case result of
                 Ok institutionName ->
                     let
-                        _ =
-                            Debug.log "Got institution name" institutionName
-
                         newFlatData =
                             Dict.insert "payment.eft_financial_institution_name" (StringValue institutionName) model.flatData
                     in
@@ -261,15 +305,119 @@ update msg model =
                     )
 
                 Err error ->
-                    let
-                        _ =
-                            Debug.log "Error getting routing number" error
-                    in
                     ( model, Cmd.none )
+
+        ToggleAddMedicationForm fieldId ->
+            let
+                showFormKey =
+                    fieldId ++ ".showForm"
+
+                currentShowForm =
+                    Dict.get showFormKey model.flatData
+                        |> Maybe.map unwrapBoolValue
+                        |> Maybe.withDefault False
+
+                newFlatData =
+                    Dict.insert showFormKey (BoolValue (not currentShowForm)) model.flatData
+            in
+            ( { model | flatData = newFlatData }, Cmd.none )
+
+        UpdateMedicationField baseId field value ->
+            let
+                tempKey =
+                    baseId ++ ".temp." ++ field
+
+                newFlatData =
+                    Dict.insert tempKey (StringValue value) model.flatData
+            in
+            ( { model | flatData = newFlatData }, Cmd.none )
+
+        SaveMedication baseId medication ->
+            let
+                tempFields =
+                    [ "drugName", "diagnosis", "dosage", "frequency" ]
+                        |> List.map
+                            (\field ->
+                                ( field
+                                , Dict.get (baseId ++ ".temp." ++ field) model.flatData
+                                    |> Maybe.map unwrapStringValue
+                                    |> Maybe.withDefault ""
+                                )
+                            )
+                        |> Dict.fromList
+
+                newMedication =
+                    { drugName = Dict.get "drugName" tempFields |> Maybe.withDefault ""
+                    , diagnosis = Dict.get "diagnosis" tempFields |> Maybe.withDefault ""
+                    , dosage = Dict.get "dosage" tempFields |> Maybe.withDefault ""
+                    , frequency = Dict.get "frequency" tempFields |> Maybe.withDefault ""
+                    , quantity = Nothing
+                    }
+
+                updatedMedications =
+                    Dict.update baseId
+                        (\maybeMeds ->
+                            case maybeMeds of
+                                Just meds ->
+                                    Just (meds ++ [ Medication newMedication ])
+
+                                Nothing ->
+                                    Just [ Medication newMedication ]
+                        )
+                        model.medications
+
+                newFlatData =
+                    model.flatData
+                        |> Dict.insert (baseId ++ ".showForm") (BoolValue False)
+                        |> Dict.insert (baseId ++ ".taken_prescription_drugs") (BoolValue True)
+            in
+            ( { model
+                | medications = updatedMedications
+                , flatData = newFlatData
+              }
+            , Cmd.none
+            )
+
+        CancelAddMedication baseId ->
+            let
+                newFlatData =
+                    Dict.insert (baseId ++ ".showForm") (BoolValue False) model.flatData
+            in
+            ( { model | flatData = newFlatData }, Cmd.none )
+
+        RemoveMedication baseId idx ->
+            let
+                updatedMedications =
+                    Dict.update baseId
+                        (\maybeMeds ->
+                            case maybeMeds of
+                                Just meds ->
+                                    Just (List.take idx meds ++ List.drop (idx + 1) meds)
+
+                                Nothing ->
+                                    Nothing
+                        )
+                        model.medications
+
+                newFlatData =
+                    model.flatData
+                        |> Dict.insert (baseId ++ ".taken_prescription_drugs")
+                            (BoolValue
+                                (Dict.get baseId updatedMedications
+                                    |> Maybe.map (not << List.isEmpty)
+                                    |> Maybe.withDefault False
+                                )
+                            )
+            in
+            ( { model
+                | medications = updatedMedications
+                , flatData = newFlatData
+              }
+            , Cmd.none
+            )
 
         SubmitToCSG ->
             if model.isValid then
-                -- Add your CSG submission logic here
                 ( model, Cmd.none )
 
             else
@@ -420,8 +568,26 @@ renderFormSection : Model -> FormSection -> Html Msg
 renderFormSection model section =
     let
         hasVisibleFields =
-            List.any (\field -> isFieldVisible field section model.flatData) section.body
+            let
+                visibleFields =
+                    List.filter (\field -> isFieldVisible field section model.flatData) section.body
 
+                {- _ =
+                   Debug.log ("Visible fields in section " ++ section.id)
+                       { totalFields = List.length section.body
+                       , visibleFieldCount = List.length visibleFields
+                       , visibleFieldIds = List.map .id visibleFields
+                       }
+                -}
+            in
+            not (List.isEmpty visibleFields)
+
+        {- _ =
+           Debug.log ("Section " ++ section.id ++ " visibility")
+               { hasVisibleFields = hasVisibleFields
+               , sectionDependsOn = section.dependsOn
+               }
+        -}
         isExpanded =
             Dict.get section.id model.expandedSections
                 |> Maybe.withDefault False
@@ -567,7 +733,7 @@ renderFormField model section field =
         div [ class wrapperClass ]
             [ debugLabel
             , label [ class labelClass ]
-                [ displayLabel ]
+                [ text field.displayLabel ]
             , case field.fieldType of
                 TextNameValueField fv ->
                     div [ class "flex items-center p-2 bg-gray-50 border border-gray-300 rounded-md text-gray-700" ]
@@ -691,7 +857,7 @@ renderFormField model section field =
                                 Dict.get "applicant_info.applicant_dob" model.flatData
 
                             ageString =
-                                CSGSchema.calculateAge dobValue model.currentTime
+                                CSGSchema.calculateAge dobValue model.currentDate
                                     |> Maybe.map String.fromInt
                                     |> Maybe.withDefault ""
                         in
@@ -855,21 +1021,7 @@ renderFormField model section field =
                         ]
 
                 DrugLookupField config ->
-                    div [ class "space-y-2" ]
-                        [ input
-                            [ type_ "text"
-                            , class baseInputClass
-                            , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                            , onInput (UpdateField (section.id ++ "." ++ field.id))
-                            ]
-                            []
-                        , if config.isLastFillVisible then
-                            div [ class "text-sm text-cyan-300" ]
-                                [ text "Last fill date will be shown here" ]
-
-                          else
-                            text ""
-                        ]
+                    renderDrugLookupField model section field
 
                 InputTableField config ->
                     div [ class "space-y-4" ]
@@ -975,221 +1127,7 @@ renderFormField model section field =
 
 
 
--- CARRIER FORMATTERS
--- on hold -- using python formatter for now
-
-
-type alias PhoneNumber =
-    { areaCode : String
-    , centralOfficeCode : String
-    , stationCode : String
-    }
-
-
-formatPhoneNumber : String -> PhoneNumber
-formatPhoneNumber phone =
-    let
-        areaCode =
-            String.slice 0 3 phone
-
-        centralOfficeCode =
-            String.slice 3 5 phone
-
-        stationCode =
-            String.slice 5 8 phone
-    in
-    { areaCode = areaCode
-    , centralOfficeCode = centralOfficeCode
-    , stationCode = stationCode
-    }
-
-
-type ComprehensivePlan
-    = PlanA
-    | PlanB
-    | PlanC
-    | PlanD
-    | PlanF
-    | PlanG
-    | HighDeductiblePlanF
-    | Extended
-
-
-comprehensivePlanFromString : String -> Maybe ComprehensivePlan
-comprehensivePlanFromString plan =
-    case plan of
-        "A" ->
-            Just PlanA
-
-        "B" ->
-            Just PlanB
-
-        "C" ->
-            Just PlanC
-
-        "D" ->
-            Just PlanD
-
-        "F" ->
-            Just PlanF
-
-        "G" ->
-            Just PlanG
-
-        "High Deductible Plan F" ->
-            Just HighDeductiblePlanF
-
-        "Extended" ->
-            Just Extended
-
-        _ ->
-            Nothing
-
-
-type BasicPlan
-    = PlanK
-    | PlanL
-    | PlanM
-    | PlanN
-    | Basic
-    | PartialDeductible
-
-
-basicPlanFromString : String -> Maybe BasicPlan
-basicPlanFromString plan =
-    case plan of
-        "K" ->
-            Just PlanK
-
-        "L" ->
-            Just PlanL
-
-        "M" ->
-            Just PlanM
-
-        "Basic" ->
-            Just Basic
-
-        "N" ->
-            Just PlanN
-
-        "50% Part A Deductible" ->
-            Just PartialDeductible
-
-        _ ->
-            Nothing
-
-
-type LegacyPlan
-    = PlanE
-    | PlanH
-    | PlanI
-    | PlanJ
-    | PreStandardized
-
-
-legacyPlanFromString : String -> Maybe LegacyPlan
-legacyPlanFromString plan =
-    case plan of
-        "E" ->
-            Just PlanE
-
-        "H" ->
-            Just PlanH
-
-        "I" ->
-            Just PlanI
-
-        "J" ->
-            Just PlanJ
-
-        "Pre-Standardized" ->
-            Just PreStandardized
-
-        _ ->
-            Nothing
-
-
-type SupPlan
-    = CP ComprehensivePlan
-    | BP BasicPlan
-    | LP LegacyPlan
-
-
-anyPlanFromString : String -> Maybe SupPlan
-anyPlanFromString plan =
-    case comprehensivePlanFromString plan of
-        Just cp ->
-            Just (CP cp)
-
-        Nothing ->
-            case basicPlanFromString plan of
-                Just bp ->
-                    Just (BP bp)
-
-                Nothing ->
-                    case legacyPlanFromString plan of
-                        Just lp ->
-                            Just (LP lp)
-
-                        Nothing ->
-                            Nothing
-
-
-type BenefitType
-    = AdditionalBenefits
-    | FewerBenefitsLowerPremiums
-    | LowerPremiums
-    | Other
-
-
-getPlanSwitchReason : SupPlan -> Maybe SupPlan -> BenefitType
-getPlanSwitchReason targetPlan currentPlanMaybe =
-    case currentPlanMaybe of
-        Nothing ->
-            Other
-
-        Just currentPlan ->
-            case targetPlan of
-                BP PlanN ->
-                    case currentPlan of
-                        BP PlanN ->
-                            LowerPremiums
-
-                        BP _ ->
-                            AdditionalBenefits
-
-                        CP _ ->
-                            FewerBenefitsLowerPremiums
-
-                        _ ->
-                            Other
-
-                CP PlanG ->
-                    case currentPlan of
-                        CP PlanG ->
-                            LowerPremiums
-
-                        BP _ ->
-                            AdditionalBenefits
-
-                        CP PlanC ->
-                            FewerBenefitsLowerPremiums
-
-                        CP PlanF ->
-                            FewerBenefitsLowerPremiums
-
-                        CP HighDeductiblePlanF ->
-                            FewerBenefitsLowerPremiums
-
-                        CP Extended ->
-                            FewerBenefitsLowerPremiums
-
-                        _ ->
-                            Other
-
-                _ ->
-                    Other
+-- DATA VALIDATION AND PROCESSING
 
 
 validateData : Model -> Bool
@@ -1202,6 +1140,83 @@ validateData model =
             Debug.log "Invalid sections" (List.map .id invalidSections)
     in
     List.all (\section -> not (validateSection model section)) model.schema
+
+
+determineUnderwritingType : Dict String JValue -> Maybe Date -> Maybe Int
+determineUnderwritingType flatData currentDate =
+    let
+        applicantDobString =
+            Dict.get "applicant_info.applicant_dob" flatData
+
+        applicantDob =
+            case applicantDobString of
+                Just (StringValue dobString) ->
+                    case Date.fromIsoString dobString of
+                        Ok date ->
+                            Just date
+
+                        Err _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+
+        partBDateString =
+            Dict.get "applicant_info.part_b_date" flatData
+
+        partBDate =
+            case partBDateString of
+                Just (StringValue pbs) ->
+                    case Date.fromIsoString pbs of
+                        Ok date ->
+                            Just date
+
+                        Err _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+    in
+    case applicantDob of
+        Just dob ->
+            if isOpenEnrollment applicantDob partBDate currentDate then
+                Just 1
+
+            else
+                Just 0
+
+        Nothing ->
+            Nothing
+
+
+isOpenEnrollment : Maybe Date -> Maybe Date -> Maybe Date -> Bool
+isOpenEnrollment applicantDob partBDate currentDate =
+    -- Check T65 window first
+    if isT65 applicantDob currentDate then
+        True
+
+    else
+        -- Check Part B enrollment window
+        case ( partBDate, currentDate ) of
+            ( Just pbDate, Just now ) ->
+                Date.diff Months pbDate now < 6
+
+            _ ->
+                False
+
+
+isT65 : Maybe Date -> Maybe Date -> Bool
+isT65 applicantDob currentDate =
+    case ( applicantDob, currentDate ) of
+        ( Just dob, Just now ) ->
+            let
+                t65Date =
+                    Date.add Years 65 dob
+            in
+            Date.diff Months t65Date now < 6
+
+        _ ->
+            False
 
 
 
@@ -1226,16 +1241,467 @@ validRoutingNumber routingNumber =
                 |> List.sum
                 |> modBy 10
     in
-    if String.isEmpty routingNumber then
-        True
-
-    else if not isNineDigits then
-        False
-
-    else
-        checksum == 0
+    isNineDigits && checksum == 0
 
 
 routingNumberDecoder : Decoder String
 routingNumberDecoder =
     Decode.field "name" Decode.string
+
+
+
+-- Add subscription to handle save response
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    saveApplicationResponse SaveFormResponse
+
+
+
+-- MEDICATION TYPES
+-- Base types that are common across carriers
+-- Add these helper functions for unwrapping JValues
+
+
+unwrapStringValue : JValue -> String
+unwrapStringValue jvalue =
+    case jvalue of
+        StringValue str ->
+            str
+
+        _ ->
+            ""
+
+
+unwrapBoolValue : JValue -> Bool
+unwrapBoolValue jvalue =
+    case jvalue of
+        BoolValue bool ->
+            bool
+
+        _ ->
+            False
+
+
+
+-- Add medication types and helpers
+
+
+type alias BaseMedication =
+    { med_name : String
+    , diagnosis : String
+    }
+
+
+type MedicationType
+    = Medication
+        { drugName : String
+        , diagnosis : String
+        , dosage : String
+        , frequency : String
+        , quantity : Maybe Int
+        }
+
+
+type Carrier
+    = ACE
+    | Aetna
+    | Allstate
+    | UHC
+
+
+carrierFromString : JValue -> Carrier
+carrierFromString jvalue =
+    case jvalue of
+        StringValue str ->
+            case str of
+                "ACE" ->
+                    ACE
+
+                "Aetna" ->
+                    Aetna
+
+                "Allstate" ->
+                    Allstate
+
+                "UHC" ->
+                    UHC
+
+                _ ->
+                    ACE
+
+        _ ->
+            ACE
+
+
+medicationToDict : MedicationType -> Dict String JsonValue
+medicationToDict medType =
+    case medType of
+        Medication details ->
+            Dict.fromList
+                [ ( "drugName", JsonString details.drugName )
+                , ( "diagnosis", JsonString details.diagnosis )
+                , ( "dosage", JsonString details.dosage )
+                , ( "frequency", JsonString details.frequency )
+                , ( "quantity"
+                  , case details.quantity of
+                        Just q ->
+                            JsonInt q
+
+                        Nothing ->
+                            JsonNull
+                  )
+                ]
+
+
+
+-- Helper to create a new medication based on carrier
+
+
+initMedication : Carrier -> BaseMedication -> MedicationType
+initMedication carrier base =
+    case carrier of
+        ACE ->
+            Medication
+                { drugName = base.med_name
+                , diagnosis = base.diagnosis
+                , dosage = ""
+                , frequency = ""
+                , quantity = Nothing
+                }
+
+        Aetna ->
+            Medication
+                { drugName = base.med_name
+                , diagnosis = base.diagnosis
+                , dosage = ""
+                , frequency = ""
+                , quantity = Nothing
+                }
+
+        Allstate ->
+            Medication
+                { drugName = base.med_name
+                , diagnosis = base.diagnosis
+                , dosage = ""
+                , frequency = ""
+                , quantity = Nothing
+                }
+
+        UHC ->
+            Medication
+                { drugName = ""
+                , diagnosis = ""
+                , dosage = ""
+                , frequency = ""
+                , quantity = Nothing
+                }
+
+
+renderDrugLookupField : Model -> FormSection -> FormField -> Html Msg
+renderDrugLookupField model section field =
+    let
+        baseId =
+            section.id ++ "." ++ field.id
+
+        carrier =
+            -- Get carrier from model or field config
+            Maybe.withDefault ACE (Dict.get "carrier" model.flatData |> Maybe.map carrierFromString)
+
+        medications =
+            getMedicationList model baseId carrier
+
+        showForm =
+            Dict.get (baseId ++ ".showForm") model.flatData
+                |> Maybe.map unwrapBoolValue
+                |> Maybe.withDefault False
+    in
+    div [ class "space-y-6" ]
+        [ -- Medication list display
+          if List.isEmpty medications then
+            div [ class "text-gray-500 italic" ]
+                [ text "No medications added" ]
+
+          else
+            div [ class "space-y-4" ]
+                (List.indexedMap (renderMedicationItem carrier baseId) medications)
+
+        -- Add medication form
+        , if showForm then
+            renderMedicationForm carrier baseId model
+
+          else
+            button
+                [ class "flex items-center gap-2 px-4 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                , onClick (ToggleAddMedicationForm baseId)
+                ]
+                [ text "Add Medication" ]
+        ]
+
+
+getMedicationList : Model -> String -> Carrier -> List MedicationType
+getMedicationList model baseId carrier =
+    Dict.get baseId model.medications
+        |> Maybe.withDefault []
+
+
+
+-- Render a single medication item based on carrier type
+
+
+renderMedicationItem : Carrier -> String -> Int -> MedicationType -> Html Msg
+renderMedicationItem carrier baseId index medication =
+    let
+        baseContent =
+            case medication of
+                Medication details ->
+                    [ viewBaseMedication details ]
+
+        viewBaseMedication base =
+            div []
+                [ div [ class "font-medium" ] [ text base.drugName ]
+                , div [ class "text-sm text-gray-600" ]
+                    [ text ("Diagnosis: " ++ base.diagnosis) ]
+                ]
+    in
+    div [ class "p-4 bg-gray-50 rounded-md relative" ]
+        [ div [ class "space-y-2" ] baseContent
+        , button
+            [ class "absolute top-2 right-2 text-gray-400 hover:text-red-600"
+            , onClick (RemoveMedication baseId index)
+            ]
+            [ text "×" ]
+        ]
+
+
+
+-- Carrier-specific detail views
+
+
+viewPrescribedMedications prescribedMeds =
+    div [ class "mt-2 space-y-1" ]
+        (Dict.toList prescribedMeds
+            |> List.map
+                (\( _, med ) ->
+                    div [ class "text-sm text-gray-600" ]
+                        [ text (med.drugName ++ " - " ++ med.diagnosis) ]
+                )
+        )
+
+
+viewAllstateDetails details =
+    div [ class "mt-2 space-y-1 text-sm text-gray-600" ]
+        [ div [] [ text ("Dosage: " ++ details.dosage) ]
+        , div [] [ text ("Frequency: " ++ details.frequency) ]
+        , if not (String.isEmpty details.prescription_freq_other) then
+            div [] [ text ("Quantity: " ++ details.prescription_freq_other) ]
+
+          else
+            text ""
+        ]
+
+
+viewUHCDetails details =
+    div [ class "mt-2 space-y-1 text-sm text-gray-600" ]
+        [ div [] [ text ("Dosage: " ++ details.dosage.dosage) ]
+        , div [] [ text ("Frequency: " ++ details.frequency) ]
+        , div [] [ text ("Quantity: " ++ String.fromInt details.quantity) ]
+        , if not (String.isEmpty details.lastFillDate) then
+            div [] [ text ("Last Fill: " ++ details.lastFillDate) ]
+
+          else
+            text ""
+        ]
+
+
+
+-- Render the add/edit form with carrier-specific fields
+
+
+renderMedicationForm : Carrier -> String -> Model -> Html Msg
+renderMedicationForm carrier baseId model =
+    let
+        commonFields =
+            [ formField "Medication Name" "drugName" "text"
+            , formField "Diagnosis" "diagnosis" "text"
+            ]
+
+        carrierFields =
+            case carrier of
+                ACE ->
+                    []
+
+                Aetna ->
+                    []
+
+                Allstate ->
+                    [ formField "Dosage" "dosage" "text"
+                    , formField "Frequency" "frequency" "text"
+                    , formField "Quantity" "prescription_freq_other" "number"
+                    ]
+
+                UHC ->
+                    [ formField "Dosage" "dosage" "text"
+                    , formField "Frequency" "frequency" "text"
+                    , formField "Quantity" "quantity" "number"
+                    , formField "Last Fill Date" "lastFillDate" "date"
+                    ]
+
+        formField label_ fieldName inputType =
+            div [ class "space-y-2" ]
+                [ label [ class "block text-sm font-medium text-gray-700" ]
+                    [ text label_ ]
+                , input
+                    [ class """w-full px-4 py-2 border border-gray-300 rounded-md
+                              focus:outline-none focus:ring-2 focus:ring-purple-500"""
+                    , type_ inputType
+                    , onInput (UpdateMedicationField baseId fieldName)
+                    , value
+                        (Dict.get (baseId ++ ".temp." ++ fieldName) model.flatData
+                            |> Maybe.map unwrapStringValue
+                            |> Maybe.withDefault ""
+                        )
+                    ]
+                    []
+                ]
+    in
+    div [ class "p-6 border border-gray-200 rounded-md space-y-4" ]
+        [ div [ class "space-y-4" ]
+            (commonFields ++ carrierFields)
+        , div [ class "flex justify-end gap-4" ]
+            [ button
+                [ class "px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                , onClick (CancelAddMedication baseId)
+                ]
+                [ text "Cancel" ]
+            , button
+                [ class "px-4 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                , onClick (SaveMedication baseId (createNewMedication model baseId))
+                ]
+                [ text "Save" ]
+            ]
+        ]
+
+
+extractMedications : Decode.Value -> Dict String (List MedicationType)
+extractMedications jsonData =
+    case Decode.decodeValue (Decode.dict Decode.value) jsonData of
+        Ok dict ->
+            Dict.foldl
+                (\key value acc ->
+                    case String.split "." key of
+                        [ section, field ] ->
+                            if String.endsWith "prescription_drug_list" field then
+                                case decodeMedicationList value of
+                                    Ok meds ->
+                                        Dict.insert (section ++ "." ++ field) meds acc
+
+                                    Err _ ->
+                                        acc
+
+                            else
+                                acc
+
+                        _ ->
+                            acc
+                )
+                Dict.empty
+                dict
+
+        Err _ ->
+            Dict.empty
+
+
+decodeMedicationList : Decode.Value -> Result Decode.Error (List MedicationType)
+decodeMedicationList value =
+    Decode.decodeValue
+        (Decode.list
+            (Decode.map5
+                (\drugName diagnosis dosage frequency quantity ->
+                    Medication
+                        { drugName = drugName
+                        , diagnosis = diagnosis
+                        , dosage = dosage
+                        , frequency = frequency
+                        , quantity = quantity
+                        }
+                )
+                (Decode.field "drugName" Decode.string)
+                (Decode.field "diagnosis" Decode.string)
+                (Decode.field "dosage" Decode.string)
+                (Decode.field "frequency" Decode.string)
+                (Decode.maybe (Decode.field "quantity" Decode.int))
+            )
+        )
+        value
+
+
+addMedicationsToJson : Dict String (List MedicationType) -> Encode.Value -> Encode.Value
+addMedicationsToJson medications baseJson =
+    case Decode.decodeValue (Decode.dict Decode.value) baseJson of
+        Ok dict ->
+            Dict.foldl
+                (\key meds acc ->
+                    Dict.insert key (encodeMedicationList meds) acc
+                )
+                dict
+                medications
+                |> Encode.dict identity identity
+
+        Err _ ->
+            baseJson
+
+
+encodeMedicationList : List MedicationType -> Encode.Value
+encodeMedicationList medications =
+    Encode.list
+        (\(Medication med) ->
+            Encode.object
+                [ ( "drugName", Encode.string med.drugName )
+                , ( "diagnosis", Encode.string med.diagnosis )
+                , ( "dosage", Encode.string med.dosage )
+                , ( "frequency", Encode.string med.frequency )
+                , ( "quantity"
+                  , case med.quantity of
+                        Just q ->
+                            Encode.int q
+
+                        Nothing ->
+                            Encode.null
+                  )
+                ]
+        )
+        medications
+
+
+createNewMedication : Model -> String -> MedicationType
+createNewMedication model baseId =
+    let
+        drugName =
+            Dict.get (baseId ++ ".temp.drugName") model.flatData
+                |> Maybe.map unwrapStringValue
+                |> Maybe.withDefault ""
+
+        diagnosis =
+            Dict.get (baseId ++ ".temp.diagnosis") model.flatData
+                |> Maybe.map unwrapStringValue
+                |> Maybe.withDefault ""
+
+        dosage =
+            Dict.get (baseId ++ ".temp.dosage") model.flatData
+                |> Maybe.map unwrapStringValue
+                |> Maybe.withDefault ""
+
+        frequency =
+            Dict.get (baseId ++ ".temp.frequency") model.flatData
+                |> Maybe.map unwrapStringValue
+                |> Maybe.withDefault ""
+    in
+    Medication
+        { drugName = drugName
+        , diagnosis = diagnosis
+        , dosage = dosage
+        , frequency = frequency
+        , quantity = Nothing
+        }

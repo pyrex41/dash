@@ -70,6 +70,29 @@ document.addEventListener('DOMContentLoaded', () => {
         app.ports.exportToCsv?.subscribe(({ searchTerm, hasContactFilter, hasCSGFilter }) => {
             window.location.href = `/api/applications/export?searchTerm=${searchTerm}&hasContactFilter=${hasContactFilter}&hasCSGFilter=${hasCSGFilter}`;
         });
+        
+        app.ports.saveApplication?.subscribe(({ id, data }) => {
+            console.log('Saving application:', { id, data });
+            
+            fetch(`/api/applications/${id}/formatted`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ data })
+            })
+            .then(response => response.json())
+            .then(result => {
+                app.ports.saveApplicationResponse.send(result);
+            })
+            .catch(error => {
+                console.error('Error saving application:', error);
+                app.ports.saveApplicationResponse.send({
+                    success: false,
+                    error: 'Failed to save application'
+                });
+            });
+        });
     } catch (error) {
         console.error('Error initializing Elm app:', error);
     }

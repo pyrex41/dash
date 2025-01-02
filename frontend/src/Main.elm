@@ -156,7 +156,7 @@ subscriptions model =
             Sub.map DashboardMsg (Dashboard.subscriptions dashboardModel)
 
         ApplicationPage applicationModel ->
-            Sub.none
+            Sub.map ApplicationMsg (ApplicationPage.subscriptions applicationModel)
 
 
 

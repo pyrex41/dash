@@ -3,7 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
-import { getApplications, exportApplications, getApplicationWithSchema } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 
 // Resolve __dirname for ESM environments
@@ -110,6 +110,30 @@ app.group('/api', app => app
         status: 500,
         headers: { 'Content-Type': 'application/json' }
       })
+    }
+  })
+  .put('/applications/:id/formatted', async ({ params, body }) => {
+    try {
+      const { id } = params
+      const { data } = body as { data: Record<string, any> }
+      
+      console.log('PUT /applications/:id/formatted:', {
+        id,
+        dataKeys: Object.keys(data)
+      })
+      
+      await updateFormattedData(id, data)
+      
+      return {
+        success: true,
+        error: null
+      }
+    } catch (error) {
+      console.error('Error updating formatted data:', error)
+      return {
+        success: false,
+        error: 'Failed to update application data'
+      }
     }
   })
 )

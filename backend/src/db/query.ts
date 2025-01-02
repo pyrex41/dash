@@ -2,6 +2,7 @@ import { drizzle } from 'drizzle-orm/libsql'
 import { createClient } from '@libsql/client'
 import { desc, sql } from 'drizzle-orm'
 import { applications, bookings, user, csgApplications } from './schema'
+import { eq } from 'drizzle-orm'
 
 const formatServer = process.env.FORMAT_SERVER_URL 
 console.log('formatServer', formatServer)
@@ -328,4 +329,14 @@ export const exportApplications = async (searchTerm: string, hasContactFilter: b
 
   const results = await dbQuery
   return formatApplicationData(results)
+}
+
+export async function updateFormattedData(id: string, formattedData: Record<string, any>) {
+    return await db
+        .update(applications)
+        .set({ 
+            formattedData,
+            updatedAt: new Date()
+        })
+        .where(eq(applications.id, id));
 }
