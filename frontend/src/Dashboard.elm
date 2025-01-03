@@ -1,6 +1,6 @@
 port module Dashboard exposing (Model, Msg, init, subscriptions, update, view)
 
-import ApplicationView
+import ApplicationView exposing (applicationViewDecoder)
 import Browser
 import Browser.Events
 import CSGSchema
@@ -871,11 +871,3 @@ viewPageButton currentPage page =
 stopPropagation : String -> Attribute Msg
 stopPropagation event =
     Html.Events.stopPropagationOn event (Decode.succeed ( NoOp, True ))
-
-
-applicationViewDecoder : Decode.Decoder ApplicationView.Application
-applicationViewDecoder =
-    Decode.map3 ApplicationView.Application
-        (Decode.field "id" Decode.string)
-        (Decode.field "data" Decode.value)
-        (Decode.field "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder))

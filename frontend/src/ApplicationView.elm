@@ -1,6 +1,6 @@
-port module ApplicationView exposing (Application, Model, Msg(..), init, subscriptions, update, view)
+port module ApplicationView exposing (Application, Model, Msg(..), applicationViewDecoder, init, subscriptions, update, view)
 
-import CSGSchema exposing (ApplicationSchema, FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), encodeFormValues, isFieldVisible, parseValue)
+import CSGSchema exposing (ApplicationSchema, FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), isFieldVisible, jsonValueDecoder, parseValue, unwrapJValue)
 import DataEncoder exposing (unflattenData)
 import Date exposing (Date, Unit(..))
 import Debug
@@ -10,6 +10,7 @@ import Html.Attributes exposing (..)
 import Html.Events exposing (..)
 import Http
 import Json.Decode as Decode exposing (Decoder)
+import Json.Decode.Pipeline as Pipeline exposing (optional, required)
 import Json.Encode as Encode
 import Task
 import Time exposing (Month(..))
@@ -30,8 +31,11 @@ port saveApplicationResponse : ({ success : Bool, error : Maybe String } -> msg)
 
 
 type alias Model =
-    { flatData : Dict String JValue
-    , medications : Dict String (List MedicationType)
+    { data : JsonValue
+    , naic : String
+    , carrier : Maybe Carrier
+    , medications : List Medication
+    , medicationForm : Dict String String
     , schema : ApplicationSchema
     , id : String
     , error : Maybe String
@@ -46,29 +50,26 @@ type alias Model =
 type Msg
     = GotError String
     | ToggleSection String
-    | UpdateField String String
+    | UpdateField String String String
+    | UpdateComplexPhoneField String String JsonValue
     | SaveForm
     | SaveFormResponse { success : Bool, error : Maybe String }
     | GotCurrentTime Date
     | SubmitToCSG
     | NoOp
     | GotRoutingNumber (Result Http.Error String)
-    | ToggleAddMedicationForm String
     | UpdateMedicationField String String String
-    | SaveMedication String MedicationType
+    | SaveMedication String Medication
     | CancelAddMedication String
     | RemoveMedication String Int
 
 
 type alias Application =
     { id : String
+    , naic : String
     , data : Decode.Value
     , schema : ApplicationSchema
     }
-
-
-type alias FormattedData =
-    { sections : Dict String (Dict String JValue) }
 
 
 
@@ -84,12 +85,21 @@ init app =
                 |> Debug.log "initialFormValues"
 
         initialMedications =
-            extractMedications app.data
-                |> Debug.log "initialMedications"
+            case Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
+                Ok medications ->
+                    medications
+                        |> Debug.log "initialMedications"
+
+                Err _ ->
+                    []
+                        |> Debug.log "initialMedications"
 
         model =
-            { flatData = initialFormValues
+            { data = initialFormValues
+            , naic = app.naic
+            , carrier = app.naic |> carrierFromNaic
             , medications = initialMedications
+            , medicationForm = Dict.empty
             , schema = app.schema
             , id = app.id
             , error = Nothing
@@ -109,62 +119,14 @@ init app =
 -- Helper to extract initial form values from application data
 
 
-extractFormValues : Decode.Value -> Dict String JValue
+extractFormValues : Decode.Value -> JsonValue
 extractFormValues jsonData =
-    case Decode.decodeValue (Decode.dict Decode.value) jsonData of
+    case Decode.decodeValue jsonValueDecoder jsonData of
         Ok dict ->
-            Dict.foldl flattenJsonToDict Dict.empty dict
+            dict
 
         Err _ ->
-            Dict.empty
-
-
-flattenJsonToDict : String -> Decode.Value -> Dict String JValue -> Dict String JValue
-flattenJsonToDict prefix value dict =
-    -- Try decoding as string first
-    case Decode.decodeValue Decode.string value of
-        Ok str ->
-            Dict.insert prefix (StringValue str) dict
-
-        Err _ ->
-            -- Try decoding as int
-            case Decode.decodeValue Decode.int value of
-                Ok num ->
-                    Dict.insert prefix (IntValue num) dict
-
-                Err _ ->
-                    -- Try decoding as float
-                    case Decode.decodeValue Decode.float value of
-                        Ok num ->
-                            Dict.insert prefix (FloatValue num) dict
-
-                        Err _ ->
-                            -- Try decoding as bool
-                            case Decode.decodeValue Decode.bool value of
-                                Ok bool ->
-                                    Dict.insert prefix (BoolValue bool) dict
-
-                                Err _ ->
-                                    -- Finally try as nested object
-                                    case Decode.decodeValue (Decode.dict Decode.value) value of
-                                        Ok nestedDict ->
-                                            Dict.foldl
-                                                (\k v acc ->
-                                                    let
-                                                        newPrefix =
-                                                            if String.isEmpty prefix then
-                                                                k
-
-                                                            else
-                                                                prefix ++ "." ++ k
-                                                    in
-                                                    flattenJsonToDict newPrefix v acc
-                                                )
-                                                dict
-                                                nestedDict
-
-                                        Err _ ->
-                                            dict
+            JsonObject Dict.empty
 
 
 stringifyMaybe : Maybe JValue -> String
@@ -200,6 +162,92 @@ stringifyJValue jvalue =
 -- UPDATE
 
 
+getValue : String -> String -> JsonValue -> Maybe JValue
+getValue sectionId fieldId jsonValue =
+    getSection sectionId jsonValue
+        |> Dict.get fieldId
+        |> Maybe.map unwrapJValue
+
+
+getValueFull : String -> String -> JsonValue -> JsonValue
+getValueFull sectionId fieldId jsonValue =
+    getSection sectionId jsonValue
+        |> Dict.get fieldId
+        |> Maybe.withDefault (JsonBase NullValue)
+
+
+getValueString : String -> String -> JsonValue -> String
+getValueString sectionId fieldId jsonValue =
+    getValue sectionId fieldId jsonValue
+        |> Maybe.map stringifyJValue
+        |> Maybe.withDefault ""
+
+
+getArray : String -> Dict String JsonValue -> List JsonValue
+getArray fieldName jsonValue =
+    case Dict.get fieldName jsonValue of
+        Just (JsonArray array) ->
+            array
+
+        _ ->
+            []
+
+
+setValue : String -> String -> JValue -> JsonValue -> JsonValue
+setValue sectionId fieldId value jsonValue =
+    let
+        oldSection =
+            getSection sectionId jsonValue
+
+        newSection =
+            Dict.insert fieldId (JsonBase value) oldSection
+    in
+    setSection sectionId newSection jsonValue
+
+
+setComplexValue : String -> String -> JsonValue -> JsonValue -> JsonValue
+setComplexValue sectionId fieldId complexObject jsonValue =
+    let
+        oldSection =
+            getSection sectionId jsonValue
+
+        newSection =
+            Dict.insert fieldId complexObject oldSection
+    in
+    setSection sectionId newSection jsonValue
+
+
+getSection : String -> JsonValue -> Dict String JsonValue
+getSection sectionId jsonValue =
+    case jsonValue of
+        JsonObject dict ->
+            Dict.get sectionId dict
+                |> Maybe.andThen
+                    (\value ->
+                        case value of
+                            JsonObject innerDict ->
+                                Just innerDict
+
+                            _ ->
+                                Just Dict.empty
+                    )
+                |> Maybe.withDefault Dict.empty
+
+        _ ->
+            Dict.empty
+
+
+setSection : String -> Dict String JsonValue -> JsonValue -> JsonValue
+setSection sectionId newSection jsonValue =
+    case jsonValue of
+        JsonObject dict ->
+            Dict.insert sectionId (JsonObject newSection) dict
+                |> JsonObject
+
+        _ ->
+            JsonObject Dict.empty
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -217,16 +265,22 @@ update msg model =
             in
             ( { model | expandedSections = newExpandedSections }, Cmd.none )
 
-        UpdateField fieldId valueString ->
+        UpdateField sectionId fieldId valueString ->
             let
                 value =
-                    parseValue valueString
+                    parseValue valueString |> JsonBase
 
-                newFlatData =
-                    Dict.insert fieldId value model.flatData
+                oldSection =
+                    getSection sectionId model.data
+
+                newSection =
+                    Dict.insert fieldId value oldSection
+
+                newData =
+                    setSection sectionId newSection model.data
 
                 cmd =
-                    if fieldId == "payment.eft_routing_number" then
+                    if sectionId == "payment" && fieldId == "eft_routing_number" then
                         if validRoutingNumber valueString then
                             Http.get
                                 { url = "https://www.routingnumbers.info/api/name.json?rn=" ++ valueString
@@ -240,26 +294,33 @@ update msg model =
                         Cmd.none
             in
             ( { model
-                | flatData = newFlatData
+                | data = newData
                 , isValid = validateData model
               }
             , cmd
             )
 
+        UpdateComplexPhoneField sectionId fieldId complexObject ->
+            ( { model
+                | data = setComplexValue sectionId fieldId complexObject model.data
+              }
+            , Cmd.none
+            )
+
         GotCurrentTime currentDate ->
             let
                 underwritingType =
-                    determineUnderwritingType model.flatData (Just currentDate)
+                    determineUnderwritingType model.data (Just currentDate)
 
                 underwritingInt =
                     underwritingType |> Maybe.withDefault -1
 
-                flatData =
-                    Dict.insert "enrollment_application.underwriting_type" (IntValue underwritingInt) model.flatData
+                newData =
+                    setValue "enrollment_application" "underwriting_type" (IntValue underwritingInt) model.data
             in
             ( { model
                 | currentDate = Just currentDate
-                , flatData = flatData
+                , data = newData
                 , underwritingType = underwritingType
               }
             , Cmd.none
@@ -268,8 +329,7 @@ update msg model =
         SaveForm ->
             let
                 encodedData =
-                    unflattenData model.flatData
-                        |> addMedicationsToJson model.medications
+                    encodeData model.data
 
                 newModel =
                     { model | error = Nothing }
@@ -297,121 +357,40 @@ update msg model =
             case result of
                 Ok institutionName ->
                     let
-                        newFlatData =
-                            Dict.insert "payment.eft_financial_institution_name" (StringValue institutionName) model.flatData
+                        newData =
+                            setValue "payment" "eft_financial_institution_name" (StringValue institutionName) model.data
                     in
-                    ( { model | flatData = newFlatData }
+                    ( { model | data = newData }
                     , Cmd.none
                     )
 
                 Err error ->
                     ( model, Cmd.none )
 
-        ToggleAddMedicationForm fieldId ->
-            let
-                showFormKey =
-                    fieldId ++ ".showForm"
-
-                currentShowForm =
-                    Dict.get showFormKey model.flatData
-                        |> Maybe.map unwrapBoolValue
-                        |> Maybe.withDefault False
-
-                newFlatData =
-                    Dict.insert showFormKey (BoolValue (not currentShowForm)) model.flatData
-            in
-            ( { model | flatData = newFlatData }, Cmd.none )
-
         UpdateMedicationField baseId field value ->
-            let
-                tempKey =
-                    baseId ++ ".temp." ++ field
-
-                newFlatData =
-                    Dict.insert tempKey (StringValue value) model.flatData
-            in
-            ( { model | flatData = newFlatData }, Cmd.none )
+            ( { model | medicationForm = Dict.insert field value model.medicationForm }
+            , Cmd.none
+            )
 
         SaveMedication baseId medication ->
-            let
-                tempFields =
-                    [ "drugName", "diagnosis", "dosage", "frequency" ]
-                        |> List.map
-                            (\field ->
-                                ( field
-                                , Dict.get (baseId ++ ".temp." ++ field) model.flatData
-                                    |> Maybe.map unwrapStringValue
-                                    |> Maybe.withDefault ""
-                                )
-                            )
-                        |> Dict.fromList
-
-                newMedication =
-                    { drugName = Dict.get "drugName" tempFields |> Maybe.withDefault ""
-                    , diagnosis = Dict.get "diagnosis" tempFields |> Maybe.withDefault ""
-                    , dosage = Dict.get "dosage" tempFields |> Maybe.withDefault ""
-                    , frequency = Dict.get "frequency" tempFields |> Maybe.withDefault ""
-                    , quantity = Nothing
-                    }
-
-                updatedMedications =
-                    Dict.update baseId
-                        (\maybeMeds ->
-                            case maybeMeds of
-                                Just meds ->
-                                    Just (meds ++ [ Medication newMedication ])
-
-                                Nothing ->
-                                    Just [ Medication newMedication ]
-                        )
-                        model.medications
-
-                newFlatData =
-                    model.flatData
-                        |> Dict.insert (baseId ++ ".showForm") (BoolValue False)
-                        |> Dict.insert (baseId ++ ".taken_prescription_drugs") (BoolValue True)
-            in
             ( { model
-                | medications = updatedMedications
-                , flatData = newFlatData
+                | medications = medication :: model.medications
+                , medicationForm = Dict.empty
               }
             , Cmd.none
             )
 
         CancelAddMedication baseId ->
-            let
-                newFlatData =
-                    Dict.insert (baseId ++ ".showForm") (BoolValue False) model.flatData
-            in
-            ( { model | flatData = newFlatData }, Cmd.none )
+            ( { model | medicationForm = Dict.empty }
+            , Cmd.none
+            )
 
         RemoveMedication baseId idx ->
-            let
-                updatedMedications =
-                    Dict.update baseId
-                        (\maybeMeds ->
-                            case maybeMeds of
-                                Just meds ->
-                                    Just (List.take idx meds ++ List.drop (idx + 1) meds)
-
-                                Nothing ->
-                                    Nothing
-                        )
-                        model.medications
-
-                newFlatData =
-                    model.flatData
-                        |> Dict.insert (baseId ++ ".taken_prescription_drugs")
-                            (BoolValue
-                                (Dict.get baseId updatedMedications
-                                    |> Maybe.map (not << List.isEmpty)
-                                    |> Maybe.withDefault False
-                                )
-                            )
-            in
             ( { model
-                | medications = updatedMedications
-                , flatData = newFlatData
+                | medications =
+                    List.indexedMap (\i m -> ( i, m )) model.medications
+                        |> List.filter (\( i, _ ) -> i /= idx)
+                        |> List.map Tuple.second
               }
             , Cmd.none
             )
@@ -512,56 +491,121 @@ viewForm model =
         )
 
 
+getPhoneValue : String -> String -> JsonValue -> String
+getPhoneValue sectionId fieldId jsonValue =
+    let
+        jsonBlob =
+            getValueFull sectionId fieldId jsonValue
+    in
+    case jsonBlob of
+        JsonObject dict ->
+            let
+                helper key =
+                    Dict.get key dict
+                        |> (\code ->
+                                case code of
+                                    Just (JsonBase (StringValue s)) ->
+                                        s
+
+                                    _ ->
+                                        ""
+                           )
+
+                areaCode =
+                    helper "area_code"
+
+                officeCode =
+                    helper "central_office_code"
+
+                stationCode =
+                    helper "station_code"
+
+                isValid =
+                    hasPhoneValue jsonBlob
+            in
+            if isValid then
+                "(" ++ areaCode ++ ") " ++ officeCode ++ "-" ++ stationCode
+
+            else
+                ""
+
+        _ ->
+            ""
+
+
+hasPhoneValue : JsonValue -> Bool
+hasPhoneValue jsonValue =
+    case jsonValue of
+        JsonObject dict ->
+            [ "area_code", "central_office_code", "station_code" ]
+                |> List.map
+                    (\key -> ( key, Dict.get key dict ))
+                |> List.map
+                    (\( key, code ) ->
+                        case code of
+                            Just (JsonBase (StringValue s)) ->
+                                case String.toInt s of
+                                    Just _ ->
+                                        if key == "station_code" then
+                                            String.length s == 4
+
+                                        else
+                                            String.length s == 3
+
+                                    _ ->
+                                        False
+
+                            _ ->
+                                False
+                    )
+                |> List.all identity
+
+        _ ->
+            False
+
+
+validateFieldValue : Model -> FormSection -> FormField -> Bool
+validateFieldValue model section field =
+    let
+        isRequired =
+            case field.required of
+                RequiredBool bool ->
+                    bool
+
+                RequiredDependsOn _ ->
+                    True
+
+        retrievedValue =
+            getValueFull section.id field.id model.data
+
+        fieldValueValid =
+            case field.fieldType of
+                ComplexPhoneField ->
+                    hasPhoneValue retrievedValue
+
+                _ ->
+                    getValue section.id field.id model.data
+                        |> isJust
+
+        isInvalid =
+            isFieldVisible field section model.data
+                && isRequired
+                && fieldValueValid
+                && field.id
+                /= "applicant_age"
+    in
+    not isInvalid
+
+
 validateSection : Model -> FormSection -> Bool
 validateSection model section =
     let
         hasEmptyRequired =
             List.any
-                (\field ->
-                    let
-                        isRequired =
-                            case field.required of
-                                RequiredBool bool ->
-                                    bool
-
-                                RequiredDependsOn _ ->
-                                    True
-
-                        fieldValue =
-                            case field.fieldType of
-                                ComplexPhoneField ->
-                                    let
-                                        basePath =
-                                            section.id ++ "." ++ field.id
-
-                                        hasValue =
-                                            [ ".area_code", ".central_office_code", ".station_code" ]
-                                                |> List.map (\suffix -> Dict.get (basePath ++ suffix) model.flatData)
-                                                |> List.all (Maybe.map (not << String.isEmpty << stringifyJValue) >> Maybe.withDefault False)
-                                    in
-                                    if hasValue then
-                                        "has-value"
-
-                                    else
-                                        ""
-
-                                _ ->
-                                    Dict.get (section.id ++ "." ++ field.id) model.flatData
-                                        |> Maybe.map stringifyJValue
-                                        |> Maybe.withDefault ""
-
-                        isInvalid =
-                            isFieldVisible field section model.flatData
-                                && isRequired
-                                && String.isEmpty fieldValue
-                                && field.id
-                                /= "applicant_age"
-                    in
-                    isInvalid
-                )
+                (validateFieldValue model section)
                 section.body
     in
-    hasEmptyRequired
+    not hasEmptyRequired
 
 
 renderFormSection : Model -> FormSection -> Html Msg
@@ -570,7 +614,7 @@ renderFormSection model section =
         hasVisibleFields =
             let
                 visibleFields =
-                    List.filter (\field -> isFieldVisible field section model.flatData) section.body
+                    List.filter (\field -> isFieldVisible field section model.data) section.body
 
                 {- _ =
                    Debug.log ("Visible fields in section " ++ section.id)
@@ -658,47 +702,27 @@ renderFormField model section field =
                 RequiredDependsOn _ ->
                     True
 
-        fieldValue =
-            case field.fieldType of
-                ComplexPhoneField ->
-                    let
-                        basePath =
-                            section.id ++ "." ++ field.id
-
-                        hasValue =
-                            [ ".area_code", ".central_office_code", ".station_code" ]
-                                |> List.map (\suffix -> Dict.get (basePath ++ suffix) model.flatData)
-                                |> List.all (Maybe.map (not << String.isEmpty << stringifyJValue) >> Maybe.withDefault False)
-                    in
-                    if hasValue then
-                        "has-value"
-
-                    else
-                        ""
-
-                _ ->
-                    Dict.get (section.id ++ "." ++ field.id) model.flatData
-                        |> Maybe.map stringifyJValue
-                        |> Maybe.withDefault ""
+        fieldValueValid =
+            validateFieldValue model section field
 
         shouldHighlight =
-            isRequired && String.isEmpty fieldValue && field.id /= "applicant_age"
+            not fieldValueValid
 
         baseInputClass =
             """
-            w-full px-4 py-3 border border-gray-300 rounded-lg
-            focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500
+            w-full px-4 py-2 border border-gray-300 rounded-md
+            focus:outline-none focus:ring-2 focus:ring-purple-500
             text-gray-700 transition-all duration-200
             hover:border-gray-400 text-base bg-white
             """
 
         labelClass =
-            "block text-sm font-medium mb-2 text-gray-700 p-2"
+            "block text-sm font-medium mb-2 text-gray-700"
                 ++ (if shouldHighlight then
                         " bg-tokyo-orange/20"
 
                     else
-                        " bg-white"
+                        ""
                    )
 
         displayLabel =
@@ -729,11 +753,11 @@ renderFormField model section field =
             else
                 text ""
     in
-    if isFieldVisible field section model.flatData then
+    if isFieldVisible field section model.data then
         div [ class wrapperClass ]
             [ debugLabel
             , label [ class labelClass ]
-                [ text field.displayLabel ]
+                [ displayLabel ]
             , case field.fieldType of
                 TextNameValueField fv ->
                     div [ class "flex items-center p-2 bg-gray-50 border border-gray-300 rounded-md text-gray-700" ]
@@ -745,8 +769,9 @@ renderFormField model section field =
                     input
                         [ type_ "date"
                         , class baseInputClass
-                        , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                        , onInput (UpdateField (section.id ++ "." ++ field.id))
+                        , value
+                            (getValueString section.id field.id model.data)
+                        , onInput (UpdateField section.id field.id)
                         ]
                         []
 
@@ -754,8 +779,9 @@ renderFormField model section field =
                     input
                         [ type_ "date"
                         , class baseInputClass
-                        , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                        , onInput (UpdateField (section.id ++ "." ++ field.id))
+                        , value
+                            (getValueString section.id field.id model.data)
+                        , onInput (UpdateField section.id field.id)
                         ]
                         []
 
@@ -763,8 +789,9 @@ renderFormField model section field =
                     input
                         [ type_ "text"
                         , class baseInputClass
-                        , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                        , onInput (UpdateField (section.id ++ "." ++ field.id))
+                        , value
+                            (getValueString section.id field.id model.data)
+                        , onInput (UpdateField section.id field.id)
                         , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
                             |> Maybe.withDefault (class "")
                         ]
@@ -775,8 +802,8 @@ renderFormField model section field =
                         [ input
                             [ type_ "text"
                             , class baseInputClass
-                            , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                            , onInput (UpdateField (section.id ++ "." ++ field.id))
+                            , value (getValueString section.id field.id model.data)
+                            , onInput (UpdateField section.id field.id)
                             , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
                                 |> Maybe.withDefault (class "")
                             ]
@@ -790,24 +817,8 @@ renderFormField model section field =
 
                 ComplexPhoneField ->
                     let
-                        basePath =
-                            section.id ++ "." ++ field.id
-
-                        areaCode =
-                            Dict.get (basePath ++ ".area_code") model.flatData |> stringifyMaybe
-
-                        officeCode =
-                            Dict.get (basePath ++ ".central_office_code") model.flatData |> stringifyMaybe
-
-                        stationCode =
-                            Dict.get (basePath ++ ".station_code") model.flatData |> stringifyMaybe
-
                         formattedValue =
-                            if String.isEmpty areaCode && String.isEmpty officeCode && String.isEmpty stationCode then
-                                ""
-
-                            else
-                                areaCode ++ "-" ++ officeCode ++ "-" ++ stationCode
+                            getPhoneValue section.id field.id model.data
                     in
                     input
                         [ type_ "tel"
@@ -827,15 +838,16 @@ renderFormField model section field =
 
                                     newStationCode =
                                         String.slice 6 10 digits
+
+                                    complexObject =
+                                        [ ( "area_code", JsonBase (StringValue newAreaCode) )
+                                        , ( "central_office_code", JsonBase (StringValue newOfficeCode) )
+                                        , ( "station_code", JsonBase (StringValue newStationCode) )
+                                        ]
+                                            |> Dict.fromList
+                                            |> JsonObject
                                 in
-                                if String.length digits <= 3 then
-                                    UpdateField (basePath ++ ".area_code") digits
-
-                                else if String.length digits <= 6 then
-                                    UpdateField (basePath ++ ".central_office_code") newOfficeCode
-
-                                else
-                                    UpdateField (basePath ++ ".station_code") newStationCode
+                                UpdateComplexPhoneField section.id field.id complexObject
                             )
                         ]
                         []
@@ -844,8 +856,9 @@ renderFormField model section field =
                     input
                         [ type_ "email"
                         , class baseInputClass
-                        , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                        , onInput (UpdateField (section.id ++ "." ++ field.id))
+                        , value
+                            (getValueString section.id field.id model.data)
+                        , onInput (UpdateField section.id field.id)
                         , Html.Attributes.maxlength config.maxLength
                         ]
                         []
@@ -854,7 +867,7 @@ renderFormField model section field =
                     if field.id == "applicant_age" then
                         let
                             dobValue =
-                                Dict.get "applicant_info.applicant_dob" model.flatData
+                                getValue "applicant_info" "applicant_dob" model.data
 
                             ageString =
                                 CSGSchema.calculateAge dobValue model.currentDate
@@ -867,15 +880,23 @@ renderFormField model section field =
                         div [ class "relative" ]
                             [ select
                                 [ class (baseInputClass ++ " appearance-none")
-                                , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                                , onInput (UpdateField (section.id ++ "." ++ field.id))
+                                , value
+                                    (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
                                 ]
                                 (option [ value "" ] [ text "Select..." ]
                                     :: List.map
                                         (\opt ->
                                             option
                                                 [ value (String.fromInt opt)
-                                                , selected (Dict.get (section.id ++ "." ++ field.id) model.flatData == Just (IntValue opt))
+                                                , selected
+                                                    (case getValue section.id field.id model.data of
+                                                        Just (IntValue intValue) ->
+                                                            intValue == opt
+
+                                                        _ ->
+                                                            False
+                                                    )
                                                 ]
                                                 [ text (String.fromInt opt) ]
                                         )
@@ -887,15 +908,23 @@ renderFormField model section field =
                     div [ class "relative" ]
                         [ select
                             [ class (baseInputClass ++ " appearance-none")
-                            , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                            , onInput (UpdateField (section.id ++ "." ++ field.id))
+                            , value
+                                (getValueString section.id field.id model.data)
+                            , onInput (UpdateField section.id field.id)
                             ]
                             (option [ value "" ] [ text "Select..." ]
                                 :: List.map
                                     (\opt ->
                                         option
                                             [ value (stringifyJValue opt.value)
-                                            , selected (Dict.get (section.id ++ "." ++ field.id) model.flatData == Just opt.value)
+                                            , selected
+                                                (case getValue section.id field.id model.data of
+                                                    Just (StringValue value) ->
+                                                        StringValue value == opt.value
+
+                                                    _ ->
+                                                        False
+                                                )
                                             ]
                                             [ text opt.key ]
                                     )
@@ -910,8 +939,9 @@ renderFormField model section field =
                             , class baseInputClass
                             , Html.Attributes.min (String.fromInt config.minimumValue)
                             , Html.Attributes.max (String.fromInt config.maximumValue)
-                            , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                            , onInput (UpdateField (section.id ++ "." ++ field.id))
+                            , value
+                                (getValueString section.id field.id model.data)
+                            , onInput (UpdateField section.id field.id)
                             ]
                             []
                         , span [ class "self-center text-cyan-300" ] [ text config.displayType ]
@@ -923,8 +953,9 @@ renderFormField model section field =
                         , class baseInputClass
                         , Html.Attributes.min (String.fromInt config.minimumValue)
                         , Html.Attributes.max (String.fromInt config.maximumValue)
-                        , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                        , onInput (UpdateField (section.id ++ "." ++ field.id))
+                        , value
+                            (getValueString section.id field.id model.data)
+                        , onInput (UpdateField section.id field.id)
                         ]
                         []
 
@@ -935,8 +966,9 @@ renderFormField model section field =
                     input
                         [ type_ "text"
                         , class baseInputClass
-                        , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                        , onInput (UpdateField (section.id ++ "." ++ field.id))
+                        , value
+                            (getValueString section.id field.id model.data)
+                        , onInput (UpdateField section.id field.id)
                         ]
                         []
 
@@ -970,7 +1002,7 @@ renderFormField model section field =
                                                  else
                                                     "false"
                                                 )
-                                            , onInput (UpdateField (section.id ++ "." ++ field.id ++ "." ++ opt.id))
+                                            , onInput (UpdateField section.id field.id)
                                             , class "text-cyan-400 border-cyan-600 rounded focus:ring-cyan-400"
                                             ]
                                             []
@@ -984,15 +1016,23 @@ renderFormField model section field =
                         div [ class "relative" ]
                             [ select
                                 [ class (baseInputClass ++ " appearance-none")
-                                , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                                , onInput (UpdateField (section.id ++ "." ++ field.id))
+                                , value
+                                    (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
                                 ]
                                 (option [ value "" ] [ text "Select..." ]
                                     :: List.map
                                         (\opt ->
                                             option
                                                 [ value (stringifyJValue opt.value)
-                                                , selected (Dict.get (section.id ++ "." ++ field.id) model.flatData == Just opt.value)
+                                                , selected
+                                                    (case getValue section.id field.id model.data of
+                                                        Just (StringValue value) ->
+                                                            StringValue value == opt.value
+
+                                                        _ ->
+                                                            False
+                                                    )
                                                 ]
                                                 [ text opt.key ]
                                         )
@@ -1004,15 +1044,23 @@ renderFormField model section field =
                     div [ class "relative" ]
                         [ select
                             [ class (baseInputClass ++ " appearance-none")
-                            , value (Dict.get (section.id ++ "." ++ field.id) model.flatData |> stringifyMaybe)
-                            , onInput (UpdateField (section.id ++ "." ++ field.id))
+                            , value
+                                (getValueString section.id field.id model.data)
+                            , onInput (UpdateField section.id field.id)
                             ]
                             (option [ value "" ] [ text "Select..." ]
                                 :: List.map
                                     (\opt ->
                                         option
                                             [ value (stringifyJValue opt.value)
-                                            , selected (Dict.get (section.id ++ "." ++ field.id) model.flatData == Just opt.value)
+                                            , selected
+                                                (case getValue section.id field.id model.data of
+                                                    Just (StringValue value) ->
+                                                        StringValue value == opt.value
+
+                                                    _ ->
+                                                        False
+                                                )
                                             ]
                                             [ text opt.key ]
                                     )
@@ -1044,18 +1092,11 @@ renderFormField model section field =
                     input
                         [ type_ "file"
                         , class baseInputClass
-                        , onInput (UpdateField (section.id ++ "." ++ field.id))
+                        , onInput (UpdateField section.id field.id)
                         ]
                         []
 
                 RadioField options ->
-                    let
-                        fieldPath =
-                            section.id ++ "." ++ field.id
-
-                        currentValue =
-                            Dict.get fieldPath model.flatData
-                    in
                     div [ class "space-y-2" ]
                         (List.map
                             (\opt ->
@@ -1063,12 +1104,8 @@ renderFormField model section field =
                                     optionValue =
                                         stringifyJValue opt.value
 
-                                    currentValueStr =
-                                        Maybe.map stringifyJValue (Dict.get fieldPath model.flatData)
-                                            |> Maybe.withDefault ""
-
                                     isSelected =
-                                        currentValueStr == optionValue
+                                        Just opt.value == getValue section.id field.id model.data
                                 in
                                 label
                                     [ class
@@ -1086,10 +1123,10 @@ renderFormField model section field =
                                     ]
                                     [ input
                                         [ type_ "radio"
-                                        , name fieldPath
+                                        , name (section.id ++ "." ++ field.id)
                                         , value optionValue
                                         , checked isSelected
-                                        , onClick (UpdateField fieldPath optionValue)
+                                        , onInput (\_ -> UpdateField section.id field.id optionValue)
                                         , class "text-purple-600 focus:ring-purple-500"
                                         ]
                                         []
@@ -1116,8 +1153,7 @@ renderFormField model section field =
                               """
                             ]
                             [ text field.displayLabel
-                            , -- Add an external link icon
-                              span [ class "text-sm" ] [ text "↗" ]
+                            , span [ class "text-sm" ] [ text "↗" ]
                             ]
                         ]
             ]
@@ -1142,11 +1178,11 @@ validateData model =
     List.all (\section -> not (validateSection model section)) model.schema
 
 
-determineUnderwritingType : Dict String JValue -> Maybe Date -> Maybe Int
-determineUnderwritingType flatData currentDate =
+determineUnderwritingType : JsonValue -> Maybe Date -> Maybe Int
+determineUnderwritingType data currentDate =
     let
         applicantDobString =
-            Dict.get "applicant_info.applicant_dob" flatData
+            getValue "applicant_info" "applicant_dob" data
 
         applicantDob =
             case applicantDobString of
@@ -1162,7 +1198,7 @@ determineUnderwritingType flatData currentDate =
                     Nothing
 
         partBDateString =
-            Dict.get "applicant_info.part_b_date" flatData
+            getValue "applicant_info" "part_b_date" data
 
         partBDate =
             case partBDateString of
@@ -1286,22 +1322,32 @@ unwrapBoolValue jvalue =
 
 
 -- Add medication types and helpers
+-- this tracs Ace atm, need to abstract for other carrier
 
 
-type alias BaseMedication =
-    { med_name : String
-    , diagnosis : String
+type alias DrugDetails =
+    { gpI10 : String
+    , productName : String
+    , drugName : String
+    , displayName : String
     }
 
 
-type MedicationType
-    = Medication
-        { drugName : String
-        , diagnosis : String
-        , dosage : String
-        , frequency : String
-        , quantity : Maybe Int
-        }
+type alias DosageDetails =
+    { dosage : String
+    , ndc : String
+    }
+
+
+type alias Medication =
+    { drug : DrugDetails
+    , diagnosis : String
+    , dosage : DosageDetails
+    , frequency : String
+    , quantity : Maybe Int
+    , lastFillDate : String
+    , medStartDate : String
+    }
 
 
 type Carrier
@@ -1311,216 +1357,157 @@ type Carrier
     | UHC
 
 
-carrierFromString : JValue -> Carrier
-carrierFromString jvalue =
-    case jvalue of
-        StringValue str ->
-            case str of
-                "ACE" ->
-                    ACE
+medicationDecoder : Decode.Decoder Medication
+medicationDecoder =
+    Decode.succeed Medication
+        |> Pipeline.required "drug" (Decode.maybe drugDetailsDecoder |> Decode.map (Maybe.withDefault defaultDrugDetails))
+        |> Pipeline.optional "diagnosis" Decode.string ""
+        |> Pipeline.required "dosage" (Decode.maybe dosageDetailsDecoder |> Decode.map (Maybe.withDefault defaultDosageDetails))
+        |> Pipeline.optional "frequency" Decode.string ""
+        |> Pipeline.optional "quantity" (Decode.nullable Decode.int) Nothing
+        |> Pipeline.optional "lastFillDate" Decode.string ""
+        |> Pipeline.optional "medStartDate" Decode.string ""
 
-                "Aetna" ->
-                    Aetna
 
-                "Allstate" ->
-                    Allstate
+drugDetailsDecoder : Decode.Decoder DrugDetails
+drugDetailsDecoder =
+    Decode.succeed DrugDetails
+        |> Pipeline.optional "gpI10" Decode.string ""
+        |> Pipeline.optional "productName" Decode.string ""
+        |> Pipeline.optional "drugName" Decode.string ""
+        |> Pipeline.optional "displayName" Decode.string ""
 
-                "UHC" ->
-                    UHC
 
-                _ ->
-                    ACE
+dosageDetailsDecoder : Decode.Decoder DosageDetails
+dosageDetailsDecoder =
+    Decode.succeed DosageDetails
+        |> optional "dosage" Decode.string ""
+        |> optional "ndc" Decode.string ""
+
+
+defaultDrugDetails : DrugDetails
+defaultDrugDetails =
+    { gpI10 = ""
+    , productName = ""
+    , drugName = ""
+    , displayName = ""
+    }
+
+
+defaultDosageDetails : DosageDetails
+defaultDosageDetails =
+    { dosage = ""
+    , ndc = ""
+    }
+
+
+carrierFromNaic : String -> Maybe Carrier
+carrierFromNaic naic =
+    case naic of
+        "20699" ->
+            Just ACE
+
+        "72052" ->
+            Just Aetna
+
+        "78700" ->
+            Just Aetna
+
+        "68500" ->
+            Just Aetna
+
+        "79413" ->
+            Just UHC
+
+        "82538" ->
+            Just Allstate
+
+        "60534" ->
+            Just Allstate
 
         _ ->
-            ACE
-
-
-medicationToDict : MedicationType -> Dict String JsonValue
-medicationToDict medType =
-    case medType of
-        Medication details ->
-            Dict.fromList
-                [ ( "drugName", JsonString details.drugName )
-                , ( "diagnosis", JsonString details.diagnosis )
-                , ( "dosage", JsonString details.dosage )
-                , ( "frequency", JsonString details.frequency )
-                , ( "quantity"
-                  , case details.quantity of
-                        Just q ->
-                            JsonInt q
-
-                        Nothing ->
-                            JsonNull
-                  )
-                ]
-
-
-
--- Helper to create a new medication based on carrier
-
-
-initMedication : Carrier -> BaseMedication -> MedicationType
-initMedication carrier base =
-    case carrier of
-        ACE ->
-            Medication
-                { drugName = base.med_name
-                , diagnosis = base.diagnosis
-                , dosage = ""
-                , frequency = ""
-                , quantity = Nothing
-                }
-
-        Aetna ->
-            Medication
-                { drugName = base.med_name
-                , diagnosis = base.diagnosis
-                , dosage = ""
-                , frequency = ""
-                , quantity = Nothing
-                }
-
-        Allstate ->
-            Medication
-                { drugName = base.med_name
-                , diagnosis = base.diagnosis
-                , dosage = ""
-                , frequency = ""
-                , quantity = Nothing
-                }
-
-        UHC ->
-            Medication
-                { drugName = ""
-                , diagnosis = ""
-                , dosage = ""
-                , frequency = ""
-                , quantity = Nothing
-                }
+            Nothing
 
 
 renderDrugLookupField : Model -> FormSection -> FormField -> Html Msg
 renderDrugLookupField model section field =
     let
-        baseId =
-            section.id ++ "." ++ field.id
-
         carrier =
-            -- Get carrier from model or field config
-            Maybe.withDefault ACE (Dict.get "carrier" model.flatData |> Maybe.map carrierFromString)
-
-        medications =
-            getMedicationList model baseId carrier
+            Maybe.withDefault ACE model.carrier
 
         showForm =
-            Dict.get (baseId ++ ".showForm") model.flatData
-                |> Maybe.map unwrapBoolValue
-                |> Maybe.withDefault False
+            model.underwritingType /= Just 1 || model.underwritingType /= Just 2
     in
     div [ class "space-y-6" ]
         [ -- Medication list display
-          if List.isEmpty medications then
+          if List.isEmpty model.medications then
             div [ class "text-gray-500 italic" ]
                 [ text "No medications added" ]
 
           else
             div [ class "space-y-4" ]
-                (List.indexedMap (renderMedicationItem carrier baseId) medications)
+                (List.indexedMap (renderMedicationItem "") model.medications)
 
         -- Add medication form
         , if showForm then
-            renderMedicationForm carrier baseId model
+            renderMedicationForm carrier model
 
           else
-            button
-                [ class "flex items-center gap-2 px-4 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                , onClick (ToggleAddMedicationForm baseId)
-                ]
-                [ text "Add Medication" ]
+            text ""
         ]
-
-
-getMedicationList : Model -> String -> Carrier -> List MedicationType
-getMedicationList model baseId carrier =
-    Dict.get baseId model.medications
-        |> Maybe.withDefault []
 
 
 
 -- Render a single medication item based on carrier type
 
 
-renderMedicationItem : Carrier -> String -> Int -> MedicationType -> Html Msg
-renderMedicationItem carrier baseId index medication =
-    let
-        baseContent =
-            case medication of
-                Medication details ->
-                    [ viewBaseMedication details ]
-
-        viewBaseMedication base =
-            div []
-                [ div [ class "font-medium" ] [ text base.drugName ]
+renderMedicationItem : String -> Int -> Medication -> Html Msg
+renderMedicationItem baseId index medication =
+    div [ class "p-4 border border-gray-200 rounded-md bg-white space-y-2" ]
+        [ div [ class "flex justify-between items-start" ]
+            [ div [ class "space-y-1" ]
+                [ div [ class "font-medium text-gray-900" ]
+                    [ text medication.drug.drugName ]
                 , div [ class "text-sm text-gray-600" ]
-                    [ text ("Diagnosis: " ++ base.diagnosis) ]
-                ]
-    in
-    div [ class "p-4 bg-gray-50 rounded-md relative" ]
-        [ div [ class "space-y-2" ] baseContent
-        , button
-            [ class "absolute top-2 right-2 text-gray-400 hover:text-red-600"
-            , onClick (RemoveMedication baseId index)
-            ]
-            [ text "×" ]
-        ]
-
-
-
--- Carrier-specific detail views
-
-
-viewPrescribedMedications prescribedMeds =
-    div [ class "mt-2 space-y-1" ]
-        (Dict.toList prescribedMeds
-            |> List.map
-                (\( _, med ) ->
+                    [ text ("Diagnosis: " ++ medication.diagnosis) ]
+                , if not (String.isEmpty medication.dosage.dosage) then
                     div [ class "text-sm text-gray-600" ]
-                        [ text (med.drugName ++ " - " ++ med.diagnosis) ]
-                )
-        )
+                        [ text ("Dosage: " ++ medication.dosage.dosage) ]
 
+                  else
+                    text ""
+                , if not (String.isEmpty medication.frequency) then
+                    div [ class "text-sm text-gray-600" ]
+                        [ text ("Frequency: " ++ medication.frequency) ]
 
-viewAllstateDetails details =
-    div [ class "mt-2 space-y-1 text-sm text-gray-600" ]
-        [ div [] [ text ("Dosage: " ++ details.dosage) ]
-        , div [] [ text ("Frequency: " ++ details.frequency) ]
-        , if not (String.isEmpty details.prescription_freq_other) then
-            div [] [ text ("Quantity: " ++ details.prescription_freq_other) ]
+                  else
+                    text ""
+                , case medication.quantity of
+                    Just qty ->
+                        div [ class "text-sm text-gray-600" ]
+                            [ text ("Quantity: " ++ String.fromInt qty) ]
 
-          else
-            text ""
+                    Nothing ->
+                        text ""
+                , if not (String.isEmpty medication.lastFillDate) then
+                    div [ class "text-sm text-gray-600" ]
+                        [ text ("Last Fill Date: " ++ medication.lastFillDate) ]
+
+                  else
+                    text ""
+                ]
+            , button
+                [ class """text-red-600 hover:text-red-700 p-1 rounded-md
+                          hover:bg-red-50 transition-colors"""
+                , onClick (RemoveMedication baseId index)
+                ]
+                [ text "×" ]
+            ]
         ]
 
 
-viewUHCDetails details =
-    div [ class "mt-2 space-y-1 text-sm text-gray-600" ]
-        [ div [] [ text ("Dosage: " ++ details.dosage.dosage) ]
-        , div [] [ text ("Frequency: " ++ details.frequency) ]
-        , div [] [ text ("Quantity: " ++ String.fromInt details.quantity) ]
-        , if not (String.isEmpty details.lastFillDate) then
-            div [] [ text ("Last Fill: " ++ details.lastFillDate) ]
-
-          else
-            text ""
-        ]
-
-
-
--- Render the add/edit form with carrier-specific fields
-
-
-renderMedicationForm : Carrier -> String -> Model -> Html Msg
-renderMedicationForm carrier baseId model =
+renderMedicationForm : Carrier -> Model -> Html Msg
+renderMedicationForm carrier model =
     let
         commonFields =
             [ formField "Medication Name" "drugName" "text"
@@ -1556,12 +1543,8 @@ renderMedicationForm carrier baseId model =
                     [ class """w-full px-4 py-2 border border-gray-300 rounded-md
                               focus:outline-none focus:ring-2 focus:ring-purple-500"""
                     , type_ inputType
-                    , onInput (UpdateMedicationField baseId fieldName)
-                    , value
-                        (Dict.get (baseId ++ ".temp." ++ fieldName) model.flatData
-                            |> Maybe.map unwrapStringValue
-                            |> Maybe.withDefault ""
-                        )
+                    , onInput (UpdateMedicationField "" fieldName)
+                    , value (Dict.get fieldName model.medicationForm |> Maybe.withDefault "")
                     ]
                     []
                 ]
@@ -1572,72 +1555,19 @@ renderMedicationForm carrier baseId model =
         , div [ class "flex justify-end gap-4" ]
             [ button
                 [ class "px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                , onClick (CancelAddMedication baseId)
+                , onClick (CancelAddMedication "")
                 ]
                 [ text "Cancel" ]
             , button
                 [ class "px-4 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                , onClick (SaveMedication baseId (createNewMedication model baseId))
+                , onClick (SaveMedication "" (createNewMedication model ""))
                 ]
                 [ text "Save" ]
             ]
         ]
 
 
-extractMedications : Decode.Value -> Dict String (List MedicationType)
-extractMedications jsonData =
-    case Decode.decodeValue (Decode.dict Decode.value) jsonData of
-        Ok dict ->
-            Dict.foldl
-                (\key value acc ->
-                    case String.split "." key of
-                        [ section, field ] ->
-                            if String.endsWith "prescription_drug_list" field then
-                                case decodeMedicationList value of
-                                    Ok meds ->
-                                        Dict.insert (section ++ "." ++ field) meds acc
-
-                                    Err _ ->
-                                        acc
-
-                            else
-                                acc
-
-                        _ ->
-                            acc
-                )
-                Dict.empty
-                dict
-
-        Err _ ->
-            Dict.empty
-
-
-decodeMedicationList : Decode.Value -> Result Decode.Error (List MedicationType)
-decodeMedicationList value =
-    Decode.decodeValue
-        (Decode.list
-            (Decode.map5
-                (\drugName diagnosis dosage frequency quantity ->
-                    Medication
-                        { drugName = drugName
-                        , diagnosis = diagnosis
-                        , dosage = dosage
-                        , frequency = frequency
-                        , quantity = quantity
-                        }
-                )
-                (Decode.field "drugName" Decode.string)
-                (Decode.field "diagnosis" Decode.string)
-                (Decode.field "dosage" Decode.string)
-                (Decode.field "frequency" Decode.string)
-                (Decode.maybe (Decode.field "quantity" Decode.int))
-            )
-        )
-        value
-
-
-addMedicationsToJson : Dict String (List MedicationType) -> Encode.Value -> Encode.Value
+addMedicationsToJson : Dict String (List Medication) -> Encode.Value -> Encode.Value
 addMedicationsToJson medications baseJson =
     case Decode.decodeValue (Decode.dict Decode.value) baseJson of
         Ok dict ->
@@ -1653,14 +1583,14 @@ addMedicationsToJson medications baseJson =
             baseJson
 
 
-encodeMedicationList : List MedicationType -> Encode.Value
+encodeMedicationList : List Medication -> Encode.Value
 encodeMedicationList medications =
     Encode.list
-        (\(Medication med) ->
+        (\med ->
             Encode.object
-                [ ( "drugName", Encode.string med.drugName )
+                [ ( "drugName", Encode.string med.drug.drugName )
                 , ( "diagnosis", Encode.string med.diagnosis )
-                , ( "dosage", Encode.string med.dosage )
+                , ( "dosage", Encode.string med.dosage.dosage )
                 , ( "frequency", Encode.string med.frequency )
                 , ( "quantity"
                   , case med.quantity of
@@ -1675,33 +1605,79 @@ encodeMedicationList medications =
         medications
 
 
-createNewMedication : Model -> String -> MedicationType
+createNewMedication : Model -> String -> Medication
 createNewMedication model baseId =
-    let
-        drugName =
-            Dict.get (baseId ++ ".temp.drugName") model.flatData
-                |> Maybe.map unwrapStringValue
-                |> Maybe.withDefault ""
-
-        diagnosis =
-            Dict.get (baseId ++ ".temp.diagnosis") model.flatData
-                |> Maybe.map unwrapStringValue
-                |> Maybe.withDefault ""
-
-        dosage =
-            Dict.get (baseId ++ ".temp.dosage") model.flatData
-                |> Maybe.map unwrapStringValue
-                |> Maybe.withDefault ""
-
-        frequency =
-            Dict.get (baseId ++ ".temp.frequency") model.flatData
-                |> Maybe.map unwrapStringValue
-                |> Maybe.withDefault ""
-    in
-    Medication
-        { drugName = drugName
-        , diagnosis = diagnosis
-        , dosage = dosage
-        , frequency = frequency
-        , quantity = Nothing
+    { drug =
+        { gpI10 = ""
+        , productName = Dict.get "drugName" model.medicationForm |> Maybe.withDefault ""
+        , drugName = Dict.get "drugName" model.medicationForm |> Maybe.withDefault ""
+        , displayName = Dict.get "drugName" model.medicationForm |> Maybe.withDefault ""
         }
+    , diagnosis = Dict.get "diagnosis" model.medicationForm |> Maybe.withDefault ""
+    , dosage =
+        { dosage = Dict.get "dosage" model.medicationForm |> Maybe.withDefault ""
+        , ndc = ""
+        }
+    , frequency = Dict.get "frequency" model.medicationForm |> Maybe.withDefault ""
+    , quantity =
+        Dict.get "quantity" model.medicationForm
+            |> Maybe.andThen String.toInt
+    , lastFillDate = Dict.get "lastFillDate" model.medicationForm |> Maybe.withDefault ""
+    , medStartDate = ""
+    }
+
+
+encodeData : JsonValue -> Encode.Value
+encodeData jsonValue =
+    case jsonValue of
+        JsonObject dict ->
+            Dict.map (\_ v -> encodeJsonValue v) dict
+                |> Encode.dict identity identity
+
+        _ ->
+            Encode.null
+
+
+encodeJsonValue : JsonValue -> Encode.Value
+encodeJsonValue value =
+    case value of
+        JsonObject dict ->
+            Dict.map (\_ v -> encodeJsonValue v) dict
+                |> Encode.dict identity identity
+
+        JsonArray arr ->
+            Encode.list encodeJsonValue arr
+
+        JsonBase (StringValue str) ->
+            Encode.string str
+
+        JsonBase (IntValue n) ->
+            Encode.int n
+
+        JsonBase (FloatValue f) ->
+            Encode.float f
+
+        JsonBase (BoolValue b) ->
+            Encode.bool b
+
+        JsonBase NullValue ->
+            Encode.null
+
+
+isJust : Maybe a -> Bool
+isJust maybe =
+    case maybe of
+        Just _ ->
+            True
+
+        Nothing ->
+            False
+
+
+applicationViewDecoder : Decode.Decoder Application
+applicationViewDecoder =
+    Decode.map4 Application
+        (Decode.field "id" Decode.string)
+        (Decode.field "naic" Decode.string)
+        (Decode.field "data" Decode.value)
+        (Decode.field "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder))
