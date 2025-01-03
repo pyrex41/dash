@@ -46,7 +46,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Port handlers for interacting with Elm
         app.ports.requestRefresh?.subscribe(({ page, pageSize, searchTerm, hasContactFilter }) => {
-            console.log('Refresh requested:', { page, pageSize, searchTerm, hasContactFilter });
+            console.log('Search params:', { 
+                page,
+                pageSize,
+                searchTerm, 
+                length: searchTerm?.length || 0,
+                hasContactFilter
+            });
             fetch(`/api/applications?page=${page}&pageSize=${pageSize}&searchTerm=${searchTerm}&hasContactFilter=${hasContactFilter}`)
                 .then(response => response.json())
                 .then(data => {
