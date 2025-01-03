@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error(`HTTP error! status: ${response.status}`)
                 }
                 const application = await response.json()
-                console.log('Received application schema sections:', application.schema.map(s => s.id));
+                console.log('Received application schema sections:', application.schema?.sections?.map(s => s.id));
                 app.ports.receiveApplication.send(application)
             } catch (error) {
                 console.error('Error fetching application:', error)
