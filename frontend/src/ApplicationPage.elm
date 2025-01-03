@@ -132,7 +132,8 @@ httpErrorToString error =
 
 applicationViewDecoder : Decode.Decoder ApplicationView.Application
 applicationViewDecoder =
-    Decode.map3 ApplicationView.Application
+    Decode.map4 ApplicationView.Application
         (Decode.field "id" Decode.string)
+        (Decode.field "naic" Decode.string)
         (Decode.field "data" Decode.value)
         (Decode.field "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder))

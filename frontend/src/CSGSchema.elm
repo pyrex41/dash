@@ -12,11 +12,7 @@ import Time exposing (Month(..))
 
 
 type JsonValue
-    = JsonString String
-    | JsonInt Int
-    | JsonFloat Float
-    | JsonBool Bool
-    | JsonNull
+    = JsonBase JValue
     | JsonArray (List JsonValue)
     | JsonObject (Dict.Dict String JsonValue)
 
@@ -27,6 +23,16 @@ type JValue
     | FloatValue Float
     | BoolValue Bool
     | NullValue
+
+
+unwrapJValue : JsonValue -> JValue
+unwrapJValue jsonValue =
+    case jsonValue of
+        JsonBase jvalue ->
+            jvalue
+
+        _ ->
+            NullValue
 
 
 parseValue : String -> JValue
@@ -61,79 +67,52 @@ parseValue valueString =
 jsonValueDecoder : Decoder JsonValue
 jsonValueDecoder =
     Decode.oneOf
-        [ Decode.string |> Decode.map JsonString
-        , Decode.int |> Decode.map JsonInt
-        , Decode.float |> Decode.map JsonFloat
-        , Decode.bool |> Decode.map JsonBool
-        , Decode.null JsonNull
+        [ Decode.string |> Decode.map (\s -> JsonBase (StringValue s))
+        , Decode.int |> Decode.map (\n -> JsonBase (IntValue n))
+        , Decode.float |> Decode.map (\f -> JsonBase (FloatValue f))
+        , Decode.bool |> Decode.map (\b -> JsonBase (BoolValue b))
+        , Decode.null (JsonBase NullValue)
         , Decode.list (Decode.lazy (\_ -> jsonValueDecoder)) |> Decode.map JsonArray
         , Decode.dict (Decode.lazy (\_ -> jsonValueDecoder)) |> Decode.map JsonObject
         ]
 
 
-flattenJsonToDict : String -> JsonValue -> Dict.Dict String JValue -> Dict.Dict String JValue
-flattenJsonToDict prefix value dict =
-    case value of
-        JsonString str ->
-            Dict.insert prefix (StringValue str) dict
+encodeFormObject : JsonValue -> Encode.Value
+encodeFormObject jsonValue =
+    case jsonValue of
+        JsonBase jvalue ->
+            encodeJValue jvalue
 
-        JsonInt n ->
-            Dict.insert prefix (IntValue n) dict
+        JsonArray values ->
+            Encode.list encodeFormObject values
 
-        JsonFloat n ->
-            Dict.insert prefix (FloatValue n) dict
+        JsonObject dict ->
+            Dict.toList dict
+                |> List.map (\( key, value ) -> ( key, encodeFormObject value ))
+                |> Encode.object
 
-        JsonBool b ->
-            Dict.insert prefix
-                (if b then
-                    BoolValue True
 
-                 else
-                    BoolValue False
-                )
-                dict
+encodeJValue : JValue -> Encode.Value
+encodeJValue jvalue =
+    case jvalue of
+        StringValue str ->
+            Encode.string str
 
-        JsonObject obj ->
-            Dict.foldl
-                (\k v acc ->
-                    let
-                        newPrefix =
-                            if String.isEmpty prefix then
-                                k
+        IntValue n ->
+            Encode.int n
 
-                            else
-                                prefix ++ "." ++ k
-                    in
-                    flattenJsonToDict newPrefix v acc
-                )
-                dict
-                obj
+        FloatValue f ->
+            Encode.float f
 
-        _ ->
-            dict
+        BoolValue b ->
+            Encode.bool b
+
+        NullValue ->
+            Encode.null
 
 
 encodeFormValues : Dict.Dict String JValue -> Decode.Value
 encodeFormValues flatData =
-    let
-        encodeJValue : JValue -> Encode.Value
-        encodeJValue jvalue =
-            case jvalue of
-                StringValue str ->
-                    Encode.string str
-
-                IntValue n ->
-                    Encode.int n
-
-                FloatValue f ->
-                    Encode.float f
-
-                BoolValue b ->
-                    Encode.bool b
-
-                NullValue ->
-                    Encode.null
-    in
     Dict.toList flatData
         |> List.map (\( key, value ) -> ( key, encodeJValue value ))
         |> Encode.object
@@ -753,11 +732,7 @@ monthToInt month =
 -- Add this helper function to check dependencies
 
 
-type alias FlatValues =
-    Dict.Dict String JValue
-
-
-isFieldVisible : FormField -> FormSection -> FlatValues -> Bool
+isFieldVisible : FormField -> FormSection -> JsonValue -> Bool
 isFieldVisible field section formValues =
     let
         dependenciesSatisfied =
@@ -790,18 +765,18 @@ isFieldVisible field section formValues =
     finalResult
 
 
-checkSectionDependencies : MultiDependsOn -> FlatValues -> Bool
-checkSectionDependencies dependsOn flattenedData =
+checkSectionDependencies : MultiDependsOn -> JsonValue -> Bool
+checkSectionDependencies dependsOn data =
     case dependsOn of
         DependsOnType dependsOnNormal ->
-            checkDependencies dependsOnNormal flattenedData
+            checkDependencies dependsOnNormal data
 
         SectionDependsOnType sectionDependsOn ->
-            checkAttributeDependencies sectionDependsOn flattenedData
+            checkAttributeDependencies sectionDependsOn data
 
 
-checkAttributeDependencies : SectionDependsOn -> FlatValues -> Bool
-checkAttributeDependencies sectionDependsOn flattenedData =
+checkAttributeDependencies : SectionDependsOn -> JsonValue -> Bool
+checkAttributeDependencies sectionDependsOn data =
     case sectionDependsOn.logicOperator of
         "OR" ->
             let
@@ -809,30 +784,28 @@ checkAttributeDependencies sectionDependsOn flattenedData =
                     List.map
                         (\fieldValue ->
                             let
-                                path =
-                                    fieldValue.objectName ++ "." ++ fieldValue.attributeName
-
                                 actualValue =
-                                    Dict.get path flattenedData
-                                        |> Maybe.withDefault NullValue
+                                    case data of
+                                        JsonObject dict ->
+                                            case Dict.get fieldValue.objectName dict of
+                                                Just (JsonObject objDict) ->
+                                                    case Dict.get fieldValue.attributeName objDict of
+                                                        Just (JsonBase value) ->
+                                                            value
+
+                                                        _ ->
+                                                            NullValue
+
+                                                _ ->
+                                                    NullValue
+
+                                        _ ->
+                                            NullValue
 
                                 expectedValue =
                                     case fieldValue.value of
-                                        JsonString str ->
-                                            StringValue str
-
-                                        JsonInt n ->
-                                            IntValue n
-
-                                        JsonFloat n ->
-                                            FloatValue n
-
-                                        JsonBool b ->
-                                            if b then
-                                                BoolValue True
-
-                                            else
-                                                BoolValue False
+                                        JsonBase value ->
+                                            value
 
                                         _ ->
                                             NullValue
@@ -849,30 +822,28 @@ checkAttributeDependencies sectionDependsOn flattenedData =
                     List.map
                         (\fieldValue ->
                             let
-                                path =
-                                    fieldValue.objectName ++ "." ++ fieldValue.attributeName
-
                                 actualValue =
-                                    Dict.get path flattenedData
-                                        |> Maybe.withDefault NullValue
+                                    case data of
+                                        JsonObject dict ->
+                                            case Dict.get fieldValue.objectName dict of
+                                                Just (JsonObject objDict) ->
+                                                    case Dict.get fieldValue.attributeName objDict of
+                                                        Just (JsonBase value) ->
+                                                            value
+
+                                                        _ ->
+                                                            NullValue
+
+                                                _ ->
+                                                    NullValue
+
+                                        _ ->
+                                            NullValue
 
                                 expectedValue =
                                     case fieldValue.value of
-                                        JsonString str ->
-                                            StringValue str
-
-                                        JsonInt n ->
-                                            IntValue n
-
-                                        JsonFloat n ->
-                                            FloatValue n
-
-                                        JsonBool b ->
-                                            if b then
-                                                BoolValue True
-
-                                            else
-                                                BoolValue False
+                                        JsonBase value ->
+                                            value
 
                                         _ ->
                                             NullValue
@@ -887,41 +858,35 @@ checkAttributeDependencies sectionDependsOn flattenedData =
             False
 
 
-checkDependencies : DependsOn -> FlatValues -> Bool
-checkDependencies dependsOn flattenedData =
+checkDependencies : DependsOn -> JsonValue -> Bool
+checkDependencies dependsOn data =
     case dependsOn.logicOperator of
         "OR" ->
             List.any
                 (\fieldValue ->
                     let
-                        -- Build the full path by combining section and field IDs
-                        path =
-                            fieldValue.sectionId ++ "." ++ fieldValue.id
-
                         actualValue =
-                            Dict.get path flattenedData
-                                |> Maybe.withDefault NullValue
+                            case data of
+                                JsonObject dict ->
+                                    case Dict.get fieldValue.sectionId dict of
+                                        Just (JsonObject sectionDict) ->
+                                            case Dict.get fieldValue.id sectionDict of
+                                                Just (JsonBase value) ->
+                                                    value
+
+                                                _ ->
+                                                    NullValue
+
+                                        _ ->
+                                            NullValue
+
+                                _ ->
+                                    NullValue
 
                         expectedValue =
                             case fieldValue.value of
-                                JsonString str ->
-                                    StringValue str
-
-                                JsonInt n ->
-                                    IntValue n
-
-                                JsonBool b ->
-                                    if b then
-                                        BoolValue True
-
-                                    else
-                                        BoolValue False
-
-                                JsonFloat n ->
-                                    FloatValue n
-
-                                JsonNull ->
-                                    NullValue
+                                JsonBase value ->
+                                    value
 
                                 _ ->
                                     NullValue
@@ -934,30 +899,28 @@ checkDependencies dependsOn flattenedData =
             List.all
                 (\fieldValue ->
                     let
-                        path =
-                            fieldValue.sectionId ++ "." ++ fieldValue.id
-
                         actualValue =
-                            Dict.get path flattenedData
-                                |> Maybe.withDefault NullValue
+                            case data of
+                                JsonObject dict ->
+                                    case Dict.get fieldValue.sectionId dict of
+                                        Just (JsonObject sectionDict) ->
+                                            case Dict.get fieldValue.id sectionDict of
+                                                Just (JsonBase value) ->
+                                                    value
+
+                                                _ ->
+                                                    NullValue
+
+                                        _ ->
+                                            NullValue
+
+                                _ ->
+                                    NullValue
 
                         expectedValue =
                             case fieldValue.value of
-                                JsonString str ->
-                                    StringValue str
-
-                                JsonInt n ->
-                                    IntValue n
-
-                                JsonBool b ->
-                                    if b then
-                                        BoolValue True
-
-                                    else
-                                        BoolValue False
-
-                                JsonFloat n ->
-                                    FloatValue n
+                                JsonBase value ->
+                                    value
 
                                 _ ->
                                     NullValue
