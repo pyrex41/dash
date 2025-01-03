@@ -590,11 +590,11 @@ validateFieldValue model section field =
         isInvalid =
             isFieldVisible field section model.data
                 && isRequired
-                && fieldValueValid
+                && not fieldValueValid
                 && field.id
                 /= "applicant_age"
     in
-    not isInvalid
+    isInvalid
 
 
 validateSection : Model -> FormSection -> Bool
@@ -605,7 +605,7 @@ validateSection model section =
                 (validateFieldValue model section)
                 section.body
     in
-    not hasEmptyRequired
+    hasEmptyRequired
 
 
 renderFormSection : Model -> FormSection -> Html Msg
@@ -703,7 +703,7 @@ renderFormField model section field =
                     True
 
         fieldValueValid =
-            validateFieldValue model section field
+            not (validateFieldValue model section field)
 
         shouldHighlight =
             not fieldValueValid
