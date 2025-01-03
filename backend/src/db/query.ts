@@ -184,117 +184,74 @@ export const getApplications = async (page: number, pageSize: number, searchTerm
   const searchPattern = `%${searchTerm.toLowerCase()}%`
   const shouldSearch = searchTerm.length >= 3
 
-  // Build base query
-  let dbQuery = db
-    .select({
-      id: applications.id,
-      userId: applications.userId,
-      status: applications.status,
-      createdAt: applications.createdAt,
-      data: applications.data,
-      name: applications.name,
-    })
-    .from(applications)
-
-  // Add contact filter
+  // Build the WHERE clause conditions
+  const whereConditions = []
+  
   if (hasContactFilter) {
-    dbQuery = dbQuery.where(
-        sql`(
-        json_extract(${applications.data}, '$.applicant_info.email') IS NOT NULL OR
-        json_extract(${applications.data}, '$.applicant_info.phone') IS NOT NULL OR
-        EXISTS (
-            SELECT 1 FROM ${bookings}
-            WHERE ${bookings.applicationId} = ${applications.id}
-            AND (${bookings.email} IS NOT NULL OR ${bookings.phone} IS NOT NULL)
-        ) OR
-        EXISTS (
-            SELECT 1 FROM ${user}
-            WHERE ${user.id} = ${applications.userId}
-            AND ${user.email} IS NOT NULL
-        )
-        )`
-    )
-    }
+    whereConditions.push(sql`(
+      json_extract(${applications.data}, '$.applicant_info.email') IS NOT NULL OR
+      json_extract(${applications.data}, '$.applicant_info.phone') IS NOT NULL OR
+      EXISTS (
+          SELECT 1 FROM ${bookings}
+          WHERE ${bookings.applicationId} = ${applications.id}
+          AND (${bookings.email} IS NOT NULL OR ${bookings.phone} IS NOT NULL)
+      ) OR
+      EXISTS (
+          SELECT 1 FROM ${user}
+          WHERE ${user.id} = ${applications.userId}
+          AND ${user.email} IS NOT NULL
+      )
+    )`)
+  }
 
-  // Add search conditions
   if (shouldSearch) {
-    dbQuery = dbQuery.where(
-      sql`(
-        LOWER(json_extract(${applications.data}, '$.applicant_info.f_name')) LIKE ${searchPattern} OR
-        LOWER(json_extract(${applications.data}, '$.applicant_info.l_name')) LIKE ${searchPattern} OR
-        LOWER(json_extract(${applications.data}, '$.applicant_info.phone')) LIKE ${searchPattern} OR
-        LOWER(json_extract(${applications.data}, '$.applicant_info.email')) LIKE ${searchPattern} OR
-        LOWER(${applications.name}) LIKE ${searchPattern} OR
-        EXISTS (
-            SELECT 1 FROM ${bookings}
-            WHERE ${bookings.applicationId} = ${applications.id}
-            AND (
+    whereConditions.push(sql`(
+      LOWER(json_extract(${applications.data}, '$.applicant_info.f_name')) LIKE ${searchPattern} OR
+      LOWER(json_extract(${applications.data}, '$.applicant_info.l_name')) LIKE ${searchPattern} OR
+      LOWER(json_extract(${applications.data}, '$.applicant_info.phone')) LIKE ${searchPattern} OR
+      LOWER(json_extract(${applications.data}, '$.applicant_info.email')) LIKE ${searchPattern} OR
+      LOWER(${applications.name}) LIKE ${searchPattern} OR
+      EXISTS (
+          SELECT 1 FROM ${bookings}
+          WHERE ${bookings.applicationId} = ${applications.id}
+          AND (
             LOWER(${bookings.email}) LIKE ${searchPattern}
             ${bookings.phone ? sql`OR LOWER(${bookings.phone}) LIKE ${searchPattern}` : sql``}
-            )
-        ) OR
-        EXISTS (
-            SELECT 1 FROM ${user}
-            WHERE ${user.id} = ${applications.userId}
-            AND LOWER(${user.email}) LIKE ${searchPattern}
-        
-        )`
-    )
+          )
+      ) OR
+      EXISTS (
+          SELECT 1 FROM ${user}
+          WHERE ${user.id} = ${applications.userId}
+          AND LOWER(${user.email}) LIKE ${searchPattern}
+      )
+    )`)
   }
+
+  // Combine conditions with AND if there are multiple conditions
+  const whereClause = whereConditions.length > 0 
+    ? sql`WHERE ${sql.join(whereConditions, sql` AND `)}` 
+    : sql``
 
   // Execute queries
   const [results, totalCount] = await Promise.all([
-    dbQuery
+    db
+      .select({
+        id: applications.id,
+        userId: applications.userId,
+        status: applications.status,
+        createdAt: applications.createdAt,
+        data: applications.data,
+        name: applications.name,
+      })
+      .from(applications)
+      .where(whereConditions.length > 0 ? sql.join(whereConditions, sql` AND `) : undefined)
       .orderBy(desc(applications.createdAt))
       .limit(pageSize)
       .offset(offset),
     db
       .select({ count: sql`count(*)`.mapWith(Number) })
       .from(applications)
-      .where(shouldSearch || hasContactFilter
-              ? sql`${
-                  hasContactFilter
-                    ? sql`(
-                        json_extract(${applications.data}, '$.applicant_info.email') IS NOT NULL OR
-                        json_extract(${applications.data}, '$.applicant_info.phone') IS NOT NULL OR
-                        EXISTS (
-                          SELECT 1 FROM ${bookings}
-                          WHERE ${bookings.applicationId} = ${applications.id}
-                          AND (${bookings.email} IS NOT NULL OR ${bookings.phone} IS NOT NULL)
-                        ) OR
-                        EXISTS (
-                          SELECT 1 FROM ${user}
-                          WHERE ${user.id} = ${applications.userId}
-                          AND ${user.email} IS NOT NULL
-                        )
-                      )`
-                    : sql`1=1`
-                } AND ${
-                  shouldSearch
-                    ? sql`(
-                        LOWER(json_extract(${applications.data}, '$.applicant_info.f_name')) LIKE ${searchPattern} OR
-                        LOWER(json_extract(${applications.data}, '$.applicant_info.l_name')) LIKE ${searchPattern} OR
-                        LOWER(json_extract(${applications.data}, '$.applicant_info.phone')) LIKE ${searchPattern} OR
-                        LOWER(json_extract(${applications.data}, '$.applicant_info.email')) LIKE ${searchPattern} OR
-                        LOWER(${applications.name}) LIKE ${searchPattern} OR
-                        EXISTS (
-                          SELECT 1 FROM ${bookings}
-                          WHERE ${bookings.applicationId} = ${applications.id}
-                          AND (
-                            LOWER(${bookings.email}) LIKE ${searchPattern}
-                            ${bookings.phone ? sql`OR LOWER(${bookings.phone}) LIKE ${searchPattern}` : sql``}
-                          )
-                        ) OR
-                        EXISTS (
-                          SELECT 1 FROM ${user}
-                          WHERE ${user.id} = ${applications.userId}
-                          AND LOWER(${user.email}) LIKE ${searchPattern}
-                        )
-                      )`
-                    : sql`1=1`
-                }`
-              : undefined
-            )
+      .where(whereConditions.length > 0 ? sql.join(whereConditions, sql` AND `) : undefined)
   ])
 
   const formattedApplications = await formatApplicationData(results)

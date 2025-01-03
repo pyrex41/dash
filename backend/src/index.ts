@@ -40,7 +40,9 @@ app.group('/api', app => app
         page,
         pageSize,
         searchTerm,
-        hasContactFilter
+        searchTermLength: searchTerm?.length || 0,
+        hasContactFilter,
+        rawParams: params
       })
       
       const result = await getApplications(page, pageSize, searchTerm, hasContactFilter)
