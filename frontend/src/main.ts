@@ -22,6 +22,9 @@ console.log('Imports completed');
 // Add token acquisition function
 async function getLAProToken() {
     try {
+        // Clear any existing token cookie first
+        document.cookie = "lapro_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        
         const response = await fetch('/api/lapro/token', {
             method: 'POST',
             headers: {
@@ -142,10 +145,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 .find(row => row.startsWith('lapro_token='))
                 ?.split('=')[1];
 
-            if (!token) {
-                console.log('No token found in cookies, getting new token...');
-                token = await getLAProToken();
+            // Clear the cookie if it exists but might be invalid
+            if (token) {
+                document.cookie = "lapro_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
             }
+
+            console.log('No token found in cookies, getting new token...');
+            token = await getLAProToken();
 
             console.log('Sending token to Elm:', token ? 'Token found' : 'No token');
             app.ports.getLAProTokenResponse.send(token || '');
