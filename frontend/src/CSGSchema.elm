@@ -983,5 +983,160 @@ formatPhoneNumber phone =
     formattedValue
 
 
+type Carrier
+    = ACE
+    | Aetna
+    | Allstate
+    | UHC
 
--- Handle as needed
+
+carrierFromNaic : String -> Maybe Carrier
+carrierFromNaic naic =
+    case naic of
+        "20699" ->
+            Just ACE
+
+        "72052" ->
+            Just Aetna
+
+        "78700" ->
+            Just Aetna
+
+        "68500" ->
+            Just Aetna
+
+        "79413" ->
+            Just UHC
+
+        "82538" ->
+            Just Allstate
+
+        "60534" ->
+            Just Allstate
+
+        _ ->
+            Nothing
+
+
+naicsFromCarrier : Carrier -> List String
+naicsFromCarrier carrier =
+    case carrier of
+        ACE ->
+            [ "20699" ]
+
+        Aetna ->
+            [ "72052", "78700", "68500" ]
+
+        UHC ->
+            [ "79413" ]
+
+        Allstate ->
+            [ "82538", "60534" ]
+
+
+
+-- Default medication schema (from Ace)
+
+
+defaultMedicationSection : FormSection
+defaultMedicationSection =
+    { id = "medication_information"
+    , order = 6
+    , heading = "List all the over-the-counter or prescription medications you are currently taking."
+    , title = "Medication Information"
+    , body =
+        [ { id = "taken_prescription_drugs"
+          , tag = "taken_prescription_drugs"
+          , displayLabel = "Are you taking or have you taken any prescription or over‐the‐counter medications within the past\n12 months?"
+          , fieldType = RadioField [ { key = "Yes", value = BoolValue True }, { key = "No", value = BoolValue False } ]
+          , required = RequiredBool True
+          , dependsOn = Nothing
+          , order = 0
+          }
+        , { id = "medication_url"
+          , tag = "medication_url"
+          , displayLabel = "DRUG INFORMATION LINK - Search Window will open in a new tab."
+          , fieldType = LinkField { url = "https://www.merckmanuals.com/home/drug-names-generic-and-brand?ruleredirectid=455" }
+          , required = RequiredBool False
+          , dependsOn = Just { fieldValueList = [ { id = "taken_prescription_drugs", sectionId = "medication_information", value = JsonBase (BoolValue True) } ], logicOperator = "OR" }
+          , order = 2
+          }
+        , { id = "prescription_drug_list"
+          , tag = "prescription_drug_list"
+          , displayLabel = "Add Prescription"
+          , fieldType = DrugLookupField { isLastFillVisible = True }
+          , required = RequiredBool True
+          , dependsOn = Just { fieldValueList = [ { id = "taken_prescription_drugs", sectionId = "medication_information", value = JsonBase (BoolValue True) } ], logicOperator = "OR" }
+          , order = 3
+          }
+        ]
+    , dependsOn = Just (SectionDependsOnType { fieldValueList = [ { attributeName = "underwriting_type", objectName = "enrollment_application", value = JsonBase (IntValue 0) }, { attributeName = "underwriting_type", objectName = "enrollment_application", value = JsonBase (IntValue -1) } ], logicOperator = "OR" })
+    }
+
+
+defaultAetnaMedicationSection : FormSection
+defaultAetnaMedicationSection =
+    { id = "health_history"
+    , order = 6
+    , heading = "List all the over-the-counter or prescription medications you are currently taking."
+    , title = "Health History"
+    , body =
+        [ { id = "brain_surgery"
+          , tag = "brain_surgery"
+          , displayLabel = "Within the past 24 months if you have been medically diagnosed, treated, or had surgery for any brain, mental or nervous disorder?"
+          , fieldType = RadioField [ { key = "Yes", value = BoolValue True }, { key = "No", value = BoolValue False } ]
+          , required = RequiredBool True
+          , dependsOn = Nothing
+          , order = 0
+          }
+        , { id = "brain_surgery_reason"
+          , tag = "brain_surgery_reason"
+          , displayLabel = "Provide reason and diagnosis:"
+          , fieldType = TextField { maxLength = Nothing }
+          , required = RequiredBool True
+          , dependsOn = Just { fieldValueList = [ { id = "brain_surgery", sectionId = "health_history", value = JsonBase (BoolValue True) } ], logicOperator = "OR" }
+          , order = 1
+          }
+        , { id = "outpatient_surgery"
+          , tag = "outpatient_surgery"
+          , displayLabel = "Within the past five years if you have been hospitalized, treated at an outpatient facility, or emergency room:"
+          , fieldType = RadioField [ { key = "Yes", value = BoolValue True }, { key = "No", value = BoolValue False } ]
+          , required = RequiredBool True
+          , dependsOn = Nothing
+          , order = 2
+          }
+        , { id = "outpatient_surgery_reason"
+          , tag = "outpatient_surgery_reason"
+          , displayLabel = "Provide reason and diagnosis:"
+          , fieldType = TextField { maxLength = Nothing }
+          , required = RequiredBool True
+          , dependsOn = Just { fieldValueList = [ { id = "outpatient_surgery", sectionId = "health_history", value = JsonBase (BoolValue True) } ], logicOperator = "OR" }
+          , order = 3
+          }
+        , { id = "taken_prescription_drugs"
+          , tag = "taken_prescription_drugs"
+          , displayLabel = "Are you taking or have you taken any prescription or over‐the‐counter medications within the past\n12 months?"
+          , fieldType = RadioField [ { key = "Yes", value = BoolValue True }, { key = "No", value = BoolValue False } ]
+          , required = RequiredBool True
+          , dependsOn = Nothing
+          , order = 4
+          }
+        , { id = "medication_url"
+          , tag = "medication_url"
+          , displayLabel = "DRUG INFORMATION LINK - Search Window will open in a new tab."
+          , fieldType = LinkField { url = "https://www.merckmanuals.com/home/drug-names-generic-and-brand?ruleredirectid=455" }
+          , required = RequiredBool False
+          , dependsOn = Just { fieldValueList = [ { id = "taken_prescription_drugs", sectionId = "health_history", value = JsonBase (BoolValue True) } ], logicOperator = "OR" }
+          , order = 5
+          }
+        , { id = "prescription_drug_list"
+          , tag = "prescription_drug_list"
+          , displayLabel = "Add Prescription"
+          , fieldType = DrugLookupField { isLastFillVisible = True }
+          , required = RequiredBool True
+          , dependsOn = Just { fieldValueList = [ { id = "taken_prescription_drugs", sectionId = "health_history", value = JsonBase (BoolValue True) } ], logicOperator = "OR" }
+          , order = 6
+          }
+        ]
+    , dependsOn = Just (SectionDependsOnType { fieldValueList = [ { attributeName = "underwriting_type", objectName = "enrollment_application", value = JsonBase (IntValue 0) }, { attributeName = "underwriting_type", objectName = "enrollment_application", value = JsonBase (IntValue -1) } ], logicOperator = "OR" })
+    }

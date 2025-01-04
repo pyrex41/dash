@@ -1,0 +1,3891 @@
+[
+    {
+        "$id": "eapplication.json#",
+        "sections": [
+            {
+                "body": [
+                    {
+                        "required": true,
+                        "order": 0,
+                        "quote_search_attribute": "plan",
+                        "tag": "plan",
+                        "display_label": "Plan (select one)",
+                        "id": "applicant_plan",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "A",
+                                "key": "Plan A"
+                            },
+                            {
+                                "value": "F",
+                                "key": "Plan F"
+                            },
+                            {
+                                "value": "HDF",
+                                "key": "Plan F - High Deductible"
+                            },
+                            {
+                                "value": "G",
+                                "key": "Plan G"
+                            },
+                            {
+                                "value": "N",
+                                "key": "Plan N"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "id": "effective_date",
+                        "quote_search_attribute": "effective_date",
+                        "tag": "effective_date",
+                        "display_label": "Requested Medicare Supplement effective date:",
+                        "type": "complex_date_picker_field",
+                        "order": 1
+                    },
+                    {
+                        "required": true,
+                        "id": "title",
+                        "tag": "title_name",
+                        "display_label": "Title",
+                        "order": 2,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "Mr",
+                                "key": "Mr"
+                            },
+                            {
+                                "value": "Mrs",
+                                "key": "Mrs"
+                            },
+                            {
+                                "value": "Miss",
+                                "key": "Miss"
+                            },
+                            {
+                                "value": "Ms",
+                                "key": "Ms"
+                            },
+                            {
+                                "value": "Other",
+                                "key": "Other"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "id": "f_name",
+                        "tag": "first_name",
+                        "display_label": "First Name",
+                        "maxlength": 15,
+                        "type": "text_field",
+                        "order": 3
+                    },
+                    {
+                        "required": false,
+                        "id": "middle_initial",
+                        "tag": "middle_initial",
+                        "display_label": "Middle Initial",
+                        "maxlength": 1,
+                        "type": "text_field",
+                        "order": 4
+                    },
+                    {
+                        "required": true,
+                        "id": "l_name",
+                        "tag": "last_name",
+                        "display_label": "Last Name",
+                        "maxlength": 35,
+                        "type": "text_field",
+                        "order": 5
+                    },
+                    {
+                        "required": true,
+                        "id": "address_line1",
+                        "tag": "address_line1",
+                        "display_label": "Residence Address",
+                        "maxlength": 23,
+                        "type": "text_field",
+                        "order": 6
+                    },
+                    {
+                        "search_data_column": "zip5",
+                        "required": true,
+                        "id": "zip5",
+                        "quote_search_attribute": "zip5",
+                        "tag": "zip5",
+                        "display_label": "ZIP",
+                        "maxlength": 5,
+                        "path": "/location_data?zip5=",
+                        "child_fields": [
+                            {
+                                "search_data_column": "city",
+                                "required": true,
+                                "id": "address_city",
+                                "tag": "address_city",
+                                "display_label": "City",
+                                "display_dropdown": true,
+                                "maxlength": 20,
+                                "type": "text_field",
+                                "order": 0
+                            },
+                            {
+                                "search_data_column": "state",
+                                "required": true,
+                                "id": "address_state",
+                                "tag": "address_state",
+                                "display_label": "State",
+                                "display_dropdown": true,
+                                "type": "text_field",
+                                "order": 1
+                            }
+                        ],
+                        "type": "string_search_field",
+                        "order": 7
+                    },
+                    {
+                        "display_label": "Is mailing address different from residence address?",
+                        "id": "is_mailing_address_different",
+                        "order": 8,
+                        "tag": "is_mailing_address_different",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Mailing Address",
+                        "id": "mailing_address_line_1",
+                        "order": 9,
+                        "tag": "mailing_address_line_1",
+                        "required": true,
+                        "maxlength": 23,
+                        "type": "text_field",
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "is_mailing_address_different",
+                                    "section_id": "applicant_info",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "display_label": "ZIP",
+                        "id": "mailing_address_zip",
+                        "order": 10,
+                        "tag": "mailing_address_zip",
+                        "required": true,
+                        "search_data_column": "zip5",
+                        "path": "/location_data?zip5=",
+                        "child_fields": [
+                            {
+                                "display_label": "City",
+                                "id": "mailing_address_city",
+                                "order": 0,
+                                "tag": "mailing_address_city",
+                                "required": true,
+                                "maxlength": 20,
+                                "display_dropdown": true,
+                                "search_data_column": "city",
+                                "type": "text_field"
+                            },
+                            {
+                                "display_label": "State",
+                                "id": "mailing_address_state",
+                                "order": 1,
+                                "tag": "mailing_address_state",
+                                "required": true,
+                                "display_dropdown": true,
+                                "search_data_column": "state",
+                                "type": "text_field"
+                            }
+                        ],
+                        "type": "string_search_field",
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "is_mailing_address_different",
+                                    "section_id": "applicant_info",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "required": true,
+                        "order": 11,
+                        "tag": "applicant_phone",
+                        "display_label": "Telephone Number",
+                        "type": "complex_phone_field",
+                        "id": "applicant_phone"
+                    },
+                    {
+                        "display_label": "Type of phone",
+                        "id": "phone",
+                        "order": 12,
+                        "tag": "phone",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "home",
+                                "key": "Home"
+                            },
+                            {
+                                "value": "mobile",
+                                "key": "Mobile"
+                            },
+                            {
+                                "value": "work",
+                                "key": "Work"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "id": "applicant_email",
+                        "tag": "email_address",
+                        "display_label": "E-Mail Address",
+                        "maxlength": 100,
+                        "type": "simple_email_field",
+                        "order": 13
+                    },
+                    {
+                        "is_multiple": false,
+                        "required": true,
+                        "trigger_events": [
+                            {
+                                "event": "age_changed"
+                            }
+                        ],
+                        "order": 14,
+                        "quote_search_attribute": "age",
+                        "tag": "age",
+                        "display_label": "Age",
+                        "handle_events": [
+                            {
+                                "event": "dob_changed"
+                            }
+                        ],
+                        "id": "applicant_age",
+                        "type": "int_picker_field",
+                        "options": [
+                            1,
+                            2,
+                            3,
+                            4,
+                            5,
+                            6,
+                            7,
+                            8,
+                            9,
+                            10,
+                            11,
+                            12,
+                            13,
+                            14,
+                            15,
+                            16,
+                            17,
+                            18,
+                            19,
+                            20,
+                            21,
+                            22,
+                            23,
+                            24,
+                            25,
+                            26,
+                            27,
+                            28,
+                            29,
+                            30,
+                            31,
+                            32,
+                            33,
+                            34,
+                            35,
+                            36,
+                            37,
+                            38,
+                            39,
+                            40,
+                            41,
+                            42,
+                            43,
+                            44,
+                            45,
+                            46,
+                            47,
+                            48,
+                            49,
+                            50,
+                            51,
+                            52,
+                            53,
+                            54,
+                            55,
+                            56,
+                            57,
+                            58,
+                            59,
+                            60,
+                            61,
+                            62,
+                            63,
+                            64,
+                            65,
+                            66,
+                            67,
+                            68,
+                            69,
+                            70,
+                            71,
+                            72,
+                            73,
+                            74,
+                            75,
+                            76,
+                            77,
+                            78,
+                            79,
+                            80,
+                            81,
+                            82,
+                            83,
+                            84,
+                            85,
+                            86,
+                            87,
+                            88,
+                            89,
+                            90,
+                            91,
+                            92,
+                            93,
+                            94,
+                            95,
+                            96,
+                            97,
+                            98,
+                            99,
+                            100,
+                            101,
+                            102,
+                            103,
+                            104,
+                            105,
+                            106,
+                            107,
+                            108,
+                            109,
+                            110,
+                            111,
+                            112,
+                            113,
+                            114,
+                            115
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "trigger_events": [
+                            {
+                                "event": "dob_changed"
+                            }
+                        ],
+                        "id": "applicant_dob",
+                        "quote_search_attribute": "dob",
+                        "tag": "dob",
+                        "display_label": "Date of Birth",
+                        "handle_events": [
+                            {
+                                "event": "age_changed"
+                            }
+                        ],
+                        "type": "complex_date_picker_field",
+                        "order": 15
+                    },
+                    {
+                        "is_multiple": false,
+                        "required": true,
+                        "order": 16,
+                        "quote_search_attribute": "gender",
+                        "tag": "gender",
+                        "display_label": "Gender",
+                        "id": "gender",
+                        "type": "key_value_picker_field",
+                        "options": [
+                            {
+                                "key": "Male",
+                                "value": "M"
+                            },
+                            {
+                                "key": "Female",
+                                "value": "F"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "maximum_value": 88,
+                        "order": 17,
+                        "quote_search_attribute": "height",
+                        "tag": "height",
+                        "value_type": "in",
+                        "display_type": "ft-in",
+                        "display_label": "Height Feet and inches",
+                        "type": "height_field",
+                        "id": "height",
+                        "minimum_value": 50
+                    },
+                    {
+                        "required": true,
+                        "maximum_value": 452,
+                        "order": 18,
+                        "quote_search_attribute": "weight",
+                        "tag": "weight",
+                        "display_label": "Weight",
+                        "type": "weight_field",
+                        "id": "weight",
+                        "minimum_value": 54
+                    },
+                    {
+                        "display_label": "Have you ever used tobacco in any form, or used nicotine products including a patch, gum, or electronic cigarettes?",
+                        "id": "tobacco_usage",
+                        "order": 19,
+                        "tag": "tobacco_usage",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "When last have you used tobacco in any form, or used nicotine products including a patch, gum, or electronic cigarettes?",
+                        "id": "tobacco_last_date",
+                        "order": 20,
+                        "tag": "tobacco_last_date",
+                        "required": true,
+                        "type": "complex_date_picker_field",
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "tobacco_usage",
+                                    "section_id": "applicant_info",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "title": "Applicant Information",
+                "heading": "Please Complete the Following",
+                "id": "applicant_info",
+                "order": 0
+            },
+            {
+                "body": [
+                    {
+                        "required": false,
+                        "order": 0,
+                        "display_label": "You may be eligible for a policy with a lower premium rate based on your answers to the question in this section.\n",
+                        "heading_type": "h5",
+                        "type": "heading_field",
+                        "id": "user_premium_note"
+                    },
+                    {
+                        "display_label": "Have you lived with any of the following people for the past 12 months and still live with them currently?  \n\u2022\tLegal Spouse\n\u2022\tDomestic or Civil Union Partnership\n\u2022\t1 to 3 Other Adults Age 50 or Older",
+                        "id": "hhd",
+                        "order": 1,
+                        "tag": "hhd",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "If so, list the name of the household resident(s):",
+                        "id": "hh_resident_name",
+                        "order": 2,
+                        "tag": "hh_resident_name",
+                        "type": "text_field",
+                        "maxlength": 60,
+                        "required": true,
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "hhd",
+                                    "section_id": "hhd_information",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "display_label": "Do they have or are they currently applying for a Medicare Supplement policy with National Health Insurance Company?",
+                        "id": "dualhouseholddisc",
+                        "order": 3,
+                        "tag": "dualhouseholddisc",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ],
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "hhd",
+                                    "section_id": "hhd_information",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "display_label": "If Yes, what is the policy number",
+                        "id": "dualhouseholddisc_policy",
+                        "order": 4,
+                        "tag": "dualhouseholddisc_policy",
+                        "maxlength": 75,
+                        "type": "text_field",
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "dualhouseholddisc",
+                                    "section_id": "hhd_information",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "display_label": "Medicare Supplement Activity Tracker Discount Authorization Form",
+                        "id": "tracker",
+                        "order": 5,
+                        "heading_type": "h5",
+                        "type": "heading_field"
+                    },
+                    {
+                        "display_label": "Do you own an activity tracker or wearable device, and willing to share fitness data?",
+                        "id": "activity_tacker",
+                        "order": 6,
+                        "tag": "activity_tacker",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes, I acknowledge I own an activity tracker or wearable device, and I am willing to share my fitness data."
+                            },
+                            {
+                                "value": false,
+                                "key": "No, I do not want to participate and share my fitness data."
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "I acknowledge that I own an activity tracker or wearable device. I agree to register my activity tracker device within 30 days and share my activity data with National General Health insurance. I understand that if I do not register my device, my Activity Tracker Discount will be removed and my Medicare Supplement Insurance premium will be adjusted.",
+                        "id": "wearable",
+                        "order": 7,
+                        "tag": "wearable",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ],
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "activity_tacker",
+                                    "section_id": "hhd_information",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "display_label": "I agree to receive email correspondence from National General about the Activity Tracker program at the email address supplied above.",
+                        "id": "wearable_auth",
+                        "order": 8,
+                        "tag": "wearable_auth",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ],
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "activity_tacker",
+                                    "section_id": "hhd_information",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "title": "Discounts",
+                "heading": "Please Complete the Following",
+                "id": "hhd_information",
+                "order": 1,
+                "verify_type": "table",
+                "type": "section"
+            },
+            {
+                "body": [
+                    {
+                        "required": true,
+                        "submit_unmasked": true,
+                        "id": "medicare_information_ssn",
+                        "tag": "ssn",
+                        "display_label": "Social Security Number",
+                        "input_mask": "000-00-0000",
+                        "type": "ssn_field",
+                        "order": 0
+                    },
+                    {
+                        "title": "Medicare ID Number",
+                        "type": "text_field",
+                        "required": false,
+                        "submit_unmasked": false,
+                        "id": "medicare_information_claim_number",
+                        "tag": "medicare_information_claim_number",
+                        "display_label": "Medicare ID Number",
+                        "maxlength": 11,
+                        "placeholder": "Do not include dashes or spaces",
+                        "order": 1
+                    },
+                    {
+                        "required": true,
+                        "order": 2,
+                        "tag": "medicare_part_a_coverage",
+                        "display_label": "Are you covered under Medicare Part A?",
+                        "id": "medicare_part_a_coverage",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "medicare_information",
+                                    "value": true,
+                                    "id": "medicare_part_a_coverage"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 3,
+                        "tag": "medicare_part_a_eff_date",
+                        "display_label": "Medicare Part A Effective Date",
+                        "type": "complex_date_picker_field",
+                        "id": "medicare_part_a_eff_date"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "medicare_information",
+                                    "value": false,
+                                    "id": "medicare_part_a_coverage"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 4,
+                        "tag": "medicare_part_a_eligibility_date",
+                        "display_label": "If you are not covered under Medicare Part A, what is your eligibility date?",
+                        "type": "complex_date_picker_field",
+                        "id": "medicare_part_a_eligibility_date"
+                    },
+                    {
+                        "required": true,
+                        "order": 5,
+                        "tag": "medicare_part_b_coverage",
+                        "display_label": "Are you covered under Medicare Part B?",
+                        "id": "medicare_part_b_coverage",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "medicare_information",
+                                    "value": true,
+                                    "id": "medicare_part_b_coverage"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 6,
+                        "tag": "medicare_part_b_eff_date",
+                        "display_label": "Medicare Part B Effective Date",
+                        "type": "complex_date_picker_field",
+                        "id": "medicare_part_b_eff_date"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "id": "medicare_part_b_coverage",
+                                    "value": false,
+                                    "section_id": "medicare_information"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 7,
+                        "tag": "medicare_part_b_eligibility_date",
+                        "display_label": "If you are not covered under Medicare Part B, what is your eligibility date?",
+                        "type": "complex_date_picker_field",
+                        "id": "medicare_part_b_eligibility_date"
+                    },
+                    {
+                        "required": true,
+                        "order": 8,
+                        "tag": "enroll_part_b_last_6_mo",
+                        "display_label": "Did you enroll in Medicare Part B within the past six months?\n",
+                        "id": "enroll_part_b_last_6_mo",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "order": 9,
+                        "tag": "did_turn_65_in_last_six_mo",
+                        "display_label": "Did you turn age 65 in the last 6 months?",
+                        "id": "did_turn_65_in_last_six_mo",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "order": 10,
+                        "quote_search_attribute": "apply_guaranteed_issue",
+                        "tag": "apply_guaranteed_issue",
+                        "display_label": "Are you applying during a guaranteed issue period?",
+                        "id": "apply_guaranteed_issue",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Did you first become eligible for Medicare due to age, disability or end-stage renal disease prior to January 1, 2020?",
+                        "id": "disabled_esrd",
+                        "order": 11,
+                        "tag": "disabled_esrd",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Have you received a copy of the Guide to Health Insurance for People with Medicare, the Outline of Coverage, and the Notice of Information Practices?",
+                        "id": "received_outline",
+                        "order": 12,
+                        "tag": "received_outline",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    }
+                ],
+                "title": "Medicare Information",
+                "heading": "Please Complete the Following",
+                "id": "medicare_information",
+                "order": 2
+            },
+            {
+                "body": [
+                    {
+                        "required": true,
+                        "id": "gi_situation",
+                        "tag": "gi_situation",
+                        "display_label": "You may have a Guaranteed Issue right if one of the following situations applies. Documentation may be required to process your application.",
+                        "child_fields": [
+                            {
+                                "required": false,
+                                "id": "gi_right_coverage_ending",
+                                "options": [
+                                    {
+                                        "value": "group_coverage_ending",
+                                        "key": "Enrolled under an employee welfare benefit plan that provides health benefits that supplement the benefits under Medicare; and the plan terminates, or the plan ceases to provide all such supplemental health benefits to the individual"
+                                    },
+                                    {
+                                        "value": "ma_company_failure",
+                                        "key": "Enrolled in a Medicare Advantage plan or Program of All-Inclusive Care for the Elderly (PACE) and the organization\u2019s certification or plan is terminated or specific circumstances permit discontinuance including, but not limited to, a change in residence of the individual, the plan is terminated within a residence area, the organization substantially violated a material policy provision, or a material misrepresentation was made to the individual"
+                                    },
+                                    {
+                                        "value": "company_bankrupt",
+                                        "key": "Enrolled in a Medicare Supplement policy and coverage discontinues due to insolvency, substantial violation of a material policy provision, or material misrepresentation"
+                                    },
+                                    {
+                                        "value": "ms_company_failure",
+                                        "key": "Enrolled in a Medicare risk contract, health care prepayment plan, cost contract or Medicare Select plan, or similar organization, and the organization\u2019s certification or plan is terminated or specific circumstances permit discontinuance including, but not limited to, a change in residence of the individual, the plan is terminated within a residence area, the organization substantially violated a material policy provision, or a material misrepresentation was made to the individual"
+                                    }
+                                ],
+                                "group_name": "gi_situation",
+                                "type": "radio_field",
+                                "order": 0
+                            },
+                            {
+                                "required": false,
+                                "options": [
+                                    {
+                                        "value": "join_ma_65_plan",
+                                        "key": "Upon first becoming eligible for benefits under Part A at age 65, enrolls in a Medicare Advantage or PACE provider and then disenrolls within 12 months"
+                                    },
+                                    {
+                                        "value": "plan_switch",
+                                        "key": "Enrolled under a Medicare Supplement policy, terminates and enrolls for the first time in a Medicare Advantage, a risk or cost contract, or a Medicare Select plan, a PACE provider, and then terminates coverage within 12 months of enrollment"
+                                    },
+                                    {
+                                        "value": "gi_sit_part_d",
+                                        "key": "Enrolled in a Medicare Part D Plan during the initial Part D enrollment period while enrolled under a Medicare Supplement policy that covers outpatient prescription drugs and terminate the Medicare Supplement policy"
+                                    },
+                                    {
+                                        "value": "plan_end",
+                                        "key": "The individual loses eligibility for health benefits under Title XIX of the Social Security Act (Medicaid)"
+                                    },
+                                    {
+                                        "value": "state_funded",
+                                        "key": "Other Guarantee Issue rights available under State law"
+                                    }
+                                ],
+                                "display_label": "The applicant was enrolled in a Medicare Advantage plan, and",
+                                "id": "gi_right_ma_plan",
+                                "group_name": "gi_situation",
+                                "type": "radio_field",
+                                "order": 1
+                            },
+                            {
+                                "depends_on": {
+                                    "field_value_list": [
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "CA",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "KS",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "ME",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "MT",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "OR",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "TN",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "TX",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "UT",
+                                            "id": "address_state"
+                                        },
+                                        {
+                                            "section_id": "applicant_info",
+                                            "value": "WI",
+                                            "id": "address_state"
+                                        }
+                                    ],
+                                    "logic_operator": "OR"
+                                },
+                                "required": false,
+                                "group_name": "gi_situation",
+                                "display_label": "The applicant was enrolled in a Medicaid plan or state-specific variation of a Medicaid plan, and",
+                                "id": "gi_state_funded_plan",
+                                "order": 2,
+                                "type": "radio_field",
+                                "options": [
+                                    {
+                                        "key": "The applicant was enrolled in a Medicaid plan or state-specific variation of a Medicaid plan, and the applicant's state has Guaranteed Issue Rights for loss of Medicaid or state-specific variation of a Medicaid plan.",
+                                        "value": "state_funded"
+                                    }
+                                ]
+                            }
+                        ],
+                        "type": "complex_radio_field",
+                        "order": 0
+                    }
+                ],
+                "title": "Guaranteed Issue",
+                "depends_on": {
+                    "field_value_list": [
+                        {
+                            "object_name": "enrollment_application",
+                            "attribute_name": "underwriting_type",
+                            "value": 2
+                        }
+                    ],
+                    "logic_operator": "AND"
+                },
+                "order": 3,
+                "heading": "Please Complete the Following to the Best of Your Knowledge and Belief",
+                "id": "guaranteed_issue"
+            },
+            {
+                "body": [
+                    {
+                        "required": false,
+                        "order": 0,
+                        "display_label": "If you lost or are losing other health insurance coverage and received a notice from your prior insurer saying you are eligible for guaranteed issue of a Medicare Supplement insurance policy, or that you had certain rights to buy such a policy, you may be guaranteed acceptance in one or more of our Medicare Supplement plans. Please include a copy of the notice from your prior insurer with this Application. Please mark Yes or No below with an \u201cX\u201d, to the best of your knowledge.",
+                        "heading_type": "h5",
+                        "type": "heading_field",
+                        "id": "existing_coverage_note"
+                    },
+                    {
+                        "required": true,
+                        "order": 1,
+                        "tag": "state_covered_medical_assistance",
+                        "display_label": "Are you covered for Medical Assistance through the state Medicaid program? NOTE TO APPLICANT: If you are participating in a \u201cSpend Down Program\u201d and have not met your\n\u201cShare of the Cost\u201d, please answer No to this question.",
+                        "id": "state_covered_medical_assistance",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "state_covered_medical_assistance",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 2,
+                        "tag": "medicaid_pay_premiums",
+                        "display_label": "If yes, will Medicaid pay your premiums for this Medicare Supplement policy?",
+                        "id": "medicaid_pay_premiums",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "state_covered_medical_assistance",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 3,
+                        "tag": "receive_medicaid_benefits",
+                        "display_label": "If yes, do you receive any benefits from Medicaid, OTHER THAN payments toward your Part B premium?",
+                        "id": "receive_medicaid_benefits",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "order": 4,
+                        "tag": "existing_coverage_medicare_plan_x_days",
+                        "display_label": "If you had coverage from any Medicare plan other than original Medicare within the past 63 days\n(for example, a Medicare Advantage plan, or a Medicare HMO or PPO), fill in your start and end dates:",
+                        "id": "existing_coverage_medicare_plan",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 5,
+                        "tag": "existing_coverage_medicare_plan_is_active",
+                        "display_label": "Are you still covered under the Medicare plan?",
+                        "id": "existing_coverage_medicare_plan_is_active",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "id": "existing_coverage_medicare_plan",
+                                    "value": true,
+                                    "section_id": "existing_coverage"
+                                },
+                                {
+                                    "id": "existing_coverage_medicare_plan_is_active",
+                                    "value": false,
+                                    "section_id": "existing_coverage"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "id": "existing_coverage_medicare_plan_start_end_date_heading",
+                        "display_label": "Fill in your start and end dates below.",
+                        "heading_type": "h5",
+                        "type": "heading_field",
+                        "order": 6
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan_is_active"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "id": "existing_coverage_medicare_plan_start_date_heading",
+                        "display_label": "Fill in your start date below.",
+                        "heading_type": "h5",
+                        "type": "heading_field",
+                        "order": 7
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 8,
+                        "tag": "existing_coverage_medicare_plan_start_date",
+                        "display_label": "START",
+                        "type": "complex_date_picker_field",
+                        "id": "existing_coverage_medicare_plan_start_date"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": false,
+                                    "id": "existing_coverage_medicare_plan_is_active"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": true,
+                        "order": 9,
+                        "tag": "existing_coverage_medicare_plan_end_date",
+                        "display_label": "END",
+                        "type": "complex_date_picker_field",
+                        "id": "existing_coverage_medicare_plan_end_date"
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "AND",
+                            "field_value_list": [
+                                {
+                                    "id": "existing_coverage_medicare_plan",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 10,
+                        "tag": "existing_coverage_medicare_plan_replacement_indicator",
+                        "display_label": "If you are still covered under the Medicare plan, do you intend to replace your current coverage with this new Medicare supplement policy? (If Yes, complete Replacement Notice.)",
+                        "id": "existing_coverage_medicare_plan_replacement_indicator",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": false,
+                                    "id": "existing_coverage_medicare_plan_replacement_indicator"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 11,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "WARNING: Having more than one Medicare Supplement policy is not allowed. This policy cannot be submitted.",
+                        "type": "text_block_field",
+                        "id": "existing_coverage_medicare_plan_warning"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan_is_active"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": true,
+                        "order": 12,
+                        "tag": "existing_coverage_medicare_plan_planned_term_date",
+                        "display_label": "Planned date of termination/disenrollment?",
+                        "type": "complex_date_picker_field",
+                        "id": "existing_coverage_medicare_plan_planned_term_date"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 13,
+                        "tag": "existing_coverage_medicare_plan_company",
+                        "display_label": "Company",
+                        "type": "text_field",
+                        "id": "existing_coverage_medicare_plan_company"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 14,
+                        "tag": "existing_coverage_medicare_plan_policy_number",
+                        "display_label": "Policy Number",
+                        "type": "text_field",
+                        "id": "existing_coverage_medicare_plan_policy_number"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "id": "existing_coverage_medicare_plan",
+                                    "value": true,
+                                    "section_id": "existing_coverage"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 15,
+                        "tag": "existing_coverage_medicare_plan_type",
+                        "display_label": "What plan do you have?",
+                        "type": "text_field",
+                        "id": "existing_coverage_medicare_plan_type"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 16,
+                        "tag": "existing_coverage_medicare_plan_was_first_enrollment",
+                        "display_label": "Was this your first time in this type of Medicare Plan?",
+                        "id": "existing_coverage_medicare_plan_was_first_enrollment",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 17,
+                        "tag": "existing_coverage_medicare_plan_was_dropped",
+                        "display_label": "Did you drop a Medicare Supplement policy or certificate to enroll in the Medicare Plan?",
+                        "id": "existing_coverage_medicare_plan_was_dropped",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Is your former Medicare supplement or Medicare Select policy/certificate still available?",
+                        "id": "existing_coverage_medicare_plan_is_available",
+                        "order": 18,
+                        "tag": "existing_coverage_medicare_plan_is_available",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ],
+                        "depends_on": {
+                            "logic_operator": "AND",
+                            "field_value_list": [
+                                {
+                                    "id": "existing_coverage_medicare_plan",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "options": [
+                            {
+                                "key": "Your Medicare Advantage plan is leaving the Medicare program",
+                                "value": true,
+                                "id": "plan_leaving"
+                            },
+                            {
+                                "key": "Your Medicare Advantage organization stopped offering Medicare Advantage plans",
+                                "value": true,
+                                "id": "plan_stopped"
+                            },
+                            {
+                                "key": "Your Medicare Advantage organization stopped offering coverage in the area in which you live",
+                                "value": true,
+                                "id": "plan_stopped_area"
+                            },
+                            {
+                                "key": "You moved out of the geographic service area of your Medicare Advantage plan",
+                                "value": true,
+                                "id": "moved"
+                            },
+                            {
+                                "key": "Enrolled in Medicare Advantage with Medicare Part D benefits; now enrolling in Medicare Part D only",
+                                "value": true,
+                                "id": "standalone_part_d"
+                            },
+                            {
+                                "key": "Other",
+                                "value": true,
+                                "id": "other"
+                            }
+                        ],
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "id": "existing_coverage_medicare_plan",
+                                    "value": true,
+                                    "section_id": "existing_coverage"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 19,
+                        "tag": "existing_coverage_medicare_plan_reason",
+                        "display_label": "Please indicate reason for termination/disenrollment:",
+                        "type": "checkbox_field",
+                        "id": "existing_coverage_medicare_plan_reason"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "child_id": "other",
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan_reason"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": true,
+                        "order": 20,
+                        "tag": "existing_coverage_medicare_plan_reason_other",
+                        "display_label": "Please specify your termination/disenrollment reason:",
+                        "maxlength": 100,
+                        "type": "text_field",
+                        "id": "existing_coverage_medicare_plan_reason_other"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 21,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "You have indicated you are replacing multiple plans. Only one plan may be selected.",
+                        "type": "text_block_field",
+                        "id": "multiple_replacement_coverages_ac_2"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 22,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "You have indicated you are replacing multiple plans. Only one plan may be selected.",
+                        "type": "text_block_field",
+                        "id": "multiple_replacement_coverages_bc_2"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 23,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "You have indicated you are replacing multiple plans. Only one plan may be selected.",
+                        "type": "text_block_field",
+                        "id": "multiple_replacement_coverages_ab_1"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 24,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "You have indicated you are replacing multiple plans. Only one plan may be selected.",
+                        "type": "text_block_field",
+                        "id": "multiple_replacement_coverages_ac_1"
+                    },
+                    {
+                        "required": true,
+                        "order": 25,
+                        "tag": "existing_ms_inforce_policy",
+                        "display_label": "Do you have another Medicare Supplement policy or certificate in force?",
+                        "id": "existing_ms_inforce_policy",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "existing_ms_inforce_policy",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 26,
+                        "tag": "intend_to_replace_existing_ms_inforce_policy",
+                        "display_label": "Do you intend to replace your current Medicare supplement policy/certificate with this policy? (If Yes, complete Replacement Notice.)",
+                        "id": "intend_to_replace_existing_ms_inforce_policy",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "existing_ms_inforce_policy",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                }
+                            ]
+                        },
+                        "required": false,
+                        "order": 27,
+                        "tag": "other_ms_ins_carrier_eff_date",
+                        "display_label": "Indicate effective date",
+                        "type": "complex_date_picker_field",
+                        "id": "other_ms_ins_carrier_eff_date"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "intend_to_replace_existing_ms_inforce_policy"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 28,
+                        "tag": "replacement_reason",
+                        "display_label": "Please indicate the reason for replacement",
+                        "id": "replacement_reason",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Additional Benefits",
+                                "value": "additional_benefits"
+                            },
+                            {
+                                "key": "No change in benefits, but lower premium",
+                                "value": "lower_premiums"
+                            },
+                            {
+                                "key": "Fewer benefits and lower premiums",
+                                "value": "fewer_benefits_lower_premiums"
+                            },
+                            {
+                                "key": "Other",
+                                "value": "other"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "id": "replacement_reason",
+                                    "value": "other",
+                                    "section_id": "existing_coverage"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 29,
+                        "tag": "replacement_reason_other",
+                        "display_label": "Please specify your replacement reason",
+                        "maxlength": 100,
+                        "type": "text_field",
+                        "id": "replacement_reason_other"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": false,
+                                    "id": "intend_to_replace_existing_ms_inforce_policy"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 30,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "WARNING: Having more than one Medicare Supplement policy is not allowed. This policy cannot be submitted.",
+                        "type": "text_block_field",
+                        "id": "existing_policy_warning_heading"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": false,
+                        "order": 31,
+                        "tag": "other_ms_carrier_term",
+                        "display_label": "Indicate planned termination or disenrollment date",
+                        "type": "complex_date_picker_field",
+                        "id": "other_ms_carrier_term"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": false,
+                        "id": "existing_coverage_existing_coverage_heading",
+                        "display_label": "With what company, and what plan do you have?",
+                        "heading_type": "h5",
+                        "type": "heading_field",
+                        "order": 32
+                    },
+                    {
+                        "search_data_column": "name_full",
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "id": "other_ms_carrier",
+                        "tag": "other_ms_carrier_name",
+                        "display_label": "Name of Company",
+                        "default_option": "Other",
+                        "path": "/eapps/med_supp_tool/companies?search=",
+                        "child_fields": [
+                            {
+                                "search_data_column": "naic",
+                                "id": "other_ms_carrier_naic",
+                                "tag": "other_ms_carrier",
+                                "display_label": "NAIC",
+                                "display_dropdown": false,
+                                "maxlength": 30,
+                                "hidden": true,
+                                "type": "text_field",
+                                "order": 0
+                            }
+                        ],
+                        "type": "string_search_field",
+                        "order": 33,
+                        "prepopulate": true
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 34,
+                        "tag": "other_ms_carrier_product_code",
+                        "display_label": "Plan",
+                        "id": "other_ms_carrier_product_code",
+                        "type": "string_picker_field",
+                        "options": [
+                            {
+                                "key": "Plan A",
+                                "value": "A"
+                            },
+                            {
+                                "key": "Plan B",
+                                "value": "B"
+                            },
+                            {
+                                "key": "Plan C",
+                                "value": "C"
+                            },
+                            {
+                                "key": "Plan D",
+                                "value": "D"
+                            },
+                            {
+                                "key": "Plan E",
+                                "value": "E"
+                            },
+                            {
+                                "key": "Plan F",
+                                "value": "F"
+                            },
+                            {
+                                "key": "Plan G",
+                                "value": "G"
+                            },
+                            {
+                                "key": "Plan H",
+                                "value": "H"
+                            },
+                            {
+                                "key": "Plan I",
+                                "value": "I"
+                            },
+                            {
+                                "key": "Plan J",
+                                "value": "J"
+                            },
+                            {
+                                "key": "Plan K",
+                                "value": "K"
+                            },
+                            {
+                                "key": "Plan L",
+                                "value": "L"
+                            },
+                            {
+                                "key": "Plan M",
+                                "value": "M"
+                            },
+                            {
+                                "key": "Plan N",
+                                "value": "N"
+                            },
+                            {
+                                "key": "Basic",
+                                "value": "Basic"
+                            },
+                            {
+                                "key": "Extended",
+                                "value": "Extended"
+                            },
+                            {
+                                "key": "50% Part A Deductible",
+                                "value": "50% Part A Deductible"
+                            },
+                            {
+                                "key": "Pre-Standardized",
+                                "value": "Pre-Standardized"
+                            },
+                            {
+                                "key": "Plan F - High Deductible",
+                                "value": "High Deductible Plan F"
+                            },
+                            {
+                                "key": "Select Plan A",
+                                "value": "Select Plan A"
+                            },
+                            {
+                                "key": "Select Plan B",
+                                "value": "Select Plan B"
+                            },
+                            {
+                                "key": "Select Plan C",
+                                "value": "Select Plan C"
+                            },
+                            {
+                                "key": "Select Plan D",
+                                "value": "Select Plan D"
+                            },
+                            {
+                                "key": "Select Plan F",
+                                "value": "Select Plan F"
+                            },
+                            {
+                                "key": "Select Plan G",
+                                "value": "Select Plan G"
+                            },
+                            {
+                                "key": "Select Plan K",
+                                "value": "Select Plan K"
+                            },
+                            {
+                                "key": "Select Plan L",
+                                "value": "Select Plan L"
+                            },
+                            {
+                                "key": "Select Plan M",
+                                "value": "Select Plan M"
+                            },
+                            {
+                                "key": "Select Plan N",
+                                "value": "Select Plan N"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_ms_inforce_policy"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 35,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "You have indicated you are replacing multiple plans. Only one plan may be selected.",
+                        "type": "text_block_field",
+                        "id": "multiple_replacement_coverages_ab_2"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "AND"
+                        },
+                        "required": false,
+                        "order": 36,
+                        "classes": [
+                            "alert",
+                            "alert-danger"
+                        ],
+                        "display_label": "You have indicated you are replacing multiple plans. Only one plan may be selected.",
+                        "type": "text_block_field",
+                        "id": "multiple_replacement_coverages_bc_1"
+                    },
+                    {
+                        "required": true,
+                        "order": 37,
+                        "tag": "other_health_ins_past_x_days",
+                        "display_label": "Have you had coverage under any other health insurance within the past 63 days? (For example, an employer, union, or individual plan.)",
+                        "id": "other_health_ins_past_x_days",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 38,
+                        "tag": "is_other_health_ins_active",
+                        "display_label": "Are you still covered under the health insurance plan?",
+                        "id": "is_other_health_ins_active",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": false,
+                        "id": "other_health_ins_planned_term_date",
+                        "display_label": "What are your dates of coverage under the other policy/certificate?",
+                        "heading_type": "label",
+                        "type": "heading_field",
+                        "order": 39
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 40,
+                        "tag": "other_health_ins_carrier_eff_date",
+                        "display_label": "START",
+                        "type": "complex_date_picker_field",
+                        "id": "other_health_ins_carrier_eff_date"
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "other_health_ins_past_x_days",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                },
+                                {
+                                    "id": "is_other_health_ins_active",
+                                    "section_id": "existing_coverage",
+                                    "value": false
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 41,
+                        "tag": "other_health_ins_carrier_end_date",
+                        "display_label": "END",
+                        "type": "complex_date_picker_field",
+                        "id": "other_health_ins_carrier_end_date"
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "other_health_ins_past_x_days",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                },
+                                {
+                                    "id": "existing_coverage",
+                                    "section_id": "existing_coverage",
+                                    "value": true
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 42,
+                        "tag": "other_health_ins_carrier_term_date",
+                        "display_label": "END",
+                        "type": "complex_date_picker_field",
+                        "id": "other_health_ins_carrier_term_date"
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": false,
+                        "id": "other_health_ins_carrier_heading",
+                        "display_label": "With what company and what kind of policy/certificate? (List below.)",
+                        "heading_type": "h5",
+                        "type": "heading_field",
+                        "order": 43
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "id": "other_health_ins_carrier_company",
+                        "tag": "other_health_ins_carrier_company",
+                        "display_label": "Name of Company",
+                        "maxlength": 35,
+                        "type": "text_field",
+                        "order": 44
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "other_health_ins_past_x_days"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 45,
+                        "tag": "other_health_ins_carrier_policy_number",
+                        "display_label": "Policy/Certificate type",
+                        "type": "text_field",
+                        "id": "other_health_ins_carrier_policy_number"
+                    }
+                ],
+                "title": "Previous or Existing Coverage Information",
+                "heading": "Please Complete the Following to the Best of Your Knowledge and Belief",
+                "id": "existing_coverage",
+                "order": 4
+            },
+            {
+                "body": [
+                    {
+                        "display_label": "For underwriting purposes provide the name and address of your primary care physician",
+                        "id": "uwpurpose",
+                        "order": 0,
+                        "heading_type": "h5",
+                        "type": "heading_field"
+                    },
+                    {
+                        "display_label": "Physician Name",
+                        "id": "physician_name",
+                        "order": 1,
+                        "tag": "physician_name",
+                        "required": true,
+                        "maxlength": 150,
+                        "type": "text_field"
+                    },
+                    {
+                        "display_label": "Physician address",
+                        "id": "physician_address",
+                        "order": 2,
+                        "tag": "physician_address",
+                        "required": true,
+                        "maxlength": 100,
+                        "type": "text_field"
+                    },
+                    {
+                        "display_label": "Please read through each question carefully and indicate any of the conditions that apply with a check mark in the box.",
+                        "id": "check",
+                        "order": 3,
+                        "heading_type": "h5",
+                        "type": "heading_field"
+                    },
+                    {
+                        "display_label": "Have you been recommended or scheduled for testing (excluding routine), treatment, follow-up, or surgery that has not been completed?",
+                        "id": "advised_treatment_not_performed",
+                        "order": 4,
+                        "tag": "advised_treatment_not_performed",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Are you currently hospitalized, confined to a bed, receiving dialysis treatment, receiving services from an Assisted Living Facility, Nursing Home, or dependent on a wheelchair or mobilized device?",
+                        "id": "skilled_nursing",
+                        "order": 5,
+                        "tag": "skilled_nursing",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "In the last 12 months have you received Physical, Occupation, or Speech Therapy?\n",
+                        "id": "therapy",
+                        "order": 6,
+                        "tag": "therapy",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Have you been hospitalized or used an emergency room for treatment 2 or more times in the past 24 months?\n\n",
+                        "id": "hospital_confined_past",
+                        "order": 7,
+                        "tag": "hospital_confined_past",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "If you have you been diagnosed or treated for diabetes (answer no if you have not been diagnosed or treated for diabetes)\n\u2022\tAre you currently prescribed 3 or more medications to control High Blood Pressure?\n\u2022\tHave you been treated for any diabetic complications including nephropathy, retinopathy, \n        peripheral vascular disease, stroke, neuropathy, or heart disease?\n",
+                        "id": "diabetes_large_dosage",
+                        "order": 8,
+                        "tag": "diabetes_large_dosage",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Within the past 2 years have you been diagnosed, treated, evaluated, or prescribed medication for?",
+                        "id": "medical_diagnosis_two_years",
+                        "order": 9,
+                        "tag": "medical_diagnosis_two_years",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ],
+                        "required": true
+                    },
+                    {
+                        "display_label": "Cancer for diagnosed, treated, evaluated, or prescribed medication in past 2 years.",
+                        "id": "cancer",
+                        "order": 10,
+                        "tag": "cancer",
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "hodgkins",
+                                "key": "Hodgkin's Disease"
+                            },
+                            {
+                                "value": "leukemia",
+                                "key": "Leukemia, Myeloma, or Lymphoma"
+                            },
+                            {
+                                "value": "internal_cancer",
+                                "key": "Internal Cancer"
+                            },
+                            {
+                                "value": "melanoma",
+                                "key": "Melanoma"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Cardiovascular for diagnosed, treated, evaluated, or prescribed medication in past 2 years.",
+                        "id": "cardio",
+                        "order": 11,
+                        "tag": "cardio",
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "atrial",
+                                "key": "Chronic Atrial Fibrillation"
+                            },
+                            {
+                                "value": "artery",
+                                "key": "Coronary Artery Disease, Angioplasty, Stent, or Bypass"
+                            },
+                            {
+                                "value": "angina",
+                                "key": "Chest Pain (Angina)"
+                            },
+                            {
+                                "value": "heart_attack",
+                                "key": "Heart Attack/Acute MI"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Circulatory disease for diagnosed, treated, evaluated, or prescribed medication in past 2 years.",
+                        "id": "circulatory",
+                        "order": 12,
+                        "tag": "circulatory",
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "aneurysm",
+                                "key": "Aneurysm "
+                            },
+                            {
+                                "value": "pvd",
+                                "key": "Peripheral Vascular Disease"
+                            },
+                            {
+                                "value": "blood_disorder",
+                                "key": "Blood/clotting disorder (excluding mild anemia)"
+                            },
+                            {
+                                "value": "tia",
+                                "key": "Transient Ischemic Attack"
+                            },
+                            {
+                                "value": "dvt",
+                                "key": "Deep Venous Thrombosis "
+                            },
+                            {
+                                "value": "stroke",
+                                "key": "Stroke"
+                            },
+                            {
+                                "value": "embolus",
+                                "key": "Embolus "
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Neurological disorders for diagnosed, treated, evaluated, or prescribed medication in past 2 years.",
+                        "id": "neurological",
+                        "order": 13,
+                        "tag": "neurological",
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "muscular",
+                                "key": "Muscular Dystrophy"
+                            },
+                            {
+                                "value": "ms",
+                                "key": "Multiple Sclerosis"
+                            },
+                            {
+                                "value": "myelitis",
+                                "key": "Transverse Myelites"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Other for diagnosed, treated, evaluated, or prescribed medication in past 2 years.",
+                        "id": "2diagnosed",
+                        "order": 14,
+                        "tag": "2diagnosed",
+                        "required": true,
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "adrenal",
+                                "key": "Adrenal gland disorders"
+                            },
+                            {
+                                "value": "amputation",
+                                "key": "Amputation due to disease "
+                            },
+                            {
+                                "value": "hepatitis",
+                                "key": "Chronic Hepatitis or liver cirrhosis"
+                            },
+                            {
+                                "value": "pancre",
+                                "key": "Chronic Pancreatitis "
+                            },
+                            {
+                                "value": "cushing",
+                                "key": "Cushing Syndrome/Disease"
+                            },
+                            {
+                                "value": "enzyme",
+                                "key": "Enzyme disorders "
+                            },
+                            {
+                                "value": "joint",
+                                "key": "Joint Replacement Surgery that has not been completed  "
+                            },
+                            {
+                                "value": "nephritis",
+                                "key": "Nephritis or Glomerulonephritis"
+                            },
+                            {
+                                "value": "osteoporosis",
+                                "key": "Osteoporosis with fractures"
+                            },
+                            {
+                                "value": "pituitary",
+                                "key": "Pituitary disease or disorder "
+                            },
+                            {
+                                "value": "pulmonary",
+                                "key": "Pulmonary disease (excluding asthma) "
+                            },
+                            {
+                                "value": "renal",
+                                "key": "Renal Artery Stenosis including Stent/Angioplasty"
+                            },
+                            {
+                                "value": "pacemaker",
+                                "key": "Required use of a Cardiac Pacemaker or Defibrillator"
+                            },
+                            {
+                                "value": "oxygen",
+                                "key": "Oxygen or Nebulizer use"
+                            },
+                            {
+                                "value": "spinal",
+                                "key": "Spinal Stenosis  "
+                            },
+                            {
+                                "value": "substance",
+                                "key": "Substance Abuse (including more than 12 consecutive months of opioid usage)"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Within the past 12 months have you been recommended for surgery or are you receiving any infusions or injections for treatment of:",
+                        "id": "12treatment",
+                        "order": 15,
+                        "tag": "12treatment",
+                        "required": true,
+                        "is_health_question": false,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "If yes, please select all that apply",
+                        "id": "treatment",
+                        "order": 16,
+                        "tag": "treatment",
+                        "required": true,
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "arthritis",
+                                "key": "Athritis of any kind   "
+                            },
+                            {
+                                "value": "crohns",
+                                "key": "Crohn\u2019s Disease"
+                            },
+                            {
+                                "value": "plaque",
+                                "key": "Plaque Psoriasis      "
+                            },
+                            {
+                                "value": "ulcer",
+                                "key": "Ulcerative Colitis "
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Within the past 10 years have you been diagnosed, treated, evaluated, or prescribed medication for?",
+                        "id": "10yrtreated",
+                        "order": 17,
+                        "tag": "10yrtreated",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Cardiovascular for diagnosed, treated, evaluated, or prescribed medication in past 10 years.",
+                        "id": "cardio10",
+                        "order": 18,
+                        "tag": "cardio10",
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "cardiomyopathy",
+                                "key": "Cardiomyopathy "
+                            },
+                            {
+                                "value": "enlarged_heart",
+                                "key": "Enlarged Heart"
+                            },
+                            {
+                                "value": "heart_failure",
+                                "key": "Congestive Heart Failure"
+                            },
+                            {
+                                "value": "valve",
+                                "key": "Heart Valve Disease or Regurgitation"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Neurological  for diagnosed, treated, evaluated, or prescribed medication in past 10 years.",
+                        "id": "10neurological",
+                        "order": 19,
+                        "tag": "10neurological",
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "als",
+                                "key": "ALS (Amyotrophic Lateral Sclerosis)"
+                            },
+                            {
+                                "value": "dementia",
+                                "key": "Dementia "
+                            },
+                            {
+                                "value": "alzheimers",
+                                "key": "Alzheimer\u2019s Disease  "
+                            },
+                            {
+                                "value": "parkinsons",
+                                "key": "Parkinson\u2019s Disease "
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Autoimmune Disorder for diagnosed, treated, evaluated, or prescribed medication in past 10 years.",
+                        "id": "autoimmune",
+                        "order": 20,
+                        "tag": "autoimmune",
+                        "required": true,
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "aids",
+                                "key": "AIDS, ARC, or HIV infection"
+                            },
+                            {
+                                "value": "lupus",
+                                "key": "Systemic Scleroderma"
+                            },
+                            {
+                                "value": "gravis",
+                                "key": "Myasthenia Gravis"
+                            },
+                            {
+                                "value": "sclero",
+                                "key": "Systemic Scleroderma"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Other  for diagnosed, treated, evaluated, or prescribed medication in past 10 years.",
+                        "id": "10other",
+                        "order": 21,
+                        "tag": "10other",
+                        "required": true,
+                        "type": "checkbox_field",
+                        "options": [
+                            {
+                                "value": "copd",
+                                "key": "Chronic Obstructive Pulmonary Disease "
+                            },
+                            {
+                                "value": "organ_transplant",
+                                "key": "Organ, Bone Marrow, Tissue, or Stem Cell  Transplant "
+                            },
+                            {
+                                "value": "cirrhosis",
+                                "key": "Cirrhosis  "
+                            },
+                            {
+                                "value": "esrd",
+                                "key": "Renal Failure or End Stage Renal Failure"
+                            },
+                            {
+                                "value": "emphysema",
+                                "key": "Emphysema "
+                            },
+                            {
+                                "value": "schizophrenia",
+                                "key": "Schizophrenia "
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Within the last 5 years has medication been prescribed or recommended to you for the following:\nDepression",
+                        "id": "preferredselect",
+                        "order": 22,
+                        "tag": "preferredselect",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ],
+                        "is_health_question": true
+                    }
+                ],
+                "title": "Health Information",
+                "depends_on": {
+                    "field_value_list": [
+                        {
+                            "object_name": "enrollment_application",
+                            "attribute_name": "underwriting_type",
+                            "value": 0
+                        },
+                        {
+                            "object_name": "enrollment_application",
+                            "attribute_name": "underwriting_type",
+                            "value": -1
+                        }
+                    ],
+                    "logic_operator": "OR"
+                },
+                "order": 5,
+                "heading": "Please answer to the Best of Your Knowledge and Belief",
+                "id": "health_information"
+            },
+            {
+                "heading": "List prescriptions you\u2019ve taken in the last 12 months and reason for taking them. ",
+                "title": "Medication Information",
+                "id": "medication_information",
+                "order": 6,
+                "verify_type": "table",
+                "type": "section",
+                "body": [
+                    {
+                        "display_label": "Have you been prescribed medications in the past year?",
+                        "id": "taken_prescription_drugs",
+                        "order": 0,
+                        "tag": "taken_prescription_drugs",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Please list any prescription medications taken or prescribed in the past year.",
+                        "id": "prescribed_medications",
+                        "order": 1,
+                        "tag": "prescription_drug_list",
+                        "required": true,
+                        "btn_display_value": "Add Prescription",
+                        "maximum_number": 10,
+                        "display_name_field": "med_name",
+                        "minimum_number": 1,
+                        "child_fields": [
+                            {
+                                "display_label": "Medication Name (copy off pharmacy label)",
+                                "id": "med_name",
+                                "order": 0,
+                                "required": true,
+                                "default_text": "Search Available Medications",
+                                "search_data_column": "drug_name",
+                                "path": "/prescription-drug-lookup/drugs/search.json?search_term=",
+                                "type": "string_search_field",
+                                "trigger_events": [
+                                    {
+                                        "event": "medication_name_updated"
+                                    }
+                                ]
+                            },
+                            {
+                                "display_label": "Reason taken",
+                                "id": "diagnosis",
+                                "order": 1,
+                                "required": true,
+                                "type": "text_field",
+                                "maxlength": 25
+                            },
+                            {
+                                "display_label": "Dosage",
+                                "id": "dosage",
+                                "order": 2,
+                                "required": true,
+                                "default_text": "Available Dosages",
+                                "search_data_column": "strength",
+                                "path": "/prescription-drug-lookup/drugs/strengths.json?search_term=",
+                                "enable_filtering": false,
+                                "type": "string_search_field",
+                                "options": [
+                                    {
+                                        "value": "other",
+                                        "key": "Other"
+                                    }
+                                ],
+                                "handle_events": [
+                                    {
+                                        "event": "medication_name_updated"
+                                    }
+                                ]
+                            },
+                            {
+                                "display_label": "Please specify your dosage",
+                                "id": "prescription_dosage_other",
+                                "order": 3,
+                                "tag": "prescription_dosage_other",
+                                "required": true,
+                                "type": "text_field",
+                                "depends_on": {
+                                    "logic_operator": "OR",
+                                    "field_value_list": [
+                                        {
+                                            "id": "dosage",
+                                            "section_id": "medication_information",
+                                            "value": "other"
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "display_label": "Frequency",
+                                "id": "frequency",
+                                "order": 4,
+                                "required": true,
+                                "type": "string_picker_field",
+                                "options": [
+                                    {
+                                        "value": "as needed",
+                                        "key": "As Needed"
+                                    },
+                                    {
+                                        "value": "1x/day",
+                                        "key": "1x/Day"
+                                    },
+                                    {
+                                        "value": "2x/day",
+                                        "key": "2x/Day"
+                                    },
+                                    {
+                                        "value": "3x/day",
+                                        "key": "3x/Day"
+                                    },
+                                    {
+                                        "value": "4x/day",
+                                        "key": "4x/Day"
+                                    },
+                                    {
+                                        "value": "other",
+                                        "key": "Other"
+                                    }
+                                ]
+                            },
+                            {
+                                "display_label": "Please specify your frequency",
+                                "id": "prescription_freq_other",
+                                "order": 5,
+                                "tag": "prescription_freq_other",
+                                "required": true,
+                                "type": "text_field",
+                                "depends_on": {
+                                    "logic_operator": "OR",
+                                    "field_value_list": [
+                                        {
+                                            "id": "frequency",
+                                            "section_id": "medication_information",
+                                            "value": "other"
+                                        }
+                                    ]
+                                }
+                            },
+                            {
+                                "display_label": "Are you still using medication?",
+                                "id": "using",
+                                "order": 6,
+                                "tag": "using",
+                                "required": true,
+                                "type": "radio_field",
+                                "options": [
+                                    {
+                                        "value": true,
+                                        "key": "Yes"
+                                    },
+                                    {
+                                        "value": false,
+                                        "key": "No"
+                                    }
+                                ]
+                            }
+                        ],
+                        "type": "input_table_field",
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "taken_prescription_drugs",
+                                    "section_id": "medication_information",
+                                    "value": true
+                                }
+                            ]
+                        }
+                    }
+                ],
+                "depends_on": {
+                    "logic_operator": "OR",
+                    "field_value_list": [
+                        {
+                            "attribute_name": "underwriting_type",
+                            "object_name": "enrollment_application",
+                            "value": 0
+                        },
+                        {
+                            "attribute_name": "underwriting_type",
+                            "object_name": "enrollment_application",
+                            "value": -1
+                        }
+                    ]
+                }
+            },
+            {
+                "body": [
+                    {
+                        "required": true,
+                        "order": 0,
+                        "tag": "payments",
+                        "display_label": "Payment Method",
+                        "id": "payments",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "BILL",
+                                "key": "Direct Bill"
+                            },
+                            {
+                                "value": "EFT",
+                                "key": "Automated Bank Account Withdrawal"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "Bank Draft (EFT)",
+                        "id": "payment_mode",
+                        "order": 1,
+                        "tag": "payment_mode",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "annualeft",
+                                "key": "Annual"
+                            },
+                            {
+                                "value": "semiannualeft",
+                                "key": "Semi-Annual"
+                            },
+                            {
+                                "value": "quarterlyeft",
+                                "key": "Quarterly"
+                            },
+                            {
+                                "value": "monthlyeft",
+                                "key": "Monthly"
+                            }
+                        ],
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "display_label": "Direct Bill",
+                        "id": "bill_mode",
+                        "order": 2,
+                        "tag": "bill_mode",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "bill12",
+                                "key": "Annual"
+                            },
+                            {
+                                "value": "bill6",
+                                "key": "Semi-Annual"
+                            },
+                            {
+                                "value": "bill3",
+                                "key": "Quarterly"
+                            }
+                        ],
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "BILL"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "display_label": "Draft Initial Premium on",
+                        "id": "initial_draft_date",
+                        "order": 3,
+                        "tag": "initial_draft_date",
+                        "required": true,
+                        "type": "complex_date_picker_field",
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 4,
+                        "tag": "eft_withdraw_day",
+                        "display_label": "Please specify a day of the month: (Note: if this date falls on a weekend or holiday, deduction will be on next business day that falls between the 1st and 28th)",
+                        "id": "eft_withdraw_day",
+                        "type": "string_picker_field",
+                        "options": [
+                            {
+                                "value": 1,
+                                "key": 1
+                            },
+                            {
+                                "value": 2,
+                                "key": 2
+                            },
+                            {
+                                "value": 3,
+                                "key": 3
+                            },
+                            {
+                                "value": 4,
+                                "key": 4
+                            },
+                            {
+                                "value": 5,
+                                "key": 5
+                            },
+                            {
+                                "value": 6,
+                                "key": 6
+                            },
+                            {
+                                "value": 7,
+                                "key": 7
+                            },
+                            {
+                                "value": 8,
+                                "key": 8
+                            },
+                            {
+                                "value": 9,
+                                "key": 9
+                            },
+                            {
+                                "value": 10,
+                                "key": 10
+                            },
+                            {
+                                "value": 11,
+                                "key": 11
+                            },
+                            {
+                                "value": 12,
+                                "key": 12
+                            },
+                            {
+                                "value": 13,
+                                "key": 13
+                            },
+                            {
+                                "value": 14,
+                                "key": 14
+                            },
+                            {
+                                "value": 15,
+                                "key": 15
+                            },
+                            {
+                                "value": 16,
+                                "key": 16
+                            },
+                            {
+                                "value": 17,
+                                "key": 17
+                            },
+                            {
+                                "value": 18,
+                                "key": 18
+                            },
+                            {
+                                "value": 19,
+                                "key": 19
+                            },
+                            {
+                                "value": 20,
+                                "key": 20
+                            },
+                            {
+                                "value": 21,
+                                "key": 21
+                            },
+                            {
+                                "value": 22,
+                                "key": 22
+                            },
+                            {
+                                "value": 23,
+                                "key": 23
+                            },
+                            {
+                                "value": 24,
+                                "key": 24
+                            },
+                            {
+                                "value": 25,
+                                "key": 25
+                            },
+                            {
+                                "value": 26,
+                                "key": 26
+                            },
+                            {
+                                "value": 27,
+                                "key": 27
+                            },
+                            {
+                                "value": 28,
+                                "key": 28
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "order": 5,
+                        "display_label": "Bank Account Information",
+                        "heading_type": "h5",
+                        "type": "heading_field",
+                        "id": "eft_title"
+                    },
+                    {
+                        "order": 6,
+                        "type": "radio_field",
+                        "display_label": "I authorize bank draft payments",
+                        "id": "bank_draft",
+                        "tag": "bank_draft",
+                        "required": true,
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            }
+                        ],
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "order": 7,
+                        "tag": "account_type",
+                        "display_label": "Account Type",
+                        "id": "account_type",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "checking",
+                                "key": "Checking"
+                            },
+                            {
+                                "value": "savings",
+                                "key": "Savings"
+                            }
+                        ]
+                    },
+                    {
+                        "search_data_column": "routing_number",
+                        "required": true,
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "default_text": "Search Routing Numbers",
+                        "id": "eft_routing_number",
+                        "tag": "eft_routing_number",
+                        "display_label": "Routing Number",
+                        "path": "/bank-lookup/search.json?search_term=",
+                        "child_fields": [
+                            {
+                                "search_data_column": "customer_name",
+                                "required": true,
+                                "id": "eft_financial_institution_name",
+                                "tag": "eft_financial_institution_name",
+                                "display_label": "Financial institution name",
+                                "display_dropdown": true,
+                                "maxlength": 35,
+                                "type": "text_field",
+                                "order": 0
+                            }
+                        ],
+                        "type": "string_search_field",
+                        "order": 8
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "id": "eft_account_number",
+                        "tag": "eft_account_number",
+                        "display_label": "Account Number",
+                        "maxlength": 17,
+                        "type": "text_field",
+                        "order": 9
+                    },
+                    {
+                        "required": true,
+                        "order": 10,
+                        "tag": "eft_business_account",
+                        "display_label": "Is this a business account?",
+                        "id": "eft_business_account",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "initial_premium_draft_type",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                },
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "id": "eft_account_first_name",
+                        "tag": "eft_account_first_name",
+                        "display_label": "First Name as Shown on Account",
+                        "maxlength": 30,
+                        "type": "text_field",
+                        "order": 11
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "initial_premium_draft_type",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                },
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "id": "eft_account_last_name",
+                        "tag": "eft_account_last_name",
+                        "display_label": "Last Name as Shown on Account",
+                        "maxlength": 30,
+                        "type": "text_field",
+                        "order": 12
+                    },
+                    {
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "initial_premium_draft_type",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                },
+                                {
+                                    "id": "payments",
+                                    "section_id": "payment",
+                                    "value": "EFT"
+                                }
+                            ]
+                        },
+                        "required": true,
+                        "id": "eft_authorized_signer",
+                        "tag": "eft_authorized_signer",
+                        "display_label": "I am an Authorized Signer on this Account",
+                        "order": 13,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "I agree to receive my certificate and any other plan documents or correspondence electronically:",
+                        "id": "electronic",
+                        "order": 14,
+                        "tag": "electronic",
+                        "required": true,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    }
+                ],
+                "title": "Method of Payment",
+                "heading": "Please Complete the Following",
+                "id": "payment",
+                "order": 7
+            },
+            {
+                "body": [
+                    {
+                        "required": true,
+                        "id": "sale",
+                        "quote_search_attribute": "business_type",
+                        "tag": "sale",
+                        "display_label": "Type of Sale",
+                        "order": 0,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "over_phone",
+                                "key": "Telephone"
+                            },
+                            {
+                                "value": "in_person",
+                                "key": "In Person"
+                            },
+                            {
+                                "value": "internet",
+                                "key": "Internet"
+                            },
+                            {
+                                "value": "mail",
+                                "key": "Mail"
+                            },
+                            {
+                                "value": "other_sale",
+                                "key": "Other"
+                            }
+                        ]
+                    },
+                    {
+                        "display_label": "What other type of sale",
+                        "id": "other_sale_type_description",
+                        "order": 1,
+                        "tag": "other_sale_type_description",
+                        "required": true,
+                        "maxlength": 50,
+                        "type": "text_field",
+                        "depends_on": {
+                            "logic_operator": "OR",
+                            "field_value_list": [
+                                {
+                                    "id": "sale",
+                                    "section_id": "producer",
+                                    "value": "other_sale"
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "required": true,
+                        "order": 2,
+                        "tag": "has_other_inforce_policies",
+                        "display_label": "Has the applicant had other inforce policies before?",
+                        "id": "has_other_inforce_policies",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "minimum_number": 1,
+                        "btn_display_value": "Add Policy",
+                        "maximum_number": 9,
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "producer",
+                                    "value": true,
+                                    "id": "has_other_inforce_policies"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": false,
+                        "btn_cancel_display_value": "Cancel",
+                        "display_name_field": "policy_name",
+                        "btn_edit_display_value": "Update Policy",
+                        "btn_remove_display_value": "Remove Policy",
+                        "tag": "other_policies",
+                        "display_label": "Please include all inforce or previously inforce policies",
+                        "id": "other_policies",
+                        "child_fields": [
+                            {
+                                "required": true,
+                                "id": "inforce",
+                                "display_label": "Is this policy inforce?",
+                                "order": 0,
+                                "type": "radio_field",
+                                "options": [
+                                    {
+                                        "key": "Yes",
+                                        "value": true
+                                    },
+                                    {
+                                        "key": "No",
+                                        "value": false
+                                    }
+                                ]
+                            },
+                            {
+                                "type": "text_field",
+                                "required": true,
+                                "display_label": "Name of Company",
+                                "id": "company_name",
+                                "order": 1
+                            },
+                            {
+                                "type": "text_field",
+                                "required": true,
+                                "display_label": "Type of Policy",
+                                "id": "policy_type",
+                                "order": 2
+                            },
+                            {
+                                "type": "complex_date_picker_field",
+                                "required": true,
+                                "display_label": "Effective Date of Coverage",
+                                "id": "effective_date",
+                                "order": 3
+                            }
+                        ],
+                        "type": "input_table_field",
+                        "order": 3
+                    },
+                    {
+                        "required": true,
+                        "order": 4,
+                        "tag": "deliver_policy_to",
+                        "display_label": "Send Policy to",
+                        "id": "deliver_policy_to",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": "producer",
+                                "key": "Agent"
+                            },
+                            {
+                                "value": "applicant",
+                                "key": "Applicant"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "order": 5,
+                        "tag": "additional_witness",
+                        "display_label": "Was there another person present when this Application was taken?",
+                        "id": "additional_witness",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "producer",
+                                    "value": true,
+                                    "id": "additional_witness"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "id": "witness_name",
+                        "tag": "witness_name",
+                        "display_label": "Additional Person Name",
+                        "maxlength": 15,
+                        "type": "text_field",
+                        "order": 6
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "producer",
+                                    "value": true,
+                                    "id": "additional_witness"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "id": "witness_applicant_relationship",
+                        "tag": "witness_applicant_relationship",
+                        "display_label": "Relationship to Applicant",
+                        "maxlength": 15,
+                        "type": "text_field",
+                        "order": 7
+                    },
+                    {
+                        "required": true,
+                        "id": "agent_related",
+                        "quote_search_attribute": "agent_related",
+                        "tag": "agent_related",
+                        "display_label": "Are you related to the Applicant?",
+                        "order": 8,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "id": "agent_related",
+                                    "value": true,
+                                    "section_id": "producer"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "id": "agent_relation",
+                        "tag": "agent_relation",
+                        "display_label": "Please indicate how you are related to the Applicant.",
+                        "type": "text_field",
+                        "order": 9
+                    },
+                    {
+                        "required": true,
+                        "id": "agent_reviewed",
+                        "tag": "agent_reviewed",
+                        "display_label": "Did you review the Application for correctness and any omissions?",
+                        "order": 10,
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "required": true,
+                        "order": 11,
+                        "tag": "applicant_reviewed",
+                        "display_label": "Did the Applicant review the Application for correctness and any omissions?",
+                        "id": "applicant_reviewed",
+                        "type": "radio_field",
+                        "options": [
+                            {
+                                "value": true,
+                                "key": "Yes"
+                            },
+                            {
+                                "value": false,
+                                "key": "No"
+                            }
+                        ]
+                    },
+                    {
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "producer",
+                                    "value": false,
+                                    "id": "applicant_reviewed"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 12,
+                        "tag": "answered_no_any_statement",
+                        "display_label": "Please explain why you answered \"No\" to the above statements",
+                        "type": "text_field",
+                        "id": "answered_no_any_statement"
+                    },
+                    {
+                        "required": true,
+                        "order": 13,
+                        "tag": "producer_phone",
+                        "display_label": "Producer Phone Number",
+                        "type": "complex_phone_field",
+                        "id": "producer_phone"
+                    },
+                    {
+                        "options": [
+                            {
+                                "key": "Yes",
+                                "value": true
+                            },
+                            {
+                                "key": "No",
+                                "value": false
+                            }
+                        ],
+                        "depends_on": {
+                            "field_value_list": [
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "intend_to_replace_existing_ms_inforce_policy"
+                                },
+                                {
+                                    "section_id": "existing_coverage",
+                                    "value": true,
+                                    "id": "existing_coverage_medicare_plan_replacement_indicator"
+                                }
+                            ],
+                            "logic_operator": "OR"
+                        },
+                        "required": true,
+                        "order": 14,
+                        "tag": "replacement_notice",
+                        "display_label": "I have provided a copy of the replacement notice.",
+                        "type": "radio_field",
+                        "id": "replacement_notice_copy"
+                    },
+                    {
+                        "minimum_number": 0,
+                        "btn_display_value": "Add Document",
+                        "maximum_number": 2,
+                        "required": false,
+                        "btn_cancel_display_value": "Cancel",
+                        "display_name_field": "type",
+                        "btn_edit_display_value": "Replace Document",
+                        "btn_remove_display_value": "Remove Document",
+                        "tag": "user_documents",
+                        "display_label": "Upload any materials relevant to this application",
+                        "id": "upload_documents",
+                        "child_fields": [
+                            {
+                                "required": true,
+                                "options": [
+                                    {
+                                        "key": "Notice of Termination",
+                                        "value": "termination_notice"
+                                    },
+                                    {
+                                        "key": "Evidence of Insurance",
+                                        "value": "evidence_of_insurance"
+                                    }
+                                ],
+                                "display_label": "Document Type",
+                                "id": "type",
+                                "type": "string_picker_field",
+                                "order": 0
+                            },
+                            {
+                                "type": "file_upload_field",
+                                "required": true,
+                                "display_label": "Upload File",
+                                "id": "document",
+                                "order": 1
+                            }
+                        ],
+                        "type": "input_table_field",
+                        "order": 15
+                    }
+                ],
+                "title": "To be Completed by Producer",
+                "heading": "Please Complete the Following",
+                "id": "producer",
+                "order": 8,
+                "type": "section",
+                "depends_on": {
+                    "logic_operator": "OR",
+                    "field_value_list": [
+                        {
+                            "attribute_name": "persona",
+                            "object_name": "enrollment_application",
+                            "value": "broker_f2f"
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+]

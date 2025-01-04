@@ -35,6 +35,7 @@ app.group('/api', app => app
       const pageSize = Number(params?.pageSize) || 20
       const searchTerm = params?.searchTerm as string || ''
       const hasContactFilter = params?.hasContactFilter === 'true'
+      const naics = Array.isArray(params?.naics) ? params.naics : params?.naics ? [params.naics] : []
       
       console.log('GET /applications query params:', {
         page,
@@ -42,10 +43,11 @@ app.group('/api', app => app
         searchTerm,
         searchTermLength: searchTerm?.length || 0,
         hasContactFilter,
+        naics,
         rawParams: params
       })
       
-      const result = await getApplications(page, pageSize, searchTerm, hasContactFilter)
+      const result = await getApplications(page, pageSize, searchTerm, hasContactFilter, naics)
       console.log('GET /applications response:', {
         total: result.pagination.total,
         totalPages: result.pagination.totalPages,
@@ -95,7 +97,8 @@ app.group('/api', app => app
         id: application?.id,
         hasData: !!application?.data,
         hasSchema: !!application?.schema,
-        rawData: application?.data
+        rawData: application?.data,
+        formattedData: application?.formattedData
       })
       
       if (!application) {

@@ -28,7 +28,7 @@ init applicationId =
       }
     , Http.get
         { url = "/api/applications/" ++ applicationId
-        , expect = Http.expectJson ApplicationReceived applicationViewDecoder
+        , expect = Http.expectJson ApplicationReceived ApplicationView.applicationViewDecoder
         }
     )
 
@@ -128,12 +128,3 @@ httpErrorToString error =
 
         Http.BadBody message ->
             "Failed to decode response: " ++ message
-
-
-applicationViewDecoder : Decode.Decoder ApplicationView.Application
-applicationViewDecoder =
-    Decode.map4 ApplicationView.Application
-        (Decode.field "id" Decode.string)
-        (Decode.field "naic" Decode.string)
-        (Decode.field "data" Decode.value)
-        (Decode.field "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder))

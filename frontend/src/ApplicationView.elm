@@ -1,6 +1,6 @@
 port module ApplicationView exposing (Application, Model, Msg(..), applicationViewDecoder, init, subscriptions, update, view)
 
-import CSGSchema exposing (ApplicationSchema, FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), isFieldVisible, jsonValueDecoder, parseValue, unwrapJValue)
+import CSGSchema exposing (ApplicationSchema, Carrier(..), FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), carrierFromNaic, defaultAetnaMedicationSection, defaultMedicationSection, isFieldVisible, jsonValueDecoder, parseValue, unwrapJValue)
 import DataEncoder exposing (unflattenData)
 import Date exposing (Date, Unit(..))
 import Debug
@@ -34,7 +34,7 @@ port saveApplicationResponse : ({ success : Bool, error : Maybe String } -> msg)
 -- Add at the top with other ports
 
 
-port getLAProToken : () -> Cmd msg
+port forceRefreshLAProToken : () -> Cmd msg
 
 
 port getLAProTokenResponse : (String -> msg) -> Sub msg
@@ -90,6 +90,7 @@ type alias Application =
     { id : String
     , naic : String
     , data : Decode.Value
+    , formattedData : Decode.Value
     , schema : ApplicationSchema
     }
 
@@ -101,9 +102,22 @@ type alias Application =
 init : Application -> ( Model, Cmd Msg )
 init app =
     let
-        initialFormValues =
+        initialFormValuesRaw =
             app.data
                 |> extractFormValues
+
+        initialFormattedValues =
+            app.formattedData
+                |> extractFormValues
+                |> Debug.log "initialFormattedValues"
+
+        initialFormValues =
+            case initialFormattedValues of
+                JsonBase NullValue ->
+                    initialFormValuesRaw
+
+                _ ->
+                    initialFormattedValues
 
         initialMedications =
             case Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
@@ -115,18 +129,32 @@ init app =
                     []
                         |> Debug.log "initialMedications"
 
+        schema =
+            app.schema
+                |> List.map
+                    (\section ->
+                        if section.id == "medication_information" then
+                            defaultMedicationSection
+
+                        else if section.id == "health_history" then
+                            defaultAetnaMedicationSection
+
+                        else
+                            section
+                    )
+
         model =
             { data = initialFormValues
             , naic = app.naic
             , carrier = app.naic |> carrierFromNaic
             , medications = initialMedications
             , medicationForm = Dict.empty
-            , schema = app.schema
+            , schema = schema
             , id = app.id
             , error = Nothing
             , expandedSections = Dict.empty
             , currentDate = Nothing
-            , showDebugFields = False
+            , showDebugFields = True
             , isValid = False
             , underwritingType = Nothing
             , drugSearchResults = []
@@ -141,7 +169,7 @@ init app =
     ( model
     , Cmd.batch
         [ Task.perform GotCurrentTime Date.today
-        , getLAProToken ()
+        , forceRefreshLAProToken ()
         ]
     )
 
@@ -281,6 +309,10 @@ setSection sectionId newSection jsonValue =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
+    let
+        _ =
+            Debug.log "update" msg
+    in
     case msg of
         GotError error ->
             ( { model | error = Just error }, Cmd.none )
@@ -431,7 +463,7 @@ update msg model =
                     medication :: model.medications
 
                 newData =
-                    updateModelDataWithMedications newMedications model.data
+                    updateModelDataWithMedications model.carrier newMedications model.data
             in
             ( { model
                 | medications = newMedications
@@ -454,7 +486,7 @@ update msg model =
                         |> List.map Tuple.second
 
                 newData =
-                    updateModelDataWithMedications newMedications model.data
+                    updateModelDataWithMedications model.carrier newMedications model.data
             in
             ( { model
                 | medications = newMedications
@@ -480,23 +512,30 @@ update msg model =
 
                 _ =
                     Debug.log "Token" model.laproToken
+
+                shouldSearch =
+                    String.length query > 2
             in
             ( { model
                 | drugSearchResults = []
                 , medicationForm = Dict.insert "drugName" query model.medicationForm
                 , searchError = Nothing
-                , isSearching = String.length query > 2
+                , isSearching = shouldSearch
               }
-            , case model.laproToken of
-                Just token ->
-                    if String.length query > 2 then
-                        searchDrugs token query
+            , if shouldSearch then
+                case model.laproToken of
+                    Just token ->
+                        if String.isEmpty token then
+                            forceRefreshLAProToken ()
 
-                    else
-                        Cmd.none
+                        else
+                            searchDrugs token query
 
-                Nothing ->
-                    getLAProToken ()
+                    Nothing ->
+                        forceRefreshLAProToken ()
+
+              else
+                Cmd.none
             )
 
         DrugSearchResponse result ->
@@ -520,7 +559,7 @@ update msg model =
                             Debug.log "DrugSearchError" (httpErrorToString error)
                     in
                     case error of
-                        Http.BadStatus 401 ->
+                        Http.BadStatus _ ->
                             -- Token expired, get a new one and retry
                             ( { model
                                 | drugSearchResults = []
@@ -528,7 +567,7 @@ update msg model =
                                 , searchError = Nothing
                                 , laproToken = Nothing
                               }
-                            , getLAProToken ()
+                            , forceRefreshLAProToken ()
                             )
 
                         _ ->
@@ -552,7 +591,7 @@ update msg model =
                     getDrugDosages drugName token
 
                 Nothing ->
-                    getLAProToken ()
+                    forceRefreshLAProToken ()
             )
 
         DrugDosageResponse result ->
@@ -567,14 +606,14 @@ update msg model =
 
                 Err error ->
                     case error of
-                        Http.BadStatus 401 ->
+                        Http.BadStatus _ ->
                             -- Token expired, get a new one and retry
                             ( { model
                                 | drugDosages = []
                                 , loadingDrugData = True
                                 , laproToken = Nothing
                               }
-                            , getLAProToken ()
+                            , forceRefreshLAProToken ()
                             )
 
                         _ ->
@@ -589,20 +628,26 @@ update msg model =
         GotLAProToken token ->
             let
                 _ =
-                    Debug.log "GotLAProToken" token
+                    Debug.log "ELM GotLAProToken" token
 
-                cmd =
-                    if String.isEmpty token then
-                        Cmd.none
+                validToken =
+                    not (String.isEmpty token)
 
-                    else
-                    -- If we were in the middle of a search or loading dosages, retry the operation
-                    if
-                        model.isSearching
-                    then
+                _ =
+                    Debug.log "ELM validToken" validToken
+
+                nextCmd =
+                    if not validToken then
+                        forceRefreshLAProToken ()
+
+                    else if model.isSearching then
                         case Dict.get "drugName" model.medicationForm of
                             Just query ->
-                                searchDrugs token query
+                                if String.length query > 2 then
+                                    searchDrugs token query
+
+                                else
+                                    Cmd.none
 
                             Nothing ->
                                 Cmd.none
@@ -617,9 +662,25 @@ update msg model =
 
                     else
                         Cmd.none
+
+                _ =
+                    Debug.log "Setting token in model"
+                        (if validToken then
+                            Just token
+
+                         else
+                            Nothing
+                        )
             in
-            ( { model | laproToken = Just token }
-            , cmd
+            ( { model
+                | laproToken =
+                    if validToken then
+                        Just token
+
+                    else
+                        Nothing
+              }
+            , nextCmd
             )
 
 
@@ -1518,7 +1579,7 @@ routingNumberDecoder =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Sub.batch
         [ saveApplicationResponse SaveFormResponse
         , getLAProTokenResponse GotLAProToken
@@ -1581,13 +1642,6 @@ type alias Medication =
     }
 
 
-type Carrier
-    = ACE
-    | Aetna
-    | Allstate
-    | UHC
-
-
 medicationDecoder : Decode.Decoder Medication
 medicationDecoder =
     Decode.succeed Medication
@@ -1630,34 +1684,6 @@ defaultDosageDetails =
     { dosage = ""
     , ndc = ""
     }
-
-
-carrierFromNaic : String -> Maybe Carrier
-carrierFromNaic naic =
-    case naic of
-        "20699" ->
-            Just ACE
-
-        "72052" ->
-            Just Aetna
-
-        "78700" ->
-            Just Aetna
-
-        "68500" ->
-            Just Aetna
-
-        "79413" ->
-            Just UHC
-
-        "82538" ->
-            Just Allstate
-
-        "60534" ->
-            Just Allstate
-
-        _ ->
-            Nothing
 
 
 renderDrugLookupField : Model -> FormSection -> FormField -> Html Msg
@@ -2150,6 +2176,136 @@ encodeJsonValue value =
             Encode.null
 
 
+transformAetnaMedications : Dict String JsonValue -> Dict String JsonValue
+transformAetnaMedications healthHistory =
+    let
+        prescriptionDrugList =
+            Dict.get "prescription_drug_list" healthHistory
+                |> Maybe.andThen
+                    (\value ->
+                        case value of
+                            JsonArray arr ->
+                                Just arr
+
+                            _ ->
+                                Nothing
+                    )
+                |> Maybe.withDefault []
+                |> Debug.log "Prescription drug list for Aetna transformation"
+
+        transformMedication : Int -> JsonValue -> Maybe ( String, JsonValue )
+        transformMedication index medValue =
+            case medValue of
+                JsonObject medDict ->
+                    let
+                        drugInfo =
+                            Dict.get "drug" medDict
+                                |> Maybe.andThen
+                                    (\drug ->
+                                        case drug of
+                                            JsonObject drugDict ->
+                                                Dict.get "drugName" drugDict
+                                                    |> Maybe.andThen
+                                                        (\name ->
+                                                            case name of
+                                                                JsonBase (StringValue fullName) ->
+                                                                    Just fullName
+
+                                                                _ ->
+                                                                    Nothing
+                                                        )
+
+                                            _ ->
+                                                Nothing
+                                    )
+
+                        diagnosis =
+                            Dict.get "diagnosis" medDict
+                                |> Maybe.andThen
+                                    (\diag ->
+                                        case diag of
+                                            JsonBase (StringValue d) ->
+                                                Just d
+
+                                            _ ->
+                                                Nothing
+                                    )
+                                |> Maybe.withDefault ""
+
+                        getMedName fullName =
+                            String.split " " fullName
+                                |> List.foldr
+                                    (\part ( acc, foundUpper ) ->
+                                        if String.toUpper part == part then
+                                            ( acc, True )
+
+                                        else if not foundUpper then
+                                            ( part :: acc, foundUpper )
+
+                                        else
+                                            ( acc, foundUpper )
+                                    )
+                                    ( [], False )
+                                |> Tuple.first
+                                |> String.join " "
+                    in
+                    drugInfo
+                        |> Maybe.map
+                            (\fullName ->
+                                let
+                                    medName =
+                                        getMedName fullName
+                                            |> Debug.log ("Med name for index " ++ String.fromInt index)
+                                in
+                                ( String.fromInt index
+                                , JsonObject
+                                    (Dict.fromList
+                                        [ ( "med_name", JsonBase (StringValue medName) )
+                                        , ( "diagnosis", JsonBase (StringValue diagnosis) )
+                                        ]
+                                    )
+                                )
+                            )
+
+                _ ->
+                    Nothing
+
+        prescribedMedications =
+            List.indexedMap transformMedication prescriptionDrugList
+                |> List.filterMap identity
+                |> Dict.fromList
+                |> Debug.log "Generated prescribed_medications"
+
+        lastMedName =
+            Dict.values prescribedMedications
+                |> List.head
+                |> Maybe.andThen
+                    (\value ->
+                        case value of
+                            JsonObject dict ->
+                                Dict.get "med_name" dict
+                                    |> Maybe.andThen
+                                        (\name ->
+                                            case name of
+                                                JsonBase (StringValue n) ->
+                                                    Just n
+
+                                                _ ->
+                                                    Nothing
+                                        )
+
+                            _ ->
+                                Nothing
+                    )
+                |> Maybe.withDefault ""
+                |> Debug.log "Last med name"
+    in
+    Dict.remove "prescription_drug_list" healthHistory
+        |> Dict.insert "prescribed_medications" (JsonObject prescribedMedications)
+        |> Dict.insert "med_name" (JsonBase (StringValue lastMedName))
+        |> Debug.log "Transformed health history for Aetna"
+
+
 isJust : Maybe a -> Bool
 isJust maybe =
     case maybe of
@@ -2162,20 +2318,46 @@ isJust maybe =
 
 applicationViewDecoder : Decode.Decoder Application
 applicationViewDecoder =
-    Decode.map4 Application
+    Decode.map5 Application
         (Decode.field "id" Decode.string)
         (Decode.field "naic" Decode.string)
         (Decode.field "data" Decode.value)
+        (Decode.field "formattedData" Decode.value)
         (Decode.field "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder))
 
 
-updateModelDataWithMedications : List Medication -> JsonValue -> JsonValue
-updateModelDataWithMedications medications data =
-    setComplexValue
-        "medication_information"
-        "prescription_drug_list"
-        (JsonArray (List.map medicationToJsonValue medications))
-        data
+updateModelDataWithMedications : Maybe Carrier -> List Medication -> JsonValue -> JsonValue
+updateModelDataWithMedications carrier medications data =
+    let
+        _ =
+            Debug.log "Updating medications with data" data
+
+        baseUpdate =
+            setComplexValue
+                "medication_information"
+                "prescription_drug_list"
+                (JsonArray (List.map medicationToJsonValue medications))
+                data
+
+        healthHistorySection =
+            getSection "health_history" baseUpdate
+                |> Debug.log "Current health history section"
+
+        updatedData =
+            case carrier of
+                Just Aetna ->
+                    let
+                        transformedHealthHistory =
+                            transformAetnaMedications healthHistorySection
+                    in
+                    setSection "health_history" transformedHealthHistory baseUpdate
+                        |> Debug.log "AETNA carrier - applied transformation"
+
+                _ ->
+                    baseUpdate
+                        |> Debug.log "Unknown carrier - using base update"
+    in
+    updatedData
 
 
 medicationToJsonValue : Medication -> JsonValue
