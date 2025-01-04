@@ -1,3 +1,16 @@
+// Add type declarations for Vite env variables
+interface ImportMetaEnv {
+    readonly VITE_LAPRO_USERNAME: string
+    readonly VITE_LAPRO_PASSWORD: string
+    readonly VITE_LAPRO_GRANT_TYPE: string
+    readonly VITE_LAPRO_CLIENT_ID: string
+    readonly VITE_LAPRO_CLIENT_SECRET: string
+}
+
+interface ImportMeta {
+    readonly env: ImportMetaEnv
+}
+
 // Log to confirm script loading
 console.log('Main script loading...');
 
@@ -5,6 +18,29 @@ import './style.css';
 import { Elm } from './Main.elm';
 
 console.log('Imports completed');
+
+// Add token acquisition function
+async function getLAProToken() {
+    try {
+        const response = await fetch('/api/lapro/token', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const auth = await response.json();
+        document.cookie = `lapro_token=${auth.access_token}; path=/`;
+        return auth.access_token;
+    } catch (error) {
+        console.error('Error getting LAPRO token:', error);
+        return '';
+    }
+}
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log('DOM loaded, initializing Elm...');
@@ -98,6 +134,21 @@ document.addEventListener('DOMContentLoaded', () => {
                     error: 'Failed to save application'
                 });
             });
+        });
+
+        app.ports.getLAProToken.subscribe(async () => {
+            let token = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('lapro_token='))
+                ?.split('=')[1];
+
+            if (!token) {
+                console.log('No token found in cookies, getting new token...');
+                token = await getLAProToken();
+            }
+
+            console.log('Sending token to Elm:', token ? 'Token found' : 'No token');
+            app.ports.getLAProTokenResponse.send(token || '');
         });
     } catch (error) {
         console.error('Error initializing Elm app:', error);

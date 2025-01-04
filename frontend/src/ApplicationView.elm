@@ -30,6 +30,16 @@ port saveApplication : { id : String, data : Encode.Value } -> Cmd msg
 port saveApplicationResponse : ({ success : Bool, error : Maybe String } -> msg) -> Sub msg
 
 
+
+-- Add at the top with other ports
+
+
+port getLAProToken : () -> Cmd msg
+
+
+port getLAProTokenResponse : (String -> msg) -> Sub msg
+
+
 type alias Model =
     { data : JsonValue
     , naic : String
@@ -44,6 +54,13 @@ type alias Model =
     , showDebugFields : Bool
     , isValid : Bool
     , underwritingType : Maybe Int
+    , drugSearchResults : List DrugSearchResult
+    , selectedDrug : Maybe String
+    , drugDosages : List DrugInfo
+    , loadingDrugData : Bool
+    , laproToken : Maybe String
+    , searchError : Maybe String
+    , isSearching : Bool
     }
 
 
@@ -62,6 +79,11 @@ type Msg
     | SaveMedication String Medication
     | CancelAddMedication String
     | RemoveMedication String Int
+    | SearchDrugs String
+    | DrugSearchResponse (Result Http.Error (List DrugSearchResult))
+    | SelectDrug String
+    | DrugDosageResponse (Result Http.Error (List DrugInfo))
+    | GotLAProToken String
 
 
 type alias Application =
@@ -82,7 +104,6 @@ init app =
         initialFormValues =
             app.data
                 |> extractFormValues
-                |> Debug.log "initialFormValues"
 
         initialMedications =
             case Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
@@ -103,15 +124,25 @@ init app =
             , schema = app.schema
             , id = app.id
             , error = Nothing
-            , expandedSections = Dict.singleton "applicant_info" True
+            , expandedSections = Dict.empty
             , currentDate = Nothing
-            , showDebugFields = True
+            , showDebugFields = False
             , isValid = False
             , underwritingType = Nothing
+            , drugSearchResults = []
+            , selectedDrug = Nothing
+            , drugDosages = []
+            , loadingDrugData = False
+            , laproToken = Nothing
+            , searchError = Nothing
+            , isSearching = False
             }
     in
     ( model
-    , Task.perform GotCurrentTime Date.today
+    , Cmd.batch
+        [ Task.perform GotCurrentTime Date.today
+        , getLAProToken ()
+        ]
     )
 
 
@@ -405,6 +436,155 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
+        SearchDrugs query ->
+            let
+                _ =
+                    Debug.log "SearchDrugs" query
+
+                _ =
+                    Debug.log "Token" model.laproToken
+            in
+            ( { model
+                | drugSearchResults = []
+                , medicationForm = Dict.insert "drugName" query model.medicationForm
+                , searchError = Nothing
+                , isSearching = String.length query > 2
+              }
+            , case model.laproToken of
+                Just token ->
+                    if String.length query > 2 then
+                        searchDrugs token query
+
+                    else
+                        Cmd.none
+
+                Nothing ->
+                    getLAProToken ()
+            )
+
+        DrugSearchResponse result ->
+            let
+                _ =
+                    Debug.log "DrugSearchResponse" result
+            in
+            case result of
+                Ok results ->
+                    ( { model
+                        | drugSearchResults = results
+                        , isSearching = False
+                        , searchError = Nothing
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    let
+                        _ =
+                            Debug.log "DrugSearchError" (httpErrorToString error)
+                    in
+                    case error of
+                        Http.BadStatus 401 ->
+                            -- Token expired, get a new one and retry
+                            ( { model
+                                | drugSearchResults = []
+                                , isSearching = True
+                                , searchError = Nothing
+                                , laproToken = Nothing
+                              }
+                            , getLAProToken ()
+                            )
+
+                        _ ->
+                            ( { model
+                                | drugSearchResults = []
+                                , isSearching = False
+                                , searchError = Just (httpErrorToString error)
+                              }
+                            , Cmd.none
+                            )
+
+        SelectDrug drugName ->
+            ( { model
+                | selectedDrug = Just drugName
+                , medicationForm = Dict.insert "drugName" drugName model.medicationForm
+                , drugSearchResults = [] -- Clear search results immediately
+                , loadingDrugData = True
+              }
+            , case model.laproToken of
+                Just token ->
+                    getDrugDosages drugName token
+
+                Nothing ->
+                    getLAProToken ()
+            )
+
+        DrugDosageResponse result ->
+            case result of
+                Ok dosages ->
+                    ( { model
+                        | drugDosages = dosages
+                        , loadingDrugData = False
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    case error of
+                        Http.BadStatus 401 ->
+                            -- Token expired, get a new one and retry
+                            ( { model
+                                | drugDosages = []
+                                , loadingDrugData = True
+                                , laproToken = Nothing
+                              }
+                            , getLAProToken ()
+                            )
+
+                        _ ->
+                            ( { model
+                                | drugDosages = []
+                                , loadingDrugData = False
+                                , searchError = Just (httpErrorToString error)
+                              }
+                            , Cmd.none
+                            )
+
+        GotLAProToken token ->
+            let
+                _ =
+                    Debug.log "GotLAProToken" token
+
+                cmd =
+                    if String.isEmpty token then
+                        Cmd.none
+
+                    else
+                    -- If we were in the middle of a search or loading dosages, retry the operation
+                    if
+                        model.isSearching
+                    then
+                        case Dict.get "drugName" model.medicationForm of
+                            Just query ->
+                                searchDrugs token query
+
+                            Nothing ->
+                                Cmd.none
+
+                    else if model.loadingDrugData then
+                        case model.selectedDrug of
+                            Just drugName ->
+                                getDrugDosages token drugName
+
+                            Nothing ->
+                                Cmd.none
+
+                    else
+                        Cmd.none
+            in
+            ( { model | laproToken = Just token }
+            , cmd
+            )
+
 
 httpErrorToString : Http.Error -> String
 httpErrorToString error =
@@ -433,7 +613,7 @@ view : Model -> Html Msg
 view model =
     case model.error of
         Just error ->
-            div [ class "text-red-500 p-4" ]
+            div [ class "text-cyber-error p-4" ]
                 [ text ("Error: " ++ error) ]
 
         _ ->
@@ -449,12 +629,7 @@ view model =
 viewSaveButton : Html Msg
 viewSaveButton =
     button
-        [ class """
-            bg-purple-600 text-white px-6 py-2.5 rounded-lg font-medium
-            hover:bg-purple-700 transition-colors shadow-sm
-            focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2
-            w-[140px] text-sm
-          """
+        [ class "cyber-button"
         , onClick SaveForm
         ]
         [ text "Save" ]
@@ -464,18 +639,12 @@ viewSubmitButton : Bool -> Html Msg
 viewSubmitButton isValid =
     button
         [ class <|
-            """
-            px-6 py-2.5 rounded-lg font-medium
-            w-[140px] text-sm
-            transition-colors shadow-sm
-            focus:outline-none focus:ring-2 focus:ring-offset-2
-            disabled:opacity-50 disabled:cursor-not-allowed
-          """
-                ++ (if isValid then
-                        " bg-green-600 text-white hover:bg-green-700 focus:ring-green-500"
+            "cyber-button "
+                ++ (if not isValid then
+                        "opacity-50 cursor-not-allowed"
 
                     else
-                        " bg-gray-400 text-white"
+                        ""
                    )
         , disabled (not isValid)
         , onClick SubmitToCSG
@@ -615,23 +784,9 @@ renderFormSection model section =
             let
                 visibleFields =
                     List.filter (\field -> isFieldVisible field section model.data) section.body
-
-                {- _ =
-                   Debug.log ("Visible fields in section " ++ section.id)
-                       { totalFields = List.length section.body
-                       , visibleFieldCount = List.length visibleFields
-                       , visibleFieldIds = List.map .id visibleFields
-                       }
-                -}
             in
             not (List.isEmpty visibleFields)
 
-        {- _ =
-           Debug.log ("Section " ++ section.id ++ " visibility")
-               { hasVisibleFields = hasVisibleFields
-               , sectionDependsOn = section.dependsOn
-               }
-        -}
         isExpanded =
             Dict.get section.id model.expandedSections
                 |> Maybe.withDefault False
@@ -639,46 +794,63 @@ renderFormSection model section =
         hasEmptyRequiredFields =
             validateSection model section
 
-        headerBgClass =
+        sectionClasses =
+            "form-section mb-8 "
+                ++ (if hasEmptyRequiredFields then
+                        "invalid "
+
+                    else
+                        ""
+                   )
+                ++ (if isExpanded then
+                        "expanded"
+
+                    else
+                        ""
+                   )
+
+        warningBadge =
             if hasEmptyRequiredFields then
-                "bg-tokyo-orange/20"
+                div [ class "section-warning-badge" ]
+                    [ text "⚠️ Required fields missing" ]
 
             else
-                "bg-gray-50"
+                text ""
+
+        headerContent =
+            div [ class "section-header-content" ]
+                [ h2 [ class "section-header" ]
+                    [ text section.title ]
+                , div [ class "flex items-center gap-4" ]
+                    [ warningBadge
+                    , span
+                        [ class <|
+                            "section-caret"
+                                ++ (if isExpanded then
+                                        " rotate-180"
+
+                                    else
+                                        ""
+                                   )
+                        ]
+                        [ text "▼" ]
+                    ]
+                ]
     in
     if hasVisibleFields then
-        div
-            [ class """
-                border border-gray-200 rounded-lg shadow-sm mb-8 bg-white
-                transition-all duration-200 hover:shadow-md
-              """
-            ]
+        div [ class sectionClasses ]
             [ div
-                [ class <| """
-                    flex items-center justify-between p-6 cursor-pointer
-                    border-b border-gray-200
-                    transition-colors duration-200
-                  """ ++ " " ++ headerBgClass
+                [ class "section-clickable-area"
                 , onClick (ToggleSection section.id)
                 ]
-                [ div [ class "space-y-2" ]
-                    [ h2 [ class "text-xl font-semibold text-gray-900 tracking-tight" ]
-                        [ text section.title ]
-                    ]
-                , span
-                    [ class <|
-                        "text-gray-400 transition-transform duration-300"
-                            ++ (if isExpanded then
-                                    " rotate-180"
+                [ if isExpanded then
+                    div [ class "section-header-wrapper" ] [ headerContent ]
 
-                                else
-                                    ""
-                               )
-                    ]
-                    [ text "▼" ]
+                  else
+                    headerContent
                 ]
             , if isExpanded then
-                div [ class "p-6 space-y-6 border-t border-gray-100" ]
+                div [ class "section-content" ]
                     (List.sortBy .order section.body
                         |> List.map (renderFormField model section)
                     )
@@ -709,17 +881,18 @@ renderFormField model section field =
             not fieldValueValid
 
         baseInputClass =
-            """
-            w-full px-4 py-2 border border-gray-300 rounded-md
-            focus:outline-none focus:ring-2 focus:ring-purple-500
-            text-gray-700 transition-all duration-200
-            hover:border-gray-400 text-base bg-white
-            """
+            "form-input"
 
         labelClass =
-            "block text-sm font-medium mb-2 text-gray-700"
+            "form-label"
                 ++ (if shouldHighlight then
-                        " bg-tokyo-orange/20"
+                        " invalid-label"
+
+                    else
+                        ""
+                   )
+                ++ (if isRequired then
+                        " required"
 
                     else
                         ""
@@ -731,11 +904,7 @@ renderFormField model section field =
                     text ""
 
                 _ ->
-                    if isRequired then
-                        span [] [ text field.displayLabel, span [ class "text-red-500" ] [ text " *" ] ]
-
-                    else
-                        text field.displayLabel
+                    text field.displayLabel
 
         wrapperClass =
             case field.fieldType of
@@ -745,10 +914,26 @@ renderFormField model section field =
                 _ ->
                     "mb-6"
 
+        fieldWrapper content =
+            if shouldHighlight then
+                div [ class "field-wrapper invalid p-4" ]
+                    [ content ]
+
+            else
+                content
+
         debugLabel =
             if model.showDebugFields then
-                div [ class "text-xs text-gray-400 mb-1" ]
+                div [ class "text-xs text-cyber-muted mb-1" ]
                     [ text (section.id ++ "." ++ field.id) ]
+
+            else
+                text ""
+
+        errorMessage =
+            if shouldHighlight then
+                div [ class "invalid-message" ]
+                    [ text "This field is required" ]
 
             else
                 text ""
@@ -758,266 +943,161 @@ renderFormField model section field =
             [ debugLabel
             , label [ class labelClass ]
                 [ displayLabel ]
-            , case field.fieldType of
-                TextNameValueField fv ->
-                    div [ class "flex items-center p-2 bg-gray-50 border border-gray-300 rounded-md text-gray-700" ]
-                        [ span [ class "text-gray-600" ] [ text fv.displayLabel ]
-                        , span [ class "ml-2" ] [ text fv.displayValue ]
-                        ]
-
-                ComplexDatePickerField ->
-                    input
-                        [ type_ "date"
-                        , class baseInputClass
-                        , value
-                            (getValueString section.id field.id model.data)
-                        , onInput (UpdateField section.id field.id)
-                        ]
-                        []
-
-                NoDateDatePickerField ->
-                    input
-                        [ type_ "date"
-                        , class baseInputClass
-                        , value
-                            (getValueString section.id field.id model.data)
-                        , onInput (UpdateField section.id field.id)
-                        ]
-                        []
-
-                TextField config ->
-                    input
-                        [ type_ "text"
-                        , class baseInputClass
-                        , value
-                            (getValueString section.id field.id model.data)
-                        , onInput (UpdateField section.id field.id)
-                        , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
-                            |> Maybe.withDefault (class "")
-                        ]
-                        []
-
-                StringSearchField config ->
-                    div [ class "space-y-2" ]
-                        [ input
-                            [ type_ "text"
-                            , class baseInputClass
-                            , value (getValueString section.id field.id model.data)
-                            , onInput (UpdateField section.id field.id)
-                            , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
-                                |> Maybe.withDefault (class "")
+            , fieldWrapper
+                (case field.fieldType of
+                    TextNameValueField fv ->
+                        div [ class "flex items-center p-2 bg-cyber-dark/50 border border-cyber-primary/30 rounded-md text-cyber-text" ]
+                            [ span [ class "text-cyber-muted" ] [ text fv.displayLabel ]
+                            , span [ class "ml-2" ] [ text fv.displayValue ]
                             ]
-                            []
-                        , div [ class "mt-2" ]
-                            (List.map
-                                (\childField -> renderFormField model section childField)
-                                config.childFields
-                            )
-                        ]
 
-                ComplexPhoneField ->
-                    let
-                        formattedValue =
-                            getPhoneValue section.id field.id model.data
-                    in
-                    input
-                        [ type_ "tel"
-                        , class baseInputClass
-                        , value formattedValue
-                        , onInput
-                            (\input ->
-                                let
-                                    digits =
-                                        String.filter Char.isDigit input
-
-                                    newAreaCode =
-                                        String.left 3 digits
-
-                                    newOfficeCode =
-                                        String.slice 3 6 digits
-
-                                    newStationCode =
-                                        String.slice 6 10 digits
-
-                                    complexObject =
-                                        [ ( "area_code", JsonBase (StringValue newAreaCode) )
-                                        , ( "central_office_code", JsonBase (StringValue newOfficeCode) )
-                                        , ( "station_code", JsonBase (StringValue newStationCode) )
-                                        ]
-                                            |> Dict.fromList
-                                            |> JsonObject
-                                in
-                                UpdateComplexPhoneField section.id field.id complexObject
-                            )
-                        ]
-                        []
-
-                SimpleEmailField config ->
-                    input
-                        [ type_ "email"
-                        , class baseInputClass
-                        , value
-                            (getValueString section.id field.id model.data)
-                        , onInput (UpdateField section.id field.id)
-                        , Html.Attributes.maxlength config.maxLength
-                        ]
-                        []
-
-                IntPickerField options ->
-                    if field.id == "applicant_age" then
-                        let
-                            dobValue =
-                                getValue "applicant_info" "applicant_dob" model.data
-
-                            ageString =
-                                CSGSchema.calculateAge dobValue model.currentDate
-                                    |> Maybe.map String.fromInt
-                                    |> Maybe.withDefault ""
-                        in
-                        text ("Calculated from DOB: " ++ ageString)
-
-                    else
-                        div [ class "relative" ]
-                            [ select
-                                [ class (baseInputClass ++ " appearance-none")
-                                , value
-                                    (getValueString section.id field.id model.data)
+                    ComplexDatePickerField ->
+                        div []
+                            [ input
+                                [ type_ "date"
+                                , class baseInputClass
+                                , value (getValueString section.id field.id model.data)
                                 , onInput (UpdateField section.id field.id)
                                 ]
-                                (option [ value "" ] [ text "Select..." ]
-                                    :: List.map
-                                        (\opt ->
-                                            option
-                                                [ value (String.fromInt opt)
-                                                , selected
-                                                    (case getValue section.id field.id model.data of
-                                                        Just (IntValue intValue) ->
-                                                            intValue == opt
-
-                                                        _ ->
-                                                            False
-                                                    )
-                                                ]
-                                                [ text (String.fromInt opt) ]
-                                        )
-                                        options
-                                )
+                                []
                             ]
 
-                KeyValuePickerField options ->
-                    div [ class "relative" ]
-                        [ select
-                            [ class (baseInputClass ++ " appearance-none")
-                            , value
-                                (getValueString section.id field.id model.data)
-                            , onInput (UpdateField section.id field.id)
+                    NoDateDatePickerField ->
+                        div []
+                            [ input
+                                [ type_ "date"
+                                , class baseInputClass
+                                , value (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
+                                ]
+                                []
                             ]
-                            (option [ value "" ] [ text "Select..." ]
-                                :: List.map
-                                    (\opt ->
-                                        option
-                                            [ value (stringifyJValue opt.value)
-                                            , selected
-                                                (case getValue section.id field.id model.data of
-                                                    Just (StringValue value) ->
-                                                        StringValue value == opt.value
 
-                                                    _ ->
-                                                        False
-                                                )
-                                            ]
-                                            [ text opt.key ]
-                                    )
-                                    options
-                            )
-                        ]
-
-                HeightField config ->
-                    div [ class "flex space-x-2" ]
-                        [ input
-                            [ type_ "number"
-                            , class baseInputClass
-                            , Html.Attributes.min (String.fromInt config.minimumValue)
-                            , Html.Attributes.max (String.fromInt config.maximumValue)
-                            , value
-                                (getValueString section.id field.id model.data)
-                            , onInput (UpdateField section.id field.id)
+                    TextField config ->
+                        div []
+                            [ input
+                                [ type_ "text"
+                                , class baseInputClass
+                                , value (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
+                                , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
+                                    |> Maybe.withDefault (class "")
+                                ]
+                                []
                             ]
-                            []
-                        , span [ class "self-center text-cyan-300" ] [ text config.displayType ]
-                        ]
 
-                WeightField config ->
-                    input
-                        [ type_ "number"
-                        , class baseInputClass
-                        , Html.Attributes.min (String.fromInt config.minimumValue)
-                        , Html.Attributes.max (String.fromInt config.maximumValue)
-                        , value
-                            (getValueString section.id field.id model.data)
-                        , onInput (UpdateField section.id field.id)
-                        ]
-                        []
-
-                HeadingField _ ->
-                    text ""
-
-                SSNField _ ->
-                    input
-                        [ type_ "text"
-                        , class baseInputClass
-                        , value
-                            (getValueString section.id field.id model.data)
-                        , onInput (UpdateField section.id field.id)
-                        ]
-                        []
-
-                ComplexRadioField config ->
-                    div [ class "space-y-4" ]
-                        [ div [ class "space-y-2" ]
-                            (List.map
-                                (\childField -> renderFormField model section childField)
-                                config.childFields
-                            )
-                        ]
-
-                TextBlockField _ ->
-                    div
-                        [ class "bg-gray-50 p-4 rounded-md border border-gray-300 text-gray-600" ]
-                        [ text field.displayLabel ]
-
-                CheckboxField options1 options2 ->
-                    if List.length options1 > 0 then
+                    StringSearchField config ->
                         div [ class "space-y-2" ]
-                            (List.map
-                                (\opt ->
-                                    label [ class "flex items-center space-x-2" ]
-                                        [ input
-                                            [ type_ "checkbox"
-                                            , checked opt.value
-                                            , value
-                                                (if opt.value then
-                                                    "true"
-
-                                                 else
-                                                    "false"
-                                                )
-                                            , onInput (UpdateField section.id field.id)
-                                            , class "text-cyan-400 border-cyan-600 rounded focus:ring-cyan-400"
-                                            ]
-                                            []
-                                        , span [ class "text-cyan-100" ] [ text opt.key ]
-                                        ]
+                            [ div []
+                                [ input
+                                    [ type_ "text"
+                                    , class baseInputClass
+                                    , value (getValueString section.id field.id model.data)
+                                    , onInput (UpdateField section.id field.id)
+                                    , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
+                                        |> Maybe.withDefault (class "")
+                                    ]
+                                    []
+                                ]
+                            , div [ class "mt-2" ]
+                                (List.map
+                                    (\childField -> renderFormField model section childField)
+                                    config.childFields
                                 )
-                                options1
-                            )
+                            ]
 
-                    else
+                    ComplexPhoneField ->
+                        div []
+                            [ input
+                                [ type_ "tel"
+                                , class baseInputClass
+                                , value (getPhoneValue section.id field.id model.data)
+                                , onInput
+                                    (\input ->
+                                        let
+                                            digits =
+                                                String.filter Char.isDigit input
+
+                                            newAreaCode =
+                                                String.left 3 digits
+
+                                            newOfficeCode =
+                                                String.slice 3 6 digits
+
+                                            newStationCode =
+                                                String.slice 6 10 digits
+
+                                            complexObject =
+                                                [ ( "area_code", JsonBase (StringValue newAreaCode) )
+                                                , ( "central_office_code", JsonBase (StringValue newOfficeCode) )
+                                                , ( "station_code", JsonBase (StringValue newStationCode) )
+                                                ]
+                                                    |> Dict.fromList
+                                                    |> JsonObject
+                                        in
+                                        UpdateComplexPhoneField section.id field.id complexObject
+                                    )
+                                ]
+                                []
+                            ]
+
+                    SimpleEmailField config ->
+                        div []
+                            [ input
+                                [ type_ "email"
+                                , class baseInputClass
+                                , value (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
+                                , Html.Attributes.maxlength config.maxLength
+                                ]
+                                []
+                            ]
+
+                    IntPickerField options ->
+                        if field.id == "applicant_age" then
+                            let
+                                dobValue =
+                                    getValue "applicant_info" "applicant_dob" model.data
+
+                                ageString =
+                                    CSGSchema.calculateAge dobValue model.currentDate
+                                        |> Maybe.map String.fromInt
+                                        |> Maybe.withDefault ""
+                            in
+                            text ("Calculated from DOB: " ++ ageString)
+
+                        else
+                            div [ class "relative" ]
+                                [ select
+                                    [ class (baseInputClass ++ " appearance-none")
+                                    , value (getValueString section.id field.id model.data)
+                                    , onInput (UpdateField section.id field.id)
+                                    ]
+                                    (option [ value "" ] [ text "Select..." ]
+                                        :: List.map
+                                            (\opt ->
+                                                option
+                                                    [ value (String.fromInt opt)
+                                                    , selected
+                                                        (case getValue section.id field.id model.data of
+                                                            Just (IntValue intValue) ->
+                                                                intValue == opt
+
+                                                            _ ->
+                                                                False
+                                                        )
+                                                    ]
+                                                    [ text (String.fromInt opt) ]
+                                            )
+                                            options
+                                    )
+                                ]
+
+                    KeyValuePickerField options ->
                         div [ class "relative" ]
                             [ select
                                 [ class (baseInputClass ++ " appearance-none")
-                                , value
-                                    (getValueString section.id field.id model.data)
+                                , value (getValueString section.id field.id model.data)
                                 , onInput (UpdateField section.id field.id)
                                 ]
                                 (option [ value "" ] [ text "Select..." ]
@@ -1036,126 +1116,231 @@ renderFormField model section field =
                                                 ]
                                                 [ text opt.key ]
                                         )
-                                        options2
+                                        options
                                 )
                             ]
 
-                StringPickerField options ->
-                    div [ class "relative" ]
-                        [ select
-                            [ class (baseInputClass ++ " appearance-none")
-                            , value
-                                (getValueString section.id field.id model.data)
-                            , onInput (UpdateField section.id field.id)
+                    HeightField config ->
+                        div []
+                            [ div [ class "flex space-x-2" ]
+                                [ input
+                                    [ type_ "number"
+                                    , class baseInputClass
+                                    , Html.Attributes.min (String.fromInt config.minimumValue)
+                                    , Html.Attributes.max (String.fromInt config.maximumValue)
+                                    , value (getValueString section.id field.id model.data)
+                                    , onInput (UpdateField section.id field.id)
+                                    ]
+                                    []
+                                , span [ class "self-center text-cyber-primary" ] [ text config.displayType ]
+                                ]
                             ]
-                            (option [ value "" ] [ text "Select..." ]
-                                :: List.map
+
+                    WeightField config ->
+                        div []
+                            [ input
+                                [ type_ "number"
+                                , class baseInputClass
+                                , Html.Attributes.min (String.fromInt config.minimumValue)
+                                , Html.Attributes.max (String.fromInt config.maximumValue)
+                                , value (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
+                                ]
+                                []
+                            ]
+
+                    HeadingField _ ->
+                        text ""
+
+                    SSNField _ ->
+                        div []
+                            [ input
+                                [ type_ "text"
+                                , class baseInputClass
+                                , value (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
+                                ]
+                                []
+                            ]
+
+                    ComplexRadioField config ->
+                        div [ class "space-y-4" ]
+                            [ div [ class "space-y-2" ]
+                                (List.map
+                                    (\childField -> renderFormField model section childField)
+                                    config.childFields
+                                )
+                            ]
+
+                    TextBlockField _ ->
+                        div [ class "bg-cyber-dark/50 p-4 rounded-md border border-cyber-primary/30 text-cyber-text" ]
+                            [ text field.displayLabel ]
+
+                    CheckboxField options1 options2 ->
+                        if List.length options1 > 0 then
+                            div [ class "space-y-2" ]
+                                (List.map
                                     (\opt ->
-                                        option
-                                            [ value (stringifyJValue opt.value)
-                                            , selected
-                                                (case getValue section.id field.id model.data of
-                                                    Just (StringValue value) ->
-                                                        StringValue value == opt.value
+                                        label [ class "flex items-center space-x-2" ]
+                                            [ input
+                                                [ type_ "checkbox"
+                                                , checked opt.value
+                                                , value
+                                                    (if opt.value then
+                                                        "true"
 
-                                                    _ ->
-                                                        False
-                                                )
+                                                     else
+                                                        "false"
+                                                    )
+                                                , onInput (UpdateField section.id field.id)
+                                                , class "form-checkbox text-cyber-primary border-cyber-primary/50 rounded focus:ring-cyber-primary/50"
+                                                ]
+                                                []
+                                            , span [ class "text-cyber-text" ] [ text opt.key ]
                                             ]
-                                            [ text opt.key ]
                                     )
-                                    options
-                            )
-                        ]
+                                    options1
+                                )
 
-                DrugLookupField config ->
-                    renderDrugLookupField model section field
+                        else
+                            div [ class "relative" ]
+                                [ select
+                                    [ class (baseInputClass ++ " appearance-none")
+                                    , value (getValueString section.id field.id model.data)
+                                    , onInput (UpdateField section.id field.id)
+                                    ]
+                                    (option [ value "" ] [ text "Select..." ]
+                                        :: List.map
+                                            (\opt ->
+                                                option
+                                                    [ value (stringifyJValue opt.value)
+                                                    , selected
+                                                        (case getValue section.id field.id model.data of
+                                                            Just (StringValue value) ->
+                                                                StringValue value == opt.value
 
-                InputTableField config ->
-                    div [ class "space-y-4" ]
-                        [ div [ class "space-y-2" ]
-                            (List.map
-                                (\childField -> renderFormField model section childField)
-                                config.childFields
-                            )
-                        , button
-                            [ class """
-                                bg-cyan-600 text-cyan-100 px-4 py-2 rounded
-                                hover:bg-cyan-500 transition-colors
-                              """
-                            , type_ "button"
-                            ]
-                            [ text config.btnDisplayValue ]
-                        ]
+                                                            _ ->
+                                                                False
+                                                        )
+                                                    ]
+                                                    [ text opt.key ]
+                                            )
+                                            options2
+                                    )
+                                ]
 
-                FileUploadField ->
-                    input
-                        [ type_ "file"
-                        , class baseInputClass
-                        , onInput (UpdateField section.id field.id)
-                        ]
-                        []
+                    StringPickerField options ->
+                        div [ class "relative" ]
+                            [ select
+                                [ class (baseInputClass ++ " appearance-none")
+                                , value (getValueString section.id field.id model.data)
+                                , onInput (UpdateField section.id field.id)
+                                ]
+                                (option [ value "" ] [ text "Select..." ]
+                                    :: List.map
+                                        (\opt ->
+                                            option
+                                                [ value (stringifyJValue opt.value)
+                                                , selected
+                                                    (case getValue section.id field.id model.data of
+                                                        Just (StringValue value) ->
+                                                            StringValue value == opt.value
 
-                RadioField options ->
-                    div [ class "space-y-2" ]
-                        (List.map
-                            (\opt ->
-                                let
-                                    optionValue =
-                                        stringifyJValue opt.value
-
-                                    isSelected =
-                                        Just opt.value == getValue section.id field.id model.data
-                                in
-                                label
-                                    [ class
-                                        ("""
-                                        flex items-center gap-2 p-2 rounded-md cursor-pointer
-                                        border transition-colors duration-200
-                                        """
-                                            ++ (if isSelected then
-                                                    "bg-purple-50 border-purple-600"
-
-                                                else
-                                                    "border-gray-300 hover:bg-gray-50"
-                                               )
+                                                        _ ->
+                                                            False
+                                                    )
+                                                ]
+                                                [ text opt.key ]
                                         )
-                                    ]
-                                    [ input
-                                        [ type_ "radio"
-                                        , name (section.id ++ "." ++ field.id)
-                                        , value optionValue
-                                        , checked isSelected
-                                        , onInput (\_ -> UpdateField section.id field.id optionValue)
-                                        , class "text-purple-600 focus:ring-purple-500"
-                                        ]
-                                        []
-                                    , span [ class "text-gray-700" ] [ text opt.key ]
-                                    ]
-                            )
-                            options
-                        )
+                                        options
+                                )
+                            ]
 
-                LinkField config ->
-                    div [ class "space-y-2" ]
-                        [ a
-                            [ href config.url
-                            , target "_blank"
-                            , rel "noopener noreferrer"
-                            , class """
-                                inline-flex items-center gap-2 px-4 py-2
-                                bg-cyan-800/20 text-cyan-400 hover:text-cyan-300
-                                border border-cyan-600 hover:border-cyan-400
-                                rounded-md transition-all duration-200
-                                hover:bg-cyan-800/30
-                                focus:outline-none focus:ring-2 
-                                focus:ring-cyan-400 focus:ring-opacity-50
-                              """
+                    DrugLookupField config ->
+                        renderDrugLookupField model section field
+
+                    InputTableField config ->
+                        div [ class "space-y-4" ]
+                            [ div [ class "space-y-2" ]
+                                (List.map
+                                    (\childField -> renderFormField model section childField)
+                                    config.childFields
+                                )
+                            , button
+                                [ class "cyber-button"
+                                , type_ "button"
+                                ]
+                                [ text config.btnDisplayValue ]
                             ]
-                            [ text field.displayLabel
-                            , span [ class "text-sm" ] [ text "↗" ]
+
+                    FileUploadField ->
+                        div []
+                            [ input
+                                [ type_ "file"
+                                , class baseInputClass
+                                , onInput (UpdateField section.id field.id)
+                                ]
+                                []
                             ]
-                        ]
+
+                    RadioField options ->
+                        div [ class "radio-group" ]
+                            (List.map
+                                (\opt ->
+                                    let
+                                        optionValue =
+                                            stringifyJValue opt.value
+
+                                        isSelected =
+                                            Just opt.value == getValue section.id field.id model.data
+                                    in
+                                    label
+                                        [ class <|
+                                            "form-radio-label"
+                                                ++ (if isSelected then
+                                                        " selected"
+
+                                                    else
+                                                        ""
+                                                   )
+                                        ]
+                                        [ input
+                                            [ type_ "radio"
+                                            , name (section.id ++ "." ++ field.id)
+                                            , value optionValue
+                                            , checked isSelected
+                                            , onClick (UpdateField section.id field.id optionValue)
+                                            , class "form-radio"
+                                            ]
+                                            []
+                                        , span [ class "text-gray-700" ] [ text opt.key ]
+                                        ]
+                                )
+                                options
+                            )
+
+                    LinkField config ->
+                        div [ class "space-y-2" ]
+                            [ a
+                                [ href config.url
+                                , target "_blank"
+                                , rel "noopener noreferrer"
+                                , class """
+                                    inline-flex items-center gap-2 px-4 py-2
+                                    bg-cyber-dark/20 text-cyber-primary hover:text-cyber-primary-light
+                                    border border-cyber-primary/30 hover:border-cyber-primary/60
+                                    rounded-md transition-all duration-200
+                                    hover:bg-cyber-dark/30
+                                    focus:outline-none focus:ring-2 
+                                    focus:ring-cyber-primary/50
+                                  """
+                                ]
+                                [ text field.displayLabel
+                                , span [ class "text-sm" ] [ text "↗" ]
+                                ]
+                            ]
+                )
+            , errorMessage
             ]
 
     else
@@ -1291,7 +1476,10 @@ routingNumberDecoder =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    saveApplicationResponse SaveFormResponse
+    Sub.batch
+        [ saveApplicationResponse SaveFormResponse
+        , getLAProTokenResponse GotLAProToken
+        ]
 
 
 
@@ -1448,17 +1636,285 @@ renderDrugLookupField model section field =
             div [ class "space-y-4" ]
                 (List.indexedMap (renderMedicationItem "") model.medications)
 
-        -- Add medication form
+        -- Drug search and form
         , if showForm then
-            renderMedicationForm carrier model
+            div [ class "space-y-4" ]
+                [ -- Drug search input with autocomplete
+                  div [ class "relative" ]
+                    [ div [ class "relative" ]
+                        [ input
+                            [ class "form-input w-full"
+                            , type_ "text"
+                            , placeholder "Search drug by name"
+                            , onInput SearchDrugs
+                            , value (Dict.get "drugName" model.medicationForm |> Maybe.withDefault "")
+                            ]
+                            []
+                        , if model.isSearching then
+                            div [ class "absolute inset-y-0 right-0 flex items-center pr-3" ]
+                                [ div [ class "animate-spin h-5 w-5 text-gray-400" ]
+                                    [ -- Loading spinner SVG
+                                      Html.node "svg"
+                                        [ class "animate-spin h-5 w-5 text-gray-400"
+                                        , attribute "xmlns" "http://www.w3.org/2000/svg"
+                                        , attribute "fill" "none"
+                                        , attribute "viewBox" "0 0 24 24"
+                                        ]
+                                        [ Html.node "circle"
+                                            [ class "opacity-25"
+                                            , attribute "cx" "12"
+                                            , attribute "cy" "12"
+                                            , attribute "r" "10"
+                                            , attribute "stroke" "currentColor"
+                                            , attribute "stroke-width" "4"
+                                            ]
+                                            []
+                                        , Html.node "path"
+                                            [ class "opacity-75"
+                                            , attribute "fill" "currentColor"
+                                            , attribute "d" "M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                                            ]
+                                            []
+                                        ]
+                                    ]
+                                ]
+
+                          else
+                            text ""
+                        ]
+                    , case model.searchError of
+                        Just error ->
+                            div [ class "absolute mt-1 w-full text-sm text-red-600" ]
+                                [ text error ]
+
+                        Nothing ->
+                            if not (List.isEmpty model.drugSearchResults) then
+                                div
+                                    [ class """absolute z-10 w-full mt-1 bg-white shadow-lg 
+                                             max-h-60 rounded-md py-1 text-base overflow-auto
+                                             focus:outline-none sm:text-sm border border-gray-200"""
+                                    ]
+                                    [ ul [ class "divide-y divide-gray-200" ]
+                                        (List.map
+                                            (\result ->
+                                                li
+                                                    [ class """px-4 py-2 hover:bg-purple-50 cursor-pointer
+                                                             text-gray-900 select-none relative"""
+                                                    , onClick (SelectDrug result.value)
+                                                    ]
+                                                    [ text result.value ]
+                                            )
+                                            model.drugSearchResults
+                                        )
+                                    ]
+
+                            else if String.length (Dict.get "drugName" model.medicationForm |> Maybe.withDefault "") > 2 && not model.isSearching && List.isEmpty model.drugSearchResults && model.selectedDrug == Nothing then
+                                div
+                                    [ class "absolute z-10 w-full mt-1 bg-white shadow-lg rounded-md py-4 text-center text-gray-500 border border-gray-200" ]
+                                    [ text "No results found" ]
+
+                            else
+                                text ""
+                    ]
+
+                -- Loading state
+                , if model.loadingDrugData then
+                    div [ class "flex items-center justify-center py-4" ]
+                        [ div [ class "animate-spin rounded-full h-8 w-8 border-b-2 border-purple-500" ] []
+                        , span [ class "ml-2 text-sm text-gray-600" ] [ text "Loading dosage data..." ]
+                        ]
+
+                  else
+                    text ""
+
+                -- Selected drug form
+                , case model.selectedDrug of
+                    Just drugName ->
+                        div [ class "space-y-4 p-4 border border-gray-200 rounded-md" ]
+                            [ -- Dosage selection
+                              div [ class "space-y-2" ]
+                                [ label [ class "block text-sm font-medium text-gray-700" ]
+                                    [ text "Select Dosage" ]
+                                , div [ class "space-y-2" ]
+                                    (model.drugDosages
+                                        |> List.foldr
+                                            (\dosage acc ->
+                                                if List.any (\d -> d.drugname == dosage.drugname) acc then
+                                                    acc
+
+                                                else
+                                                    dosage :: acc
+                                            )
+                                            []
+                                        |> List.map
+                                            (\dosage ->
+                                                label [ class "flex items-center space-x-3" ]
+                                                    [ input
+                                                        [ type_ "radio"
+                                                        , name "dosage"
+                                                        , value dosage.dosageid
+                                                        , onClick (UpdateMedicationField "" "dosageId" dosage.dosageid)
+                                                        , class "form-radio"
+                                                        ]
+                                                        []
+                                                    , span [ class "text-sm text-gray-900" ]
+                                                        [ text dosage.drugname ]
+                                                    ]
+                                            )
+                                    )
+                                ]
+
+                            -- Common fields
+                            , formField model "Diagnosis" "diagnosis" "text"
+                            , div [ class "grid grid-cols-2 gap-4" ]
+                                [ formField model "Quantity" "quantity" "number"
+                                , div [ class "space-y-2" ]
+                                    [ label [ class "block text-sm font-medium text-gray-700" ]
+                                        [ text "Frequency" ]
+                                    , select
+                                        [ class "form-input"
+                                        , onInput (UpdateMedicationField "" "frequency")
+                                        ]
+                                        [ option [ value "" ] [ text "Select frequency" ]
+                                        , option [ value "30 Days" ] [ text "30 Days" ]
+                                        , option [ value "60 Days" ] [ text "60 Days" ]
+                                        , option [ value "90 Days" ] [ text "90 Days" ]
+                                        , option [ value "6 Months" ] [ text "6 Months" ]
+                                        , option [ value "1 Year" ] [ text "1 Year" ]
+                                        ]
+                                    ]
+                                ]
+
+                            -- Date fields
+                            , formField model "Last Fill Date" "lastFillDate" "date"
+                            , formField model "Start Date" "medStartDate" "date"
+
+                            -- Form actions
+                            , div [ class "flex justify-end space-x-4" ]
+                                [ button
+                                    [ class "px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                                    , onClick (CancelAddMedication "")
+                                    ]
+                                    [ text "Cancel" ]
+                                , button
+                                    [ class "px-4 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                                    , onClick (SaveMedication "" (createNewMedication model ""))
+                                    ]
+                                    [ text "Save" ]
+                                ]
+                            ]
+
+                    Nothing ->
+                        text ""
+                ]
 
           else
             text ""
         ]
 
 
+formField : Model -> String -> String -> String -> Html Msg
+formField model label_ fieldName inputType =
+    div [ class "space-y-2" ]
+        [ label [ class "block text-sm font-medium text-gray-700" ]
+            [ text label_ ]
+        , input
+            [ class "form-input w-full"
+            , type_ inputType
+            , onInput (UpdateMedicationField "" fieldName)
+            , value (Dict.get fieldName model.medicationForm |> Maybe.withDefault "")
+            ]
+            []
+        ]
 
--- Render a single medication item based on carrier type
+
+
+-- Add new types for drug search
+
+
+type alias DrugSearchResult =
+    { key : String
+    , value : String
+    }
+
+
+type alias DrugInfo =
+    { dosageid : String
+    , drugname : String
+    , ndccode : String
+    }
+
+
+
+-- Add HTTP functions for drug search
+
+
+searchDrugs : String -> String -> Cmd Msg
+searchDrugs token query =
+    if String.length query > 2 then
+        Http.request
+            { method = "POST"
+            , headers =
+                [ Http.header "Authorization" token
+                , Http.header "Content-Type" "application/json"
+                , Http.header "Accept" "application/json"
+                ]
+            , url = "https://api.leadadvantagepro.com/api/drug/getDrugNames"
+            , body = Http.jsonBody (Encode.object [ ( "drug_name", Encode.string query ) ])
+            , expect = Http.expectJson DrugSearchResponse drugSearchResultsDecoder
+            , timeout = Just 10000 -- 10 second timeout
+            , tracker = Nothing
+            }
+
+    else
+        Cmd.none
+
+
+getDrugDosages : String -> String -> Cmd Msg
+getDrugDosages token drugName =
+    Http.request
+        { method = "POST"
+        , headers =
+            [ Http.header "Authorization" token
+            , Http.header "Content-Type" "application/json"
+            , Http.header "Accept" "application/json"
+            ]
+        , url = "https://api.leadadvantagepro.com/api/drug/searchByDrugName"
+        , body = Http.jsonBody (Encode.object [ ( "drug_name", Encode.string drugName ) ])
+        , expect = Http.expectJson DrugDosageResponse drugDosageListDecoder
+        , timeout = Just 10000 -- 10 second timeout
+        , tracker = Nothing
+        }
+
+
+
+-- Add decoders for drug search responses
+
+
+drugSearchResultsDecoder : Decoder (List DrugSearchResult)
+drugSearchResultsDecoder =
+    Decode.list
+        (Decode.string
+            |> Decode.map
+                (\name ->
+                    { key = String.toLower name
+                    , value = name
+                    }
+                )
+        )
+
+
+drugDosageListDecoder : Decoder (List DrugInfo)
+drugDosageListDecoder =
+    Decode.list drugInfoDecoder
+
+
+drugInfoDecoder : Decoder DrugInfo
+drugInfoDecoder =
+    Decode.succeed DrugInfo
+        |> Pipeline.required "dosageid" Decode.string
+        |> Pipeline.required "drugname" Decode.string
+        |> Pipeline.required "ndccode" Decode.string
 
 
 renderMedicationItem : String -> Int -> Medication -> Html Msg
@@ -1506,65 +1962,60 @@ renderMedicationItem baseId index medication =
         ]
 
 
-renderMedicationForm : Carrier -> Model -> Html Msg
-renderMedicationForm carrier model =
+createNewMedication : Model -> String -> Medication
+createNewMedication model baseId =
     let
-        commonFields =
-            [ formField "Medication Name" "drugName" "text"
-            , formField "Diagnosis" "diagnosis" "text"
-            ]
-
-        carrierFields =
-            case carrier of
-                ACE ->
-                    []
-
-                Aetna ->
-                    []
-
-                Allstate ->
-                    [ formField "Dosage" "dosage" "text"
-                    , formField "Frequency" "frequency" "text"
-                    , formField "Quantity" "prescription_freq_other" "number"
-                    ]
-
-                UHC ->
-                    [ formField "Dosage" "dosage" "text"
-                    , formField "Frequency" "frequency" "text"
-                    , formField "Quantity" "quantity" "number"
-                    , formField "Last Fill Date" "lastFillDate" "date"
-                    ]
-
-        formField label_ fieldName inputType =
-            div [ class "space-y-2" ]
-                [ label [ class "block text-sm font-medium text-gray-700" ]
-                    [ text label_ ]
-                , input
-                    [ class """w-full px-4 py-2 border border-gray-300 rounded-md
-                              focus:outline-none focus:ring-2 focus:ring-purple-500"""
-                    , type_ inputType
-                    , onInput (UpdateMedicationField "" fieldName)
-                    , value (Dict.get fieldName model.medicationForm |> Maybe.withDefault "")
-                    ]
-                    []
-                ]
+        selectedDosage =
+            Dict.get "dosageId" model.medicationForm
+                |> Maybe.andThen
+                    (\dosageId ->
+                        List.filter (\d -> d.dosageid == dosageId) model.drugDosages
+                            |> List.head
+                    )
     in
-    div [ class "p-6 border border-gray-200 rounded-md space-y-4" ]
-        [ div [ class "space-y-4" ]
-            (commonFields ++ carrierFields)
-        , div [ class "flex justify-end gap-4" ]
-            [ button
-                [ class "px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
-                , onClick (CancelAddMedication "")
-                ]
-                [ text "Cancel" ]
-            , button
-                [ class "px-4 py-2 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                , onClick (SaveMedication "" (createNewMedication model ""))
-                ]
-                [ text "Save" ]
-            ]
-        ]
+    { drug =
+        { gpI10 = "" -- This will be set by the GPI10 search
+        , productName = Maybe.map .drugname selectedDosage |> Maybe.withDefault ""
+        , drugName = Maybe.map .drugname selectedDosage |> Maybe.withDefault ""
+        , displayName = Maybe.map .drugname selectedDosage |> Maybe.withDefault ""
+        }
+    , diagnosis = Dict.get "diagnosis" model.medicationForm |> Maybe.withDefault ""
+    , dosage =
+        { dosage = extractDosage (Maybe.map .drugname selectedDosage |> Maybe.withDefault "")
+        , ndc = Maybe.map .ndccode selectedDosage |> Maybe.withDefault ""
+        }
+    , frequency = Dict.get "frequency" model.medicationForm |> Maybe.withDefault ""
+    , quantity =
+        Dict.get "quantity" model.medicationForm
+            |> Maybe.andThen String.toInt
+    , lastFillDate = Dict.get "lastFillDate" model.medicationForm |> Maybe.withDefault ""
+    , medStartDate = Dict.get "medStartDate" model.medicationForm |> Maybe.withDefault ""
+    }
+
+
+
+-- Helper function to extract dosage from drug name
+
+
+extractDosage : String -> String
+extractDosage drugName =
+    let
+        parts =
+            String.split " " drugName
+
+        dosageParts =
+            List.filter (\part -> String.toUpper part == part) parts
+    in
+    case List.head dosageParts of
+        Just dosage ->
+            if dosage == "SOL" then
+                "SOLN"
+
+            else
+                dosage
+
+        Nothing ->
+            "SOLN"
 
 
 addMedicationsToJson : Dict String (List Medication) -> Encode.Value -> Encode.Value
@@ -1588,9 +2039,21 @@ encodeMedicationList medications =
     Encode.list
         (\med ->
             Encode.object
-                [ ( "drugName", Encode.string med.drug.drugName )
+                [ ( "drug"
+                  , Encode.object
+                        [ ( "gpI10", Encode.string med.drug.gpI10 )
+                        , ( "productName", Encode.string med.drug.productName )
+                        , ( "drugName", Encode.string med.drug.drugName )
+                        , ( "displayName", Encode.string med.drug.displayName )
+                        ]
+                  )
                 , ( "diagnosis", Encode.string med.diagnosis )
-                , ( "dosage", Encode.string med.dosage.dosage )
+                , ( "dosage"
+                  , Encode.object
+                        [ ( "dosage", Encode.string med.dosage.dosage )
+                        , ( "ndc", Encode.string med.dosage.ndc )
+                        ]
+                  )
                 , ( "frequency", Encode.string med.frequency )
                 , ( "quantity"
                   , case med.quantity of
@@ -1600,31 +2063,11 @@ encodeMedicationList medications =
                         Nothing ->
                             Encode.null
                   )
+                , ( "lastFillDate", Encode.string med.lastFillDate )
+                , ( "medStartDate", Encode.string med.medStartDate )
                 ]
         )
         medications
-
-
-createNewMedication : Model -> String -> Medication
-createNewMedication model baseId =
-    { drug =
-        { gpI10 = ""
-        , productName = Dict.get "drugName" model.medicationForm |> Maybe.withDefault ""
-        , drugName = Dict.get "drugName" model.medicationForm |> Maybe.withDefault ""
-        , displayName = Dict.get "drugName" model.medicationForm |> Maybe.withDefault ""
-        }
-    , diagnosis = Dict.get "diagnosis" model.medicationForm |> Maybe.withDefault ""
-    , dosage =
-        { dosage = Dict.get "dosage" model.medicationForm |> Maybe.withDefault ""
-        , ndc = ""
-        }
-    , frequency = Dict.get "frequency" model.medicationForm |> Maybe.withDefault ""
-    , quantity =
-        Dict.get "quantity" model.medicationForm
-            |> Maybe.andThen String.toInt
-    , lastFillDate = Dict.get "lastFillDate" model.medicationForm |> Maybe.withDefault ""
-    , medStartDate = ""
-    }
 
 
 encodeData : JsonValue -> Encode.Value

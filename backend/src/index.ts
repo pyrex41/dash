@@ -138,6 +138,49 @@ app.group('/api', app => app
       }
     }
   })
+  .post('/lapro/token', async () => {
+    try {
+      const body = {
+        username: process.env.LAPRO_USERNAME,
+        password: process.env.LAPRO_PASSWORD,
+        grant_type: process.env.LAPRO_GRANT_TYPE || 'password',
+        client_id: process.env.LAPRO_CLIENT_ID,
+        client_secret: process.env.LAPRO_CLIENT_SECRET,
+      };
+
+      console.log('Attempting to get LAPRO token with credentials:', {
+        username: process.env.LAPRO_USERNAME,
+        client_id: process.env.LAPRO_CLIENT_ID
+      });
+
+      const response = await fetch('https://authorize.leadadvantagepro.com/access_token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('LAPRO API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const auth = await response.json();
+      return { access_token: auth.access_token };
+    } catch (error) {
+      console.error('Error getting LAPRO token:', error);
+      return new Response(
+        JSON.stringify({ error: 'Failed to get token' }), 
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  })
 )
 
 // --------------------------
