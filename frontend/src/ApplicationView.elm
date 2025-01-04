@@ -310,6 +310,27 @@ update msg model =
                 newData =
                     setSection sectionId newSection model.data
 
+                -- Check if we need to update enrollment type
+                shouldUpdateEnrollment =
+                    (sectionId == "applicant_info" && fieldId == "applicant_dob")
+                        || (sectionId == "applicant_info" && fieldId == "part_b_date")
+
+                newUnderwritingType =
+                    if shouldUpdateEnrollment then
+                        determineUnderwritingType newData model.currentDate
+
+                    else
+                        model.underwritingType
+
+                -- If enrollment type changed, update it in the data
+                finalData =
+                    case newUnderwritingType of
+                        Just underwritingInt ->
+                            setValue "enrollment_application" "underwriting_type" (IntValue underwritingInt) newData
+
+                        Nothing ->
+                            newData
+
                 cmd =
                     if sectionId == "payment" && fieldId == "eft_routing_number" then
                         if validRoutingNumber valueString then
@@ -325,7 +346,8 @@ update msg model =
                         Cmd.none
             in
             ( { model
-                | data = newData
+                | data = finalData
+                , underwritingType = newUnderwritingType
                 , isValid = validateData model
               }
             , cmd
@@ -404,9 +426,17 @@ update msg model =
             )
 
         SaveMedication baseId medication ->
+            let
+                newMedications =
+                    medication :: model.medications
+
+                newData =
+                    updateModelDataWithMedications newMedications model.data
+            in
             ( { model
-                | medications = medication :: model.medications
+                | medications = newMedications
                 , medicationForm = Dict.empty
+                , data = newData
               }
             , Cmd.none
             )
@@ -417,11 +447,18 @@ update msg model =
             )
 
         RemoveMedication baseId idx ->
-            ( { model
-                | medications =
+            let
+                newMedications =
                     List.indexedMap (\i m -> ( i, m )) model.medications
                         |> List.filter (\( i, _ ) -> i /= idx)
                         |> List.map Tuple.second
+
+                newData =
+                    updateModelDataWithMedications newMedications model.data
+            in
+            ( { model
+                | medications = newMedications
+                , data = newData
               }
             , Cmd.none
             )
@@ -877,6 +914,9 @@ renderFormField model section field =
         fieldValueValid =
             not (validateFieldValue model section field)
 
+        hiddenFields =
+            [ "med_heading", "medication_heading_2" ]
+
         shouldHighlight =
             not fieldValueValid
 
@@ -938,7 +978,7 @@ renderFormField model section field =
             else
                 text ""
     in
-    if isFieldVisible field section model.data then
+    if isFieldVisible field section model.data && not (List.member field.id hiddenFields) then
         div [ class wrapperClass ]
             [ debugLabel
             , label [ class labelClass ]
@@ -1326,17 +1366,20 @@ renderFormField model section field =
                                 , target "_blank"
                                 , rel "noopener noreferrer"
                                 , class """
-                                    inline-flex items-center gap-2 px-4 py-2
-                                    bg-cyber-dark/20 text-cyber-primary hover:text-cyber-primary-light
-                                    border border-cyber-primary/30 hover:border-cyber-primary/60
-                                    rounded-md transition-all duration-200
-                                    hover:bg-cyber-dark/30
+                                    inline-flex items-center gap-3 px-4 py-2.5
+                                    bg-indigo-50 text-indigo-700
+                                    hover:bg-indigo-100
+                                    rounded-lg transition-all duration-200
                                     focus:outline-none focus:ring-2 
-                                    focus:ring-cyber-primary/50
+                                    focus:ring-indigo-500/50
+                                    shadow-sm
                                   """
                                 ]
-                                [ text field.displayLabel
-                                , span [ class "text-sm" ] [ text "↗" ]
+                                [ div [ class "flex items-center gap-2" ]
+                                    [ span [ class "text-indigo-500" ] [ text "🔗" ]
+                                    , span [ class "font-medium" ] [ text "Link" ]
+                                    , span [ class "text-indigo-400" ] [ text "↗" ]
+                                    ]
                                 ]
                             ]
                 )
@@ -2124,3 +2167,50 @@ applicationViewDecoder =
         (Decode.field "naic" Decode.string)
         (Decode.field "data" Decode.value)
         (Decode.field "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder))
+
+
+updateModelDataWithMedications : List Medication -> JsonValue -> JsonValue
+updateModelDataWithMedications medications data =
+    setComplexValue
+        "medication_information"
+        "prescription_drug_list"
+        (JsonArray (List.map medicationToJsonValue medications))
+        data
+
+
+medicationToJsonValue : Medication -> JsonValue
+medicationToJsonValue med =
+    JsonObject
+        (Dict.fromList
+            [ ( "drug"
+              , JsonObject
+                    (Dict.fromList
+                        [ ( "gpI10", JsonBase (StringValue med.drug.gpI10) )
+                        , ( "productName", JsonBase (StringValue med.drug.productName) )
+                        , ( "drugName", JsonBase (StringValue med.drug.drugName) )
+                        , ( "displayName", JsonBase (StringValue med.drug.displayName) )
+                        ]
+                    )
+              )
+            , ( "diagnosis", JsonBase (StringValue med.diagnosis) )
+            , ( "dosage"
+              , JsonObject
+                    (Dict.fromList
+                        [ ( "dosage", JsonBase (StringValue med.dosage.dosage) )
+                        , ( "ndc", JsonBase (StringValue med.dosage.ndc) )
+                        ]
+                    )
+              )
+            , ( "frequency", JsonBase (StringValue med.frequency) )
+            , ( "quantity"
+              , case med.quantity of
+                    Just q ->
+                        JsonBase (IntValue q)
+
+                    Nothing ->
+                        JsonBase NullValue
+              )
+            , ( "lastFillDate", JsonBase (StringValue med.lastFillDate) )
+            , ( "medStartDate", JsonBase (StringValue med.medStartDate) )
+            ]
+        )
