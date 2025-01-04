@@ -3,11 +3,11 @@ port module Dashboard exposing (Model, Msg, init, subscriptions, update, view)
 import ApplicationView exposing (applicationViewDecoder)
 import Browser
 import Browser.Events
-import CSGSchema
+import CSGSchema exposing (Carrier(..))
 import Debounce exposing (Debounce)
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (..)
+import Html.Events exposing (on, onCheck, onClick, onInput, targetValue)
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
 
@@ -33,7 +33,7 @@ type alias ApplicationsResponse =
 port receiveApplications : (Decode.Value -> msg) -> Sub msg
 
 
-port requestRefresh : { page : Int, pageSize : Int, searchTerm : String, hasContactFilter : Bool } -> Cmd msg
+port requestRefresh : { page : Int, pageSize : Int, searchTerm : String, hasContactFilter : Bool, naics : List String } -> Cmd msg
 
 
 port exportToCsv : { searchTerm : String, hasContactFilter : Bool, hasCSGFilter : Bool } -> Cmd msg
@@ -71,6 +71,7 @@ type alias Model =
     , searchTerm : String
     , hasContactFilter : Bool
     , hasCSGFilter : Bool
+    , selectedCarrier : Maybe Carrier
     , isLoading : Bool
     , error : Maybe String
     , searchDebouncer : Debounce String
@@ -135,6 +136,7 @@ init _ =
       , searchTerm = ""
       , hasContactFilter = False
       , hasCSGFilter = False
+      , selectedCarrier = Nothing
       , isLoading = True
       , error = Nothing
       , searchDebouncer = Debounce.init
@@ -151,6 +153,7 @@ init _ =
         , pageSize = 20
         , searchTerm = ""
         , hasContactFilter = False
+        , naics = []
         }
     )
 
@@ -167,6 +170,7 @@ type Msg
     | SearchTermChanged String
     | ToggleContactFilter Bool
     | ToggleCSGFilter Bool
+    | SetCarrierFilter (Maybe Carrier)
     | RefreshApplications
     | ApplicationsReceived (Result Decode.Error ApplicationsResponse)
     | ExportToCsv
@@ -239,6 +243,7 @@ update msg model =
                             , pageSize = 20
                             , searchTerm = ""
                             , hasContactFilter = False
+                            , naics = Maybe.map CSGSchema.naicsFromCarrier model.selectedCarrier |> Maybe.withDefault []
                             }
                         )
 
@@ -274,14 +279,26 @@ update msg model =
                 , pageSize = model.pageSize
                 , searchTerm = model.searchTerm
                 , hasContactFilter = value
+                , naics = Maybe.map CSGSchema.naicsFromCarrier model.selectedCarrier |> Maybe.withDefault []
                 }
             )
 
         ToggleCSGFilter value ->
             ( { model | hasCSGFilter = value }, Cmd.none )
 
+        SetCarrierFilter carrier ->
+            ( { model | selectedCarrier = carrier, isLoading = True }
+            , requestRefresh
+                { page = model.currentPage
+                , pageSize = model.pageSize
+                , searchTerm = model.searchTerm
+                , hasContactFilter = model.hasContactFilter
+                , naics = Maybe.map CSGSchema.naicsFromCarrier carrier |> Maybe.withDefault []
+                }
+            )
+
         RefreshApplications ->
-            ( { model | isLoading = True }, requestRefresh { page = 0, pageSize = 20, searchTerm = "", hasContactFilter = False } )
+            ( { model | isLoading = True }, requestRefresh { page = 0, pageSize = 20, searchTerm = "", hasContactFilter = False, naics = [] } )
 
         ApplicationsReceived (Ok response) ->
             ( { model
@@ -319,6 +336,7 @@ update msg model =
                 , pageSize = 20
                 , searchTerm = term
                 , hasContactFilter = False
+                , naics = []
                 }
             )
 
@@ -328,7 +346,8 @@ update msg model =
                 { page = page
                 , pageSize = model.pageSize
                 , searchTerm = model.searchTerm
-                , hasContactFilter = False
+                , hasContactFilter = model.hasContactFilter
+                , naics = Maybe.map CSGSchema.naicsFromCarrier model.selectedCarrier |> Maybe.withDefault []
                 }
             )
 
@@ -498,6 +517,53 @@ viewApplications model =
                         []
                     , text "Has contact info"
                     ]
+                , select
+                    [ class "px-3 py-1 border rounded text-sm text-gray-600"
+                    , on "change"
+                        (Decode.map
+                            (\value ->
+                                case value of
+                                    "ACE" ->
+                                        SetCarrierFilter (Just CSGSchema.ACE)
+
+                                    "Aetna" ->
+                                        SetCarrierFilter (Just CSGSchema.Aetna)
+
+                                    "Allstate" ->
+                                        SetCarrierFilter (Just CSGSchema.Allstate)
+
+                                    "UHC" ->
+                                        SetCarrierFilter (Just CSGSchema.UHC)
+
+                                    _ ->
+                                        SetCarrierFilter Nothing
+                            )
+                            targetValue
+                        )
+                    , value
+                        (case model.selectedCarrier of
+                            Just CSGSchema.ACE ->
+                                "ACE"
+
+                            Just CSGSchema.Aetna ->
+                                "Aetna"
+
+                            Just CSGSchema.Allstate ->
+                                "Allstate"
+
+                            Just CSGSchema.UHC ->
+                                "UHC"
+
+                            Nothing ->
+                                ""
+                        )
+                    ]
+                    [ option [ value "" ] [ text "All Carriers" ]
+                    , option [ value "ACE" ] [ text "ACE" ]
+                    , option [ value "Aetna" ] [ text "Aetna" ]
+                    , option [ value "Allstate" ] [ text "Allstate" ]
+                    , option [ value "UHC" ] [ text "United Healthcare" ]
+                    ]
                 , div [ class "relative" ]
                     [ input
                         [ class "px-3 py-1 border rounded"
@@ -666,6 +732,12 @@ subscriptions model =
 
           else
             Sub.none
+        , case model.applicationView of
+            Just viewModel ->
+                Sub.map ApplicationViewMsg (ApplicationView.subscriptions viewModel)
+
+            Nothing ->
+                Sub.none
         ]
 
 
@@ -794,6 +866,7 @@ performSearch term =
         , pageSize = 20
         , searchTerm = term
         , hasContactFilter = False
+        , naics = []
         }
 
 

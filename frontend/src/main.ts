@@ -22,9 +22,6 @@ console.log('Imports completed');
 // Add token acquisition function
 async function getLAProToken() {
     try {
-        // Clear any existing token cookie first
-        document.cookie = "lapro_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-        
         const response = await fetch('/api/lapro/token', {
             method: 'POST',
             headers: {
@@ -37,7 +34,10 @@ async function getLAProToken() {
         }
 
         const auth = await response.json();
-        document.cookie = `lapro_token=${auth.access_token}; path=/`;
+        // Set cookie with a reasonable expiry (e.g., 1 hour)
+        const expiryDate = new Date();
+        expiryDate.setTime(expiryDate.getTime() + (60 * 60 * 1000));
+        document.cookie = `lapro_token=${auth.access_token}; expires=${expiryDate.toUTCString()}; path=/`;
         return auth.access_token;
     } catch (error) {
         console.error('Error getting LAPRO token:', error);
@@ -84,15 +84,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // Port handlers for interacting with Elm
-        app.ports.requestRefresh?.subscribe(({ page, pageSize, searchTerm, hasContactFilter }) => {
+        app.ports.requestRefresh?.subscribe(({ page, pageSize, searchTerm, hasContactFilter, naics }) => {
             console.log('Search params:', { 
                 page,
                 pageSize,
                 searchTerm, 
                 length: searchTerm?.length || 0,
-                hasContactFilter
+                hasContactFilter,
+                naics
             });
-            fetch(`/api/applications?page=${page}&pageSize=${pageSize}&searchTerm=${searchTerm}&hasContactFilter=${hasContactFilter}`)
+            const params = new URLSearchParams({
+                page: page.toString(),
+                pageSize: pageSize.toString(),
+                searchTerm: searchTerm || '',
+                hasContactFilter: hasContactFilter.toString()
+            });
+            if (naics && naics.length > 0) {
+                naics.forEach(naic => params.append('naics', naic));
+            }
+            fetch(`/api/applications?${params.toString()}`)
                 .then(response => response.json())
                 .then(data => {
                     console.log('Data received');
@@ -139,22 +149,29 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
 
-        app.ports.getLAProToken.subscribe(async () => {
-            let token = document.cookie
-                .split('; ')
-                .find(row => row.startsWith('lapro_token='))
-                ?.split('=')[1];
-
-            // Clear the cookie if it exists but might be invalid
-            if (token) {
-                document.cookie = "lapro_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+        app.ports.forceRefreshLAProToken?.subscribe(async () => {
+            console.log('forceRefreshLAProToken port triggered');
+            const newToken = await getLAProToken();
+            if (newToken) {
+                console.log('Successfully obtained new token, sending to Elm:', newToken);
+                app.ports.getLAProTokenResponse.send(newToken);
+            } else {
+                console.error('Failed to obtain token');
+                app.ports.getLAProTokenResponse.send('');
             }
+        });
 
-            console.log('No token found in cookies, getting new token...');
-            token = await getLAProToken();
 
-            console.log('Sending token to Elm:', token ? 'Token found' : 'No token');
-            app.ports.getLAProTokenResponse.send(token || '');
+        // Add debug logging for port availability
+        console.log('Available ports:', {
+            getLAProToken: !!app.ports.getLAProToken,
+            getLAProTokenResponse: !!app.ports.getLAProTokenResponse,
+        });
+
+        // Also verify the port is properly set up
+        console.log('Port setup check:', {
+            getLAProToken: typeof app.ports.getLAProToken,
+            getLAProTokenResponse: typeof app.ports.getLAProTokenResponse,
         });
     } catch (error) {
         console.error('Error initializing Elm app:', error);

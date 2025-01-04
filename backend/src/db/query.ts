@@ -108,6 +108,7 @@ export const getApplicationWithSchema = async (applicationId: string) => {
       status: applications.status,
       createdAt: applications.createdAt,
       data: applications.data,
+      formattedData: applications.formattedData,
       schema: applications.originalSchema,
       name: applications.name,
       naic: applications.naic,
@@ -179,7 +180,7 @@ export const getFromattedApplicationWithSchema = async (applicationId: string) =
   }
 }
 
-export const getApplications = async (page: number, pageSize: number, searchTerm: string, hasContactFilter: boolean) => {
+export const getApplications = async (page: number, pageSize: number, searchTerm: string, hasContactFilter: boolean, naics: string[] = []) => {
   const offset = page * pageSize
   const searchPattern = `%${searchTerm.toLowerCase()}%`
   const shouldSearch = searchTerm.length >= 3
@@ -202,6 +203,10 @@ export const getApplications = async (page: number, pageSize: number, searchTerm
           AND ${user.email} IS NOT NULL
       )
     )`)
+  }
+
+  if (naics.length > 0) {
+    whereConditions.push(sql`${applications.naic} IN ${naics}`)
   }
 
   if (shouldSearch) {
