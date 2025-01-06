@@ -2,6 +2,8 @@ module Producer exposing (..)
 
 import CSGSchema exposing (Carrier(..), JValue(..), JsonValue(..))
 import Dict
+import Json.Decode as Decode exposing (Decoder)
+import Json.Decode.Pipeline exposing (required)
 
 
 type alias ProducerConfig =
@@ -16,51 +18,55 @@ type alias ProducerConfig =
 producerConfigs : Int -> Maybe ProducerConfig
 producerConfigs producerId =
     Dict.get producerId
-        (Dict.fromList
-            [ ( 1
-              , { firstName = "Josh"
-                , lastName = "Musick"
-                , phone = "8167996644"
-                , email = "josh.musick@medicareschool.com"
-                , writingNumbers =
-                    \carrier ->
-                        case carrier of
-                            Aetna ->
-                                "GNW0059444"
+        producerConfigsBase
 
-                            ACE ->
-                                "I03CP"
 
-                            Allstate ->
-                                "707653"
+producerConfigsBase : Dict.Dict Int ProducerConfig
+producerConfigsBase =
+    Dict.fromList
+        [ ( 1
+          , { firstName = "Josh"
+            , lastName = "Musick"
+            , phone = "8167996644"
+            , email = "josh.musick@medicareschool.com"
+            , writingNumbers =
+                \carrier ->
+                    case carrier of
+                        Aetna ->
+                            "GNW0059444"
 
-                            UHC ->
-                                "6338279"
-                }
-              )
-            , ( 2
-              , { firstName = "Garrett"
-                , lastName = "McKinzie"
-                , phone = "9137389842"
-                , email = "garrett.mckinzie@medicareschool.com"
-                , writingNumbers =
-                    \carrier ->
-                        case carrier of
-                            Aetna ->
-                                "GNW6050581"
+                        ACE ->
+                            "I03CP"
 
-                            ACE ->
-                                "I03QN"
+                        Allstate ->
+                            "707653"
 
-                            Allstate ->
-                                "708947"
+                        UHC ->
+                            "6338279"
+            }
+          )
+        , ( 2
+          , { firstName = "Garrett"
+            , lastName = "McKinzie"
+            , phone = "9137389842"
+            , email = "garrett.mckinzie@medicareschool.com"
+            , writingNumbers =
+                \carrier ->
+                    case carrier of
+                        Aetna ->
+                            "GNW6050581"
 
-                            UHC ->
-                                "6334513"
-                }
-              )
-            ]
-        )
+                        ACE ->
+                            "I03QN"
+
+                        Allstate ->
+                            "708947"
+
+                        UHC ->
+                            "6334513"
+            }
+          )
+        ]
 
 
 formatPhone : String -> JsonValue
