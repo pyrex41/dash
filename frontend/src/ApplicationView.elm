@@ -12,6 +12,7 @@ import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Pipeline exposing (optional, required)
 import Json.Encode as Encode
+import Producer exposing (getProducerSection, producerConfigs)
 import Task
 import Time exposing (Month(..))
 
@@ -62,6 +63,7 @@ type alias Model =
     , searchError : Maybe String
     , isSearching : Bool
     , hasUnsavedChanges : Bool
+    , producerId : Int
     }
 
 
@@ -72,6 +74,8 @@ type Msg
     | UpdateComplexPhoneField String String JsonValue
     | SaveForm
     | SaveFormResponse { success : Bool, error : Maybe String }
+    | SetUnderwritingType Int
+    | SetProducer Int
     | GotCurrentTime Date
     | SubmitToCSG
     | NoOp
@@ -104,6 +108,8 @@ type alias Application =
 init : Application -> ( Model, Cmd Msg )
 init app =
     let
+        defaultProducer = 2
+
         initialFormValuesRaw =
             app.data
                 |> extractFormValues
@@ -112,13 +118,29 @@ init app =
             app.formattedData
                 |> extractFormValues
 
-        initialFormValues =
+        initialFormValues0 =
             case initialFormattedValues of
                 JsonBase NullValue ->
                     initialFormValuesRaw
 
                 _ ->
                     initialFormattedValues
+
+        carrierInit =
+            app.naic |> carrierFromNaic
+                |> Debug.log "carrierInit"
+
+        producerConfig =
+            producerConfigs defaultProducer
+                |> Debug.log "producerConfig"
+
+        initialFormValues =
+            case (carrierInit, producerConfig) of
+                (Just carrier, Just config) ->
+                    overwriteSection "producer" (getProducerSection carrier config) initialFormValues0
+
+                _ ->
+                    initialFormValues0
 
         initialMedications =
             case Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
@@ -150,7 +172,7 @@ init app =
         model =
             { data = initialFormValues
             , naic = app.naic
-            , carrier = app.naic |> carrierFromNaic
+            , carrier = carrierInit
             , medications = initialMedications
             , medicationForm = Dict.empty
             , schema = schema
@@ -169,6 +191,7 @@ init app =
             , searchError = Nothing
             , isSearching = False
             , hasUnsavedChanges = False
+            , producerId = defaultProducer
             }
     in
     ( model
@@ -312,6 +335,17 @@ setSection sectionId newSection jsonValue =
             JsonObject Dict.empty
 
 
+overwriteSection : String -> JsonValue -> JsonValue -> JsonValue
+overwriteSection sectionId newSection jsonValue =
+    case jsonValue of
+        JsonObject dict ->
+            Dict.insert sectionId newSection dict
+                |> JsonObject
+
+        _ ->
+            JsonObject Dict.empty
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
@@ -390,6 +424,44 @@ update msg model =
         UpdateComplexPhoneField sectionId fieldId complexObject ->
             ( { model
                 | data = setComplexValue sectionId fieldId complexObject model.data
+                , hasUnsavedChanges = True
+              }
+            , Cmd.none
+            )
+
+        SetProducer producer ->
+            let
+                producerConfig =
+                    producerConfigs producer
+
+                newData =
+                    case (model.carrier, producerConfig) of
+                        (Just carrier, Just config) ->
+                            case getProducerSection carrier config of
+                                JsonObject dict ->
+                                    setSection "producer" dict model.data
+
+                                _ ->
+                                    model.data
+
+                        _ ->
+                            model.data
+            in
+            ( { model
+                | producerId = producer
+                , data = newData
+                , hasUnsavedChanges = True
+              }
+            , Cmd.none
+            )
+
+        SetUnderwritingType underwritingInt ->
+            let
+                newData =
+                    setValue "enrollment_application" "underwriting_type" (IntValue underwritingInt) model.data
+            in
+            ( { model
+                | data = newData
                 , hasUnsavedChanges = True
               }
             , Cmd.none
@@ -731,12 +803,55 @@ view model =
 
         _ ->
             div [ class "space-y-6 pt-8" ]
-                [ viewForm model
+                [ viewControls model
+                , viewForm model
                 , div [ class "flex justify-center gap-4 pb-8" ]
-                    [ viewSaveButton
-                    , viewSubmitButton model.isValid
+                    [ viewSubmitButton model.isValid
                     ]
                 ]
+
+
+viewControls : Model -> Html Msg
+viewControls model =
+    div [ class "producer-section max-w-3xl mx-auto px-6 mb-8" ]
+        [ div [ class "producer-controls" ]
+            [ div [ class "producer-group" ]
+                [ label [ class "producer-label" ]
+                    [ text "Producer" ]
+                , select
+                    [ class "underwriting-select"
+                    , value (String.fromInt model.producerId)
+                    , onInput (\str -> SetProducer (String.toInt str |> Maybe.withDefault 2))
+                    ]
+                    [ viewProducerOption 1
+                    , viewProducerOption 2
+                    ]
+                ]
+            , div [ class "underwriting-group" ]
+                [ label [ class "producer-label" ]
+                    [ text "Underwriting Type" ]
+                , select
+                    [ class "underwriting-select"
+                    , value (Maybe.map String.fromInt model.underwritingType |> Maybe.withDefault "")
+                    , onInput (\str -> SetUnderwritingType (String.toInt str |> Maybe.withDefault 0))
+                    ]
+                    [ option [ value "0" ] [ text "Underwritten" ]
+                    , option [ value "1" ] [ text "Open Enrollment" ]
+                    , option [ value "2" ] [ text "Guaranteed Issue" ]
+                    ]
+                ]
+            ]
+        ]
+
+viewProducerOption : Int -> Html Msg
+viewProducerOption producerId =
+    case producerConfigs producerId of
+        Just config ->
+            option [ value (String.fromInt producerId) ]
+                [ text (config.firstName ++ " " ++ config.lastName) ]
+        
+        Nothing ->
+            text ""
 
 
 viewSaveButton : Html Msg
@@ -873,8 +988,9 @@ validateFieldValue model section field =
             isFieldVisible field section model.data
                 && isRequired
                 && not fieldValueValid
-                && field.id
-                /= "applicant_age"
+                && field.id /= "applicant_age"
+                && field.id /= "type"
+                && field.id /= "document"
     in
     isInvalid
 
@@ -1888,7 +2004,6 @@ renderDrugLookupField model section field =
                                     [ text "Save" ]
                                 ]
                             ]
-
                     Nothing ->
                         text ""
                 ]
@@ -2461,8 +2576,8 @@ transformAetnaMedications healthHistory =
                                         ]
                                     )
                                 )
-                            )
 
+                            )
                 _ ->
                     Nothing
 
@@ -2589,3 +2704,6 @@ medicationToJsonValue med =
             , ( "medStartDate", JsonBase (StringValue med.medStartDate) )
             ]
         )
+
+
+-- Add these helper functions
