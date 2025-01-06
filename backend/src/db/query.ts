@@ -8,7 +8,7 @@ const formatServer = process.env.FORMAT_SERVER_URL
 console.log('formatServer', formatServer)
 
 const getFormatUrl = (applicationId: string) => {
-  return `${formatServer}/api/formatter/api/applications/${applicationId}/formatted`
+  return `${formatServer}/api/formatter/api/applications/${applicationId}/formatted?skip_medication=true`
 }
 
 const format_application = async (applicationId: string) => {

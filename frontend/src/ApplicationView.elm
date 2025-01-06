@@ -61,6 +61,7 @@ type alias Model =
     , laproToken : Maybe String
     , searchError : Maybe String
     , isSearching : Bool
+    , hasUnsavedChanges : Bool
     }
 
 
@@ -84,6 +85,7 @@ type Msg
     | SelectDrug String
     | DrugDosageResponse (Result Http.Error (List DrugInfo))
     | GotLAProToken String
+    | CheckForUnsavedChanges Time.Posix
 
 
 type alias Application =
@@ -109,7 +111,6 @@ init app =
         initialFormattedValues =
             app.formattedData
                 |> extractFormValues
-                |> Debug.log "initialFormattedValues"
 
         initialFormValues =
             case initialFormattedValues of
@@ -123,11 +124,14 @@ init app =
             case Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
                 Ok medications ->
                     medications
-                        |> Debug.log "initialMedications"
 
                 Err _ ->
-                    []
-                        |> Debug.log "initialMedications"
+                    case Decode.decodeValue (Decode.at [ "health_history", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
+                        Ok medications ->
+                            medications
+
+                        Err _ ->
+                            []
 
         schema =
             app.schema
@@ -164,6 +168,7 @@ init app =
             , laproToken = Nothing
             , searchError = Nothing
             , isSearching = False
+            , hasUnsavedChanges = False
             }
     in
     ( model
@@ -309,10 +314,6 @@ setSection sectionId newSection jsonValue =
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    let
-        _ =
-            Debug.log "update" msg
-    in
     case msg of
         GotError error ->
             ( { model | error = Just error }, Cmd.none )
@@ -381,6 +382,7 @@ update msg model =
                 | data = finalData
                 , underwritingType = newUnderwritingType
                 , isValid = validateData model
+                , hasUnsavedChanges = True
               }
             , cmd
             )
@@ -388,6 +390,7 @@ update msg model =
         UpdateComplexPhoneField sectionId fieldId complexObject ->
             ( { model
                 | data = setComplexValue sectionId fieldId complexObject model.data
+                , hasUnsavedChanges = True
               }
             , Cmd.none
             )
@@ -417,7 +420,7 @@ update msg model =
                     encodeData model.data
 
                 newModel =
-                    { model | error = Nothing }
+                    { model | error = Nothing, hasUnsavedChanges = False }
             in
             ( newModel
             , saveApplication
@@ -453,7 +456,10 @@ update msg model =
                     ( model, Cmd.none )
 
         UpdateMedicationField baseId field value ->
-            ( { model | medicationForm = Dict.insert field value model.medicationForm }
+            ( { model
+                | medicationForm = Dict.insert field value model.medicationForm
+                , hasUnsavedChanges = True
+              }
             , Cmd.none
             )
 
@@ -469,6 +475,7 @@ update msg model =
                 | medications = newMedications
                 , medicationForm = Dict.empty
                 , data = newData
+                , hasUnsavedChanges = True
               }
             , Cmd.none
             )
@@ -491,6 +498,7 @@ update msg model =
             ( { model
                 | medications = newMedications
                 , data = newData
+                , hasUnsavedChanges = True
               }
             , Cmd.none
             )
@@ -682,6 +690,13 @@ update msg model =
               }
             , nextCmd
             )
+
+        CheckForUnsavedChanges posix ->
+            if model.hasUnsavedChanges then
+                update SaveForm model
+
+            else
+                ( model, Cmd.none )
 
 
 httpErrorToString : Http.Error -> String
@@ -1579,10 +1594,11 @@ routingNumberDecoder =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions _ =
+subscriptions model =
     Sub.batch
         [ saveApplicationResponse SaveFormResponse
         , getLAProTokenResponse GotLAProToken
+        , Time.every 1000 CheckForUnsavedChanges
         ]
 
 
@@ -2176,6 +2192,186 @@ encodeJsonValue value =
             Encode.null
 
 
+transformAllstateMedications : Dict String JsonValue -> Dict String JsonValue
+transformAllstateMedications medicationInfo =
+    let
+        prescriptionDrugList =
+            Dict.get "prescription_drug_list" medicationInfo
+                |> Maybe.andThen
+                    (\value ->
+                        case value of
+                            JsonArray arr ->
+                                Just arr
+
+                            _ ->
+                                Nothing
+                    )
+                |> Maybe.withDefault []
+
+        transformMedication : Int -> JsonValue -> Maybe ( String, JsonValue )
+        transformMedication index medValue =
+            case medValue of
+                JsonObject medDict ->
+                    let
+                        -- Extract drug name and split into med_name and dosage
+                        ( medName, dosage ) =
+                            Dict.get "drug" medDict
+                                |> Maybe.andThen
+                                    (\drug ->
+                                        case drug of
+                                            JsonObject drugDict ->
+                                                Dict.get "drugName" drugDict
+                                                    |> Maybe.andThen
+                                                        (\name ->
+                                                            case name of
+                                                                JsonBase (StringValue fullName) ->
+                                                                    Just (splitMedNameAndDosage fullName)
+
+                                                                _ ->
+                                                                    Nothing
+                                                        )
+
+                                            _ ->
+                                                Nothing
+                                    )
+                                |> Maybe.withDefault ( "", "" )
+
+                        -- Get other fields with defaults
+                        diagnosis =
+                            Dict.get "diagnosis" medDict
+                                |> Maybe.andThen
+                                    (\diag ->
+                                        case diag of
+                                            JsonBase (StringValue d) ->
+                                                Just d
+
+                                            _ ->
+                                                Nothing
+                                    )
+                                |> Maybe.withDefault ""
+
+                        frequency =
+                            Dict.get "frequency" medDict
+                                |> Maybe.andThen
+                                    (\freq ->
+                                        case freq of
+                                            JsonBase (StringValue f) ->
+                                                Just f
+
+                                            _ ->
+                                                Nothing
+                                    )
+                                |> Maybe.withDefault ""
+
+                        quantity =
+                            Dict.get "quantity" medDict
+                                |> Maybe.andThen
+                                    (\qty ->
+                                        case qty of
+                                            JsonBase (IntValue q) ->
+                                                Just q
+
+                                            _ ->
+                                                Nothing
+                                    )
+
+                        cleanedDosage =
+                            String.replace "/" ";" dosage
+                    in
+                    Just
+                        ( String.fromInt index
+                        , JsonObject
+                            (Dict.fromList
+                                [ ( "med_name", JsonBase (StringValue medName) )
+                                , ( "diagnosis", JsonBase (StringValue diagnosis) )
+                                , ( "dosage", JsonBase (StringValue cleanedDosage) )
+                                , ( "frequency", JsonBase (StringValue frequency) )
+                                , ( "prescription_freq_other"
+                                  , case quantity of
+                                        Just q ->
+                                            JsonBase (IntValue q)
+
+                                        Nothing ->
+                                            JsonBase NullValue
+                                  )
+                                , ( "using", JsonBase (BoolValue True) )
+                                ]
+                            )
+                        )
+
+                _ ->
+                    Nothing
+
+        prescribedMedications =
+            List.indexedMap transformMedication prescriptionDrugList
+                |> List.filterMap identity
+                |> Dict.fromList
+
+        -- Get the last medication's name and dosage for the top level
+        lastMedication =
+            List.head prescriptionDrugList
+                |> Maybe.andThen
+                    (\med ->
+                        case med of
+                            JsonObject medDict ->
+                                Dict.get "drug" medDict
+                                    |> Maybe.andThen
+                                        (\drug ->
+                                            case drug of
+                                                JsonObject drugDict ->
+                                                    Dict.get "drugName" drugDict
+                                                        |> Maybe.andThen
+                                                            (\name ->
+                                                                case name of
+                                                                    JsonBase (StringValue fullName) ->
+                                                                        Just (splitMedNameAndDosage fullName)
+
+                                                                    _ ->
+                                                                        Nothing
+                                                            )
+
+                                                _ ->
+                                                    Nothing
+                                        )
+
+                            _ ->
+                                Nothing
+                    )
+                |> Maybe.withDefault ( "", "" )
+    in
+    Dict.remove "prescription_drug_list" medicationInfo
+        |> Dict.insert "prescribed_medications" (JsonObject prescribedMedications)
+        |> Dict.insert "med_name" (JsonBase (StringValue (Tuple.first lastMedication)))
+        |> Dict.insert "dosage" (JsonBase (StringValue (String.replace "/" ";" (Tuple.second lastMedication))))
+
+
+splitMedNameAndDosage : String -> ( String, String )
+splitMedNameAndDosage fullName =
+    let
+        parts =
+            String.split " " fullName
+
+        ( medNameParts, dosageParts ) =
+            List.foldr
+                (\part ( nameAcc, dosageAcc, foundUpper ) ->
+                    if String.toUpper part == part then
+                        ( nameAcc, part :: dosageAcc, True )
+
+                    else if foundUpper then
+                        ( nameAcc, part :: dosageAcc, foundUpper )
+
+                    else
+                        ( part :: nameAcc, dosageAcc, foundUpper )
+                )
+                ( [], [], False )
+                parts
+                |> (\( n, d, _ ) -> ( n, d ))
+    in
+    ( String.join " " medNameParts
+    , String.join " " dosageParts
+    )
+
+
 transformAetnaMedications : Dict String JsonValue -> Dict String JsonValue
 transformAetnaMedications healthHistory =
     let
@@ -2329,9 +2525,6 @@ applicationViewDecoder =
 updateModelDataWithMedications : Maybe Carrier -> List Medication -> JsonValue -> JsonValue
 updateModelDataWithMedications carrier medications data =
     let
-        _ =
-            Debug.log "Updating medications with data" data
-
         baseUpdate =
             setComplexValue
                 "medication_information"
@@ -2339,25 +2532,25 @@ updateModelDataWithMedications carrier medications data =
                 (JsonArray (List.map medicationToJsonValue medications))
                 data
 
-        healthHistorySection =
-            getSection "health_history" baseUpdate
-                |> Debug.log "Current health history section"
+        medicationSection =
+            getSection "medication_information" baseUpdate
 
-        updatedData =
-            case carrier of
-                Just Aetna ->
-                    let
-                        transformedHealthHistory =
-                            transformAetnaMedications healthHistorySection
-                    in
-                    setSection "health_history" transformedHealthHistory baseUpdate
-                        |> Debug.log "AETNA carrier - applied transformation"
-
-                _ ->
-                    baseUpdate
-                        |> Debug.log "Unknown carrier - using base update"
+        _ =
+            Debug.log "** carrier **" carrier
     in
-    updatedData
+    case carrier of
+        Just Aetna ->
+            let
+                transformedHealthHistory =
+                    transformAetnaMedications (getSection "health_history" baseUpdate)
+            in
+            setSection "health_history" transformedHealthHistory baseUpdate
+
+        Just Allstate ->
+            setSection "medication_information" (transformAllstateMedications medicationSection) baseUpdate
+
+        _ ->
+            baseUpdate
 
 
 medicationToJsonValue : Medication -> JsonValue
