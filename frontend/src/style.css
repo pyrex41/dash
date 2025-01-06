@@ -194,3 +194,63 @@ html {
   backdrop-filter: blur(20px);
   box-shadow: 0 4px 32px -12px theme('colors.purple.400/20');
 }
+
+/* Producer section styling */
+.producer-section {
+  @apply bg-white/90 backdrop-blur-sm border border-purple-200/60 rounded-xl p-6 mb-6 transition-all duration-300;
+  box-shadow: 0 4px 24px -6px theme('colors.purple.400/10');
+}
+
+/* Producer controls wrapper */
+.producer-controls {
+  @apply flex flex-col sm:flex-row gap-6 items-start sm:items-center;
+}
+
+/* Producer selection group */
+.producer-group {
+  @apply space-y-2 flex-1;
+}
+
+.producer-label {
+  @apply text-sm font-medium text-gray-600 mb-2;
+}
+
+/* Producer button styling */
+.producer-button {
+  @apply px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200;
+  @apply border-2 border-transparent;
+  @apply focus:outline-none focus:ring-2 focus:ring-purple-500/20;
+}
+
+.producer-button:not(.selected) {
+  @apply bg-gray-100/80 text-gray-600 hover:bg-purple-50/80 hover:text-purple-600;
+}
+
+.producer-button.selected {
+  @apply bg-purple-50 text-purple-700 border-2 border-purple-200/60;
+  box-shadow: 0 2px 8px theme('colors.purple.400/10');
+}
+
+/* Underwriting type select styling */
+.underwriting-group {
+  @apply space-y-2 flex-1;
+}
+
+.underwriting-select {
+  @apply w-full px-4 py-2.5 bg-white/80 backdrop-blur-sm;
+  @apply border-2 border-purple-200/60 rounded-lg;
+  @apply text-gray-700 text-sm placeholder-gray-400/90;
+  @apply focus:border-purple-400 focus:ring-4 focus:ring-purple-400/20;
+  @apply hover:border-purple-300/70 transition-all duration-200;
+}
+
+/* Status badge styling */
+.status-badge {
+  @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium;
+  @apply bg-purple-50 text-purple-700 border border-purple-200/60;
+}
+
+/* Header divider */
+.header-divider {
+  @apply w-full h-px bg-gradient-to-r from-purple-200/40 via-purple-300/60 to-purple-200/40 my-6;
+}
