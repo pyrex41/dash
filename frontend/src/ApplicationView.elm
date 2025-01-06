@@ -12,7 +12,7 @@ import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Pipeline exposing (optional, required)
 import Json.Encode as Encode
-import Producer exposing (getProducerSection, producerConfigs)
+import Producer exposing (getProducerSection, producerConfigs, producerConfigsBase)
 import Task
 import Time exposing (Month(..))
 
@@ -813,6 +813,17 @@ view model =
 
 viewControls : Model -> Html Msg
 viewControls model =
+    let
+        order : List Int
+        order =
+            model.producerId
+                :: (Dict.keys producerConfigsBase
+                        |> List.filter
+                            (\id -> id /= model.producerId)
+                   )
+
+    in
+    
     div [ class "producer-section max-w-3xl mx-auto px-6 mb-8" ]
         [ div [ class "producer-controls" ]
             [ div [ class "producer-group" ]
@@ -823,9 +834,7 @@ viewControls model =
                     , value (String.fromInt model.producerId)
                     , onInput (\str -> SetProducer (String.toInt str |> Maybe.withDefault 2))
                     ]
-                    [ viewProducerOption 1
-                    , viewProducerOption 2
-                    ]
+                    (List.map viewProducerOption order)
                 ]
             , div [ class "underwriting-group" ]
                 [ label [ class "producer-label" ]
