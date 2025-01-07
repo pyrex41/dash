@@ -16,8 +16,12 @@ console.log('Main script loading...');
 
 import './style.css';
 import { Elm } from './Main.elm';
+import producerConfigJson from '../producer_config.json';
 
 console.log('Imports completed');
+
+// Convert producer config to the format expected by Elm
+const producerConfig = producerConfigJson;
 
 // Add token acquisition function
 async function getLAProToken() {
@@ -54,11 +58,13 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
     }
 
+    console.log('Producer config TS >>>>>>>>>:', producerConfig);
+
     try {
         const app = Elm.Main.init({
             node: target,
             flags: {
-                // Add any flags you need to pass to Elm here
+                producerConfig
             }
         });
 
@@ -73,7 +79,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     throw new Error(`HTTP error! status: ${response.status}`)
                 }
                 const application = await response.json()
-                console.log('Received application schema sections:', application.schema?.sections?.map(s => s.id));
+                // Add producer config to the application response
+                console.log('Sending application:', application);
                 app.ports.receiveApplication.send(application)
             } catch (error) {
                 console.error('Error fetching application:', error)
