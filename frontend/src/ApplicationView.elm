@@ -118,7 +118,12 @@ init producerConfigJson app =
                 |> Debug.log "producerConfigs"
 
         defaultProducer =
-            2
+            producerConfigs
+                |> Dict.toList
+                |> List.filter (\( _, config ) -> config.default)
+                |> List.head
+                |> Maybe.map Tuple.first
+                |> Maybe.withDefault 1
 
         initialFormValuesRaw =
             app.data
