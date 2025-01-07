@@ -1,7 +1,7 @@
 module Producer exposing (..)
 
 import CSGSchema exposing (Carrier(..), JValue(..), JsonValue(..))
-import Dict
+import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline exposing (required)
 
@@ -15,58 +15,56 @@ type alias ProducerConfig =
     }
 
 
-producerConfigs : Int -> Maybe ProducerConfig
-producerConfigs producerId =
-    Dict.get producerId
-        producerConfigsBase
+jdebug : String -> Decode.Decoder a -> Decode.Decoder a
+jdebug message decoder =
+    Decode.value
+        |> Decode.andThen (debugHelper message decoder)
 
 
-producerConfigsBase : Dict.Dict Int ProducerConfig
-producerConfigsBase =
-    Dict.fromList
-        [ ( 1
-          , { firstName = "Josh"
-            , lastName = "Musick"
-            , phone = "8167996644"
-            , email = "josh.musick@medicareschool.com"
-            , writingNumbers =
-                \carrier ->
-                    case carrier of
-                        Aetna ->
-                            "GNW0059444"
+debugHelper : String -> Decode.Decoder a -> Decode.Value -> Decode.Decoder a
+debugHelper message decoder value =
+    decoder
 
-                        ACE ->
-                            "I03CP"
 
-                        Allstate ->
-                            "707653"
+producerConfigDecoder : Decoder (Dict Int ProducerConfig)
+producerConfigDecoder =
+    Decode.field "producers" (Decode.list producerConfigItemDecoder)
+        |> Decode.map (List.indexedMap (\i config -> ( i + 1, config )))
+        |> Decode.map Dict.fromList
+        |> jdebug "PRODUCER CONFIG"
 
-                        UHC ->
-                            "6338279"
-            }
-          )
-        , ( 2
-          , { firstName = "Garrett"
-            , lastName = "McKinzie"
-            , phone = "9137389842"
-            , email = "garrett.mckinzie@medicareschool.com"
-            , writingNumbers =
-                \carrier ->
-                    case carrier of
-                        Aetna ->
-                            "GNW6050581"
 
-                        ACE ->
-                            "I03QN"
+producerConfigItemDecoder : Decoder ProducerConfig
+producerConfigItemDecoder =
+    Decode.succeed ProducerConfig
+        |> required "first_name" Decode.string
+        |> required "last_name" Decode.string
+        |> required "phone" Decode.string
+        |> required "email" Decode.string
+        |> required "writing_numbers" writingNumbersDecoder
 
-                        Allstate ->
-                            "708947"
 
-                        UHC ->
-                            "6334513"
-            }
-          )
-        ]
+writingNumbersDecoder : Decoder (Carrier -> String)
+writingNumbersDecoder =
+    Decode.map4
+        (\aetna ace allstate uhc carrier ->
+            case carrier of
+                Aetna ->
+                    aetna
+
+                ACE ->
+                    ace
+
+                Allstate ->
+                    allstate
+
+                UHC ->
+                    uhc
+        )
+        (Decode.field "Aetna" Decode.string)
+        (Decode.field "Chubb" Decode.string)
+        (Decode.field "Allstate" Decode.string)
+        (Decode.field "UnitedHealthcare" Decode.string)
 
 
 formatPhone : String -> JsonValue

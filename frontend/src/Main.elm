@@ -5,6 +5,8 @@ import Browser
 import Browser.Navigation as Nav
 import Dashboard
 import Html exposing (..)
+import Json.Decode as Decode
+import Producer
 import Url
 import Url.Parser as Parser exposing ((</>), Parser)
 
@@ -19,6 +21,7 @@ type alias Model =
     { key : Nav.Key
     , route : Route
     , page : Page
+    , flags : Flags
     }
 
 
@@ -34,7 +37,12 @@ type Msg
     | ApplicationMsg ApplicationPage.Msg
 
 
-main : Program () Model Msg
+type alias Flags =
+    { producerConfig : Decode.Value
+    }
+
+
+main : Program Flags Model Msg
 main =
     Browser.application
         { init = init
@@ -54,16 +62,24 @@ routeParser =
         ]
 
 
-init : () -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+init : Flags -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init flags url key =
     let
         route =
             Maybe.withDefault NotFound (Parser.parse routeParser url)
 
-        ( dashboardModel, dashboardCmd ) =
-            Dashboard.init ()
+        _ =
+            Decode.decodeValue Producer.producerConfigDecoder flags.producerConfig
+                |> Debug.log "PRODUCER CONFIG | MAIN FLAGS"
+
+        model =
+            { key = key
+            , route = route
+            , page = DashboardPage (Dashboard.init flags.producerConfig |> Tuple.first)
+            , flags = flags |> Debug.log "FLAGS"
+            }
     in
-    initCurrentPage { key = key, route = route, page = DashboardPage dashboardModel }
+    initCurrentPage model
 
 
 initCurrentPage : Model -> ( Model, Cmd Msg )
@@ -72,7 +88,7 @@ initCurrentPage model =
         DashboardRoute ->
             let
                 ( dashboardModel, dashboardCmd ) =
-                    Dashboard.init ()
+                    Dashboard.init model.flags.producerConfig
             in
             ( { model | page = DashboardPage dashboardModel }
             , Cmd.map DashboardMsg dashboardCmd
@@ -81,7 +97,7 @@ initCurrentPage model =
         ApplicationRoute id ->
             let
                 ( pageModel, pageCmd ) =
-                    ApplicationPage.init id
+                    ApplicationPage.init id model.flags.producerConfig
             in
             ( { model | page = ApplicationPage pageModel }
             , Cmd.map ApplicationMsg pageCmd

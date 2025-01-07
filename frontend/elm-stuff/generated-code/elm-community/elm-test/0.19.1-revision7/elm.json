@@ -17,6 +17,7 @@
             "elm/random": "1.0.0",
             "elm/time": "1.0.0",
             "elm/url": "1.0.0",
+            "elm-community/list-extra": "8.7.0",
             "jinjor/elm-debounce": "3.0.0",
             "justinmimbs/date": "4.1.0"
         },

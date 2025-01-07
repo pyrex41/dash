@@ -2,10 +2,12 @@ module ApplicationPage exposing (Model, Msg(..), init, subscriptions, update, vi
 
 import ApplicationView
 import CSGSchema
+import Dict
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http
 import Json.Decode as Decode
+import Producer
 
 
 type alias Model =
@@ -16,19 +18,24 @@ type alias Model =
 
 
 type Msg
-    = ApplicationReceived (Result Http.Error ApplicationView.Application)
+    = ApplicationReceived Decode.Value (Result Http.Error ApplicationView.Application)
     | ApplicationViewMsg ApplicationView.Msg
 
 
-init : String -> ( Model, Cmd Msg )
-init applicationId =
+init : String -> Decode.Value -> ( Model, Cmd Msg )
+init applicationId producerConfig =
+    let
+        _ =
+            Decode.decodeValue Producer.producerConfigDecoder producerConfig
+                |> Debug.log "PRODUCER CONFIG"
+    in
     ( { applicationViewModel = Nothing
       , error = Nothing
       , loading = True
       }
     , Http.get
         { url = "/api/applications/" ++ applicationId
-        , expect = Http.expectJson ApplicationReceived ApplicationView.applicationViewDecoder
+        , expect = Http.expectJson (ApplicationReceived producerConfig) ApplicationView.applicationViewDecoder
         }
     )
 
@@ -36,12 +43,12 @@ init applicationId =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        ApplicationReceived result ->
+        ApplicationReceived producerConfig result ->
             case result of
                 Ok application ->
                     let
                         ( viewModel, viewCmd ) =
-                            ApplicationView.init application
+                            ApplicationView.init producerConfig application
                     in
                     ( { model
                         | applicationViewModel = Just viewModel

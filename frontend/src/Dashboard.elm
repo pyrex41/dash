@@ -5,11 +5,13 @@ import Browser
 import Browser.Events
 import CSGSchema exposing (Carrier(..))
 import Debounce exposing (Debounce)
+import Dict
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (on, onCheck, onClick, onInput, targetValue)
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
+import Producer
 
 
 
@@ -82,6 +84,7 @@ type alias Model =
     , totalPages : Int
     , applicationView : Maybe ApplicationView.Model
     , showApplicationModal : Bool
+    , producerConfig : Decode.Value
     }
 
 
@@ -126,8 +129,8 @@ type Status
 -- INIT
 
 
-init : () -> ( Model, Cmd Msg )
-init _ =
+init : Decode.Value -> ( Model, Cmd Msg )
+init producerConfig =
     ( { quoteSent = 0
       , submissions = 0
       , waitingReview = 0
@@ -147,6 +150,7 @@ init _ =
       , totalPages = 0
       , applicationView = Nothing
       , showApplicationModal = False
+      , producerConfig = producerConfig
       }
     , requestRefresh
         { page = 0
@@ -165,7 +169,7 @@ init _ =
 type Msg
     = NoOp
     | ViewApplication String
-    | ApplicationReceived (Result Decode.Error ApplicationView.Application)
+    | ApplicationReceived Decode.Value (Result Decode.Error ApplicationView.Application)
     | CompleteApplication String
     | SearchTermChanged String
     | ToggleContactFilter Bool
@@ -196,12 +200,12 @@ update msg model =
             , requestApplication { id = id }
             )
 
-        ApplicationReceived result ->
+        ApplicationReceived producerConfig result ->
             case result of
                 Ok application ->
                     let
                         ( viewModel, viewCmd ) =
-                            ApplicationView.init application
+                            ApplicationView.init producerConfig application
                     in
                     ( { model
                         | applicationView = Just viewModel
@@ -726,7 +730,7 @@ subscriptions model =
         [ receiveApplications
             (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
         , receiveApplication
-            (Decode.decodeValue applicationViewDecoder >> ApplicationReceived)
+            (Decode.decodeValue applicationViewDecoder >> ApplicationReceived model.producerConfig)
         , if model.showApplicationModal then
             Browser.Events.onKeyDown (Decode.map HandleKeyPress (Decode.field "key" Decode.string))
 
