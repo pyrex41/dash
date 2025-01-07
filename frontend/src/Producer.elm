@@ -3,7 +3,7 @@ module Producer exposing (..)
 import CSGSchema exposing (Carrier(..), JValue(..), JsonValue(..))
 import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline exposing (required)
+import Json.Decode.Pipeline exposing (optional, required)
 
 
 type alias ProducerConfig =
@@ -12,6 +12,7 @@ type alias ProducerConfig =
     , phone : String
     , email : String
     , writingNumbers : Carrier -> String
+    , default : Bool
     }
 
 
@@ -42,6 +43,7 @@ producerConfigItemDecoder =
         |> required "phone" Decode.string
         |> required "email" Decode.string
         |> required "writing_numbers" writingNumbersDecoder
+        |> optional "default" Decode.bool False
 
 
 writingNumbersDecoder : Decoder (Carrier -> String)
