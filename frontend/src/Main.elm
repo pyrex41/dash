@@ -1,110 +1,76 @@
 module Main exposing (main)
 
-import ApplicationPage
 import Browser
 import Browser.Navigation as Nav
+import CSGApplicationView
 import Dashboard
 import Html exposing (..)
+import Html.Attributes exposing (..)
 import Json.Decode as Decode
-import Producer
 import Url
-import Url.Parser as Parser exposing ((</>), Parser)
+import Url.Parser as Parser exposing ((</>), Parser, oneOf)
 
 
-type Route
-    = DashboardRoute
-    | ApplicationRoute String
-    | NotFound
+
+-- MAIN
 
 
-type alias Model =
-    { key : Nav.Key
-    , route : Route
-    , page : Page
-    , flags : Flags
-    }
-
-
-type Page
-    = DashboardPage Dashboard.Model
-    | ApplicationPage ApplicationPage.Model
-
-
-type Msg
-    = LinkClicked Browser.UrlRequest
-    | UrlChanged Url.Url
-    | DashboardMsg Dashboard.Msg
-    | ApplicationMsg ApplicationPage.Msg
-
-
-type alias Flags =
-    { producerConfig : Decode.Value
-    }
-
-
-main : Program Flags Model Msg
+main : Program Decode.Value Model Msg
 main =
     Browser.application
         { init = init
         , view = view
         , update = update
         , subscriptions = subscriptions
-        , onUrlRequest = LinkClicked
         , onUrlChange = UrlChanged
+        , onUrlRequest = LinkClicked
         }
 
 
-routeParser : Parser (Route -> a) a
-routeParser =
-    Parser.oneOf
-        [ Parser.map DashboardRoute Parser.top
-        , Parser.map ApplicationRoute (Parser.s "application" </> Parser.string)
-        ]
+
+-- MODEL
 
 
-init : Flags -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
+type alias Model =
+    { key : Nav.Key
+    , url : Url.Url
+    , page : Page
+    , flags : Decode.Value
+    }
+
+
+type Page
+    = NotFound
+    | DashboardPage Dashboard.Model
+    | CSGApplicationPage CSGApplicationView.Model
+
+
+
+-- INIT
+
+
+init : Decode.Value -> Url.Url -> Nav.Key -> ( Model, Cmd Msg )
 init flags url key =
     let
-        route =
-            Maybe.withDefault NotFound (Parser.parse routeParser url)
-
-        _ =
-            Decode.decodeValue Producer.producerConfigDecoder flags.producerConfig
-                |> Debug.log "PRODUCER CONFIG | MAIN FLAGS"
-
         model =
             { key = key
-            , route = route
-            , page = DashboardPage (Dashboard.init flags.producerConfig |> Tuple.first)
-            , flags = flags |> Debug.log "FLAGS"
+            , url = url
+            , page = NotFound
+            , flags = flags
             }
     in
-    initCurrentPage model
+    routeUrl url model
 
 
-initCurrentPage : Model -> ( Model, Cmd Msg )
-initCurrentPage model =
-    case model.route of
-        DashboardRoute ->
-            let
-                ( dashboardModel, dashboardCmd ) =
-                    Dashboard.init model.flags.producerConfig
-            in
-            ( { model | page = DashboardPage dashboardModel }
-            , Cmd.map DashboardMsg dashboardCmd
-            )
 
-        ApplicationRoute id ->
-            let
-                ( pageModel, pageCmd ) =
-                    ApplicationPage.init id model.flags.producerConfig
-            in
-            ( { model | page = ApplicationPage pageModel }
-            , Cmd.map ApplicationMsg pageCmd
-            )
+-- UPDATE
 
-        NotFound ->
-            ( model, Cmd.none )
+
+type Msg
+    = LinkClicked Browser.UrlRequest
+    | UrlChanged Url.Url
+    | DashboardMsg Dashboard.Msg
+    | CSGApplicationMsg CSGApplicationView.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -113,68 +79,130 @@ update msg model =
         ( LinkClicked urlRequest, _ ) ->
             case urlRequest of
                 Browser.Internal url ->
-                    ( model
-                    , Nav.pushUrl model.key (Url.toString url)
-                    )
+                    ( model, Nav.pushUrl model.key (Url.toString url) )
 
                 Browser.External href ->
-                    ( model
-                    , Nav.load href
-                    )
+                    ( model, Nav.load href )
 
         ( UrlChanged url, _ ) ->
-            let
-                newRoute =
-                    Maybe.withDefault NotFound (Parser.parse routeParser url)
-            in
-            initCurrentPage { model | route = newRoute }
+            routeUrl url model
 
-        ( DashboardMsg subMsg, DashboardPage pageModel ) ->
+        ( DashboardMsg subMsg, DashboardPage subModel ) ->
             let
-                ( newPageModel, pageCmd ) =
-                    Dashboard.update subMsg pageModel
+                ( newSubModel, subCmd ) =
+                    Dashboard.update subMsg subModel
             in
-            ( { model | page = DashboardPage newPageModel }
-            , Cmd.map DashboardMsg pageCmd
+            ( { model | page = DashboardPage newSubModel }
+            , Cmd.map DashboardMsg subCmd
             )
 
-        ( ApplicationMsg subMsg, ApplicationPage pageModel ) ->
+        ( CSGApplicationMsg subMsg, CSGApplicationPage subModel ) ->
             let
-                ( newPageModel, pageCmd ) =
-                    ApplicationPage.update subMsg pageModel
+                ( newSubModel, subCmd ) =
+                    CSGApplicationView.update subMsg subModel
             in
-            ( { model | page = ApplicationPage newPageModel }
-            , Cmd.map ApplicationMsg pageCmd
+            ( { model | page = CSGApplicationPage newSubModel }
+            , Cmd.map CSGApplicationMsg subCmd
             )
 
         ( _, _ ) ->
             ( model, Cmd.none )
 
 
-view : Model -> Browser.Document Msg
-view model =
-    case model.page of
-        DashboardPage dashboardModel ->
-            { title = "Dashboard"
-            , body = [ Html.map DashboardMsg (Dashboard.view dashboardModel) ]
-            }
 
-        ApplicationPage applicationModel ->
-            { title = "Application Details"
-            , body = [ Html.map ApplicationMsg (ApplicationPage.view applicationModel) ]
-            }
+-- SUBSCRIPTIONS
 
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
     case model.page of
-        DashboardPage dashboardModel ->
-            Sub.map DashboardMsg (Dashboard.subscriptions dashboardModel)
+        DashboardPage subModel ->
+            Sub.map DashboardMsg (Dashboard.subscriptions subModel)
 
-        ApplicationPage applicationModel ->
-            Sub.map ApplicationMsg (ApplicationPage.subscriptions applicationModel)
+        CSGApplicationPage _ ->
+            Sub.none
+
+        NotFound ->
+            Sub.none
 
 
 
---Sub.map ApplicationMsg (ApplicationPage.subscriptions applicationModel)
--- Add other necessary functions (update, subscriptions, etc.)
+-- ROUTING
+
+
+type Route
+    = DashboardRoute
+    | CSGApplicationRoute
+
+
+routeParser : Parser (Route -> a) a
+routeParser =
+    oneOf
+        [ Parser.map DashboardRoute Parser.top
+        , Parser.map DashboardRoute (Parser.s "dashboard")
+        , Parser.map CSGApplicationRoute (Parser.s "csg-application")
+        ]
+
+
+routeUrl : Url.Url -> Model -> ( Model, Cmd Msg )
+routeUrl url model =
+    let
+        parsedRoute =
+            Parser.parse routeParser url
+    in
+    case parsedRoute of
+        Just DashboardRoute ->
+            let
+                ( pageModel, pageCmd ) =
+                    Dashboard.init model.flags
+            in
+            ( { model | url = url, page = DashboardPage pageModel }
+            , Cmd.map DashboardMsg pageCmd
+            )
+
+        Just CSGApplicationRoute ->
+            let
+                ( pageModel, pageCmd ) =
+                    CSGApplicationView.init ()
+            in
+            ( { model | url = url, page = CSGApplicationPage pageModel }
+            , Cmd.map CSGApplicationMsg pageCmd
+            )
+
+        Nothing ->
+            ( { model | url = url, page = NotFound }
+            , Cmd.none
+            )
+
+
+
+-- VIEW
+
+
+view : Model -> Browser.Document Msg
+view model =
+    { title = "Dashboard"
+    , body =
+        [ case model.page of
+            NotFound ->
+                viewNotFound
+
+            DashboardPage subModel ->
+                Html.map DashboardMsg (Dashboard.view subModel)
+
+            CSGApplicationPage subModel ->
+                Html.map CSGApplicationMsg (CSGApplicationView.view subModel)
+        ]
+    }
+
+
+viewNotFound : Html msg
+viewNotFound =
+    div [ class "min-h-screen flex items-center justify-center" ]
+        [ div [ class "text-center" ]
+            [ h1 [ class "text-4xl font-bold text-gray-900 mb-4" ]
+                [ text "404" ]
+            , p [ class "text-gray-600" ]
+                [ text "Page not found" ]
+            ]
+        ]

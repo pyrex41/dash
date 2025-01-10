@@ -5,6 +5,7 @@ import DataEncoder exposing (unflattenData)
 import Date exposing (Date, Unit(..))
 import Debug
 import Dict exposing (Dict)
+import Hash
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (..)
@@ -14,6 +15,7 @@ import Json.Decode.Pipeline as Pipeline exposing (optional, required)
 import Json.Encode as Encode
 import List.Extra
 import Producer exposing (getProducerSection)
+import Regex
 import Task
 import Time exposing (Month(..))
 
@@ -42,6 +44,20 @@ port forceRefreshLAProToken : () -> Cmd msg
 port getLAProTokenResponse : (String -> msg) -> Sub msg
 
 
+
+-- Port for submitting to CSG
+
+
+port submitToCSG : ( String, Int ) -> Cmd msg
+
+
+
+-- Port for receiving CSG submission response
+
+
+port submitToCSGResponse : ({ success : Bool, error : Maybe String } -> msg) -> Sub msg
+
+
 type alias Model =
     { data : JsonValue
     , naic : String
@@ -66,6 +82,8 @@ type alias Model =
     , hasUnsavedChanges : Bool
     , producerId : Int
     , producerConfigs : Dict Int Producer.ProducerConfig
+    , submittingToCSG : Bool
+    , csgSubmissionError : Maybe String
     }
 
 
@@ -80,6 +98,7 @@ type Msg
     | SetProducer Int
     | GotCurrentTime Date
     | SubmitToCSG
+    | CSGSubmissionResponse { success : Bool, error : Maybe String }
     | NoOp
     | GotRoutingNumber (Result Http.Error String)
     | UpdateMedicationField String String String
@@ -217,6 +236,8 @@ init producerConfigJson app =
             , hasUnsavedChanges = False
             , producerId = defaultProducer
             , producerConfigs = producerConfigs
+            , submittingToCSG = False
+            , csgSubmissionError = Nothing
             }
     in
     ( model
@@ -391,40 +412,61 @@ update msg model =
         UpdateField sectionId fieldId valueString ->
             let
                 value =
-                    parseValue valueString |> JsonBase
+                    parseValue valueString
+                        |> JsonBase
+                        |> Debug.log "UpdateField"
 
                 oldSection =
                     getSection sectionId model.data
 
-                newSection =
-                    Dict.insert fieldId value oldSection
+                -- Only update if the value actually changed
+                shouldUpdate =
+                    getValue sectionId fieldId model.data
+                        |> Maybe.map (stringifyJValue >> (/=) valueString)
+                        |> Maybe.withDefault True
 
-                newData =
-                    setSection sectionId newSection model.data
+                newModel =
+                    if shouldUpdate then
+                        let
+                            newSection =
+                                Dict.insert fieldId value oldSection
 
-                -- Check if we need to update enrollment type
-                shouldUpdateEnrollment =
-                    (sectionId == "applicant_info" && fieldId == "applicant_dob")
-                        || (sectionId == "applicant_info" && fieldId == "part_b_date")
+                            newData =
+                                setSection sectionId newSection model.data
 
-                newUnderwritingType =
-                    if shouldUpdateEnrollment then
-                        determineUnderwritingType newData model.currentDate
+                            -- Check if we need to update enrollment type
+                            shouldUpdateEnrollment =
+                                (sectionId == "applicant_info" && fieldId == "applicant_dob")
+                                    || (sectionId == "applicant_info" && fieldId == "part_b_date")
+
+                            newUnderwritingType =
+                                if shouldUpdateEnrollment then
+                                    determineUnderwritingType newData model.currentDate
+
+                                else
+                                    model.underwritingType
+
+                            -- If enrollment type changed, update it in the data
+                            finalData =
+                                case newUnderwritingType of
+                                    Just underwritingInt ->
+                                        setValue "enrollment_application" "underwriting_type" (IntValue underwritingInt) newData
+
+                                    Nothing ->
+                                        newData
+                        in
+                        { model
+                            | data = finalData
+                            , underwritingType = newUnderwritingType
+                            , isValid = validateData model
+                            , hasUnsavedChanges = finalData /= model.data
+                        }
 
                     else
-                        model.underwritingType
-
-                -- If enrollment type changed, update it in the data
-                finalData =
-                    case newUnderwritingType of
-                        Just underwritingInt ->
-                            setValue "enrollment_application" "underwriting_type" (IntValue underwritingInt) newData
-
-                        Nothing ->
-                            newData
+                        model
 
                 cmd =
-                    if sectionId == "payment" && fieldId == "eft_routing_number" then
+                    if sectionId == "payment" && fieldId == "eft_routing_number" && shouldUpdate then
                         if validRoutingNumber valueString then
                             Http.get
                                 { url = "https://www.routingnumbers.info/api/name.json?rn=" ++ valueString
@@ -437,19 +479,16 @@ update msg model =
                     else
                         Cmd.none
             in
-            ( { model
-                | data = finalData
-                , underwritingType = newUnderwritingType
-                , isValid = validateData model
-                , hasUnsavedChanges = True
-              }
-            , cmd
-            )
+            ( newModel, cmd )
 
         UpdateComplexPhoneField sectionId fieldId complexObject ->
+            let
+                newData =
+                    setComplexValue sectionId fieldId complexObject model.data
+            in
             ( { model
-                | data = setComplexValue sectionId fieldId complexObject model.data
-                , hasUnsavedChanges = True
+                | data = newData
+                , hasUnsavedChanges = newData /= model.data
               }
             , Cmd.none
             )
@@ -475,7 +514,7 @@ update msg model =
             ( { model
                 | producerId = producer
                 , data = newData
-                , hasUnsavedChanges = True
+                , hasUnsavedChanges = newData /= model.data
               }
             , Cmd.none
             )
@@ -487,7 +526,7 @@ update msg model =
             in
             ( { model
                 | data = newData
-                , hasUnsavedChanges = True
+                , hasUnsavedChanges = newData /= model.data
               }
             , Cmd.none
             )
@@ -520,10 +559,14 @@ update msg model =
                     { model | error = Nothing, hasUnsavedChanges = False }
             in
             ( newModel
-            , saveApplication
-                { id = model.id
-                , data = encodedData
-                }
+            , if model.hasUnsavedChanges then
+                saveApplication
+                    { id = model.id
+                    , data = encodedData
+                    }
+
+              else
+                Cmd.none
             )
 
         SaveFormResponse response ->
@@ -601,11 +644,17 @@ update msg model =
             )
 
         SubmitToCSG ->
-            if model.isValid then
-                ( model, Cmd.none )
+            ( { model | submittingToCSG = True, csgSubmissionError = Nothing }
+            , submitToCSG ( model.id, model.producerId )
+            )
 
-            else
-                ( model, Cmd.none )
+        CSGSubmissionResponse response ->
+            ( { model
+                | submittingToCSG = False
+                , csgSubmissionError = response.error
+              }
+            , Cmd.none
+            )
 
         NoOp ->
             ( model, Cmd.none )
@@ -789,7 +838,7 @@ update msg model =
             )
 
         CheckForUnsavedChanges posix ->
-            if model.hasUnsavedChanges then
+            if model.hasUnsavedChanges && not model.isSearching then
                 update SaveForm model
 
             else
@@ -821,19 +870,29 @@ httpErrorToString error =
 
 view : Model -> Html Msg
 view model =
-    case model.error of
-        Just error ->
-            div [ class "text-cyber-error p-4" ]
-                [ text ("Error: " ++ error) ]
+    div [ class "container mx-auto px-4 py-8" ]
+        [ div [ class "flex justify-between items-center mb-6" ]
+            [ h1 [ class "text-2xl font-bold" ] [ text "Application" ]
+            ]
+        , case model.error of
+            Just error ->
+                div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
+                    [ text error ]
 
-        _ ->
-            div [ class "space-y-6 pt-8" ]
-                [ viewControls model
-                , viewForm model
-                , div [ class "flex justify-center gap-4 pb-8" ]
-                    [ viewSubmitButton model.isValid
-                    ]
-                ]
+            Nothing ->
+                text ""
+        , case model.csgSubmissionError of
+            Just error ->
+                div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
+                    [ text error ]
+
+            Nothing ->
+                text ""
+        , viewControls model
+        , viewForm model
+        , div [ class "flex justify-center mt-8" ]
+            [ viewSubmitButton model ]
+        ]
 
 
 viewControls : Model -> Html Msg
@@ -887,30 +946,21 @@ viewProducerOption producerConfigs producerId =
             text ""
 
 
-viewSaveButton : Html Msg
-viewSaveButton =
-    button
-        [ class "cyber-button"
-        , onClick SaveForm
-        ]
-        [ text "Save" ]
+viewSubmitButton : Model -> Html Msg
+viewSubmitButton model =
+    if model.submittingToCSG then
+        button
+            [ class "disabled:opacity-50 cursor-not-allowed bg-purple-600 text-white px-4 py-2 rounded"
+            , disabled True
+            ]
+            [ text "Submitting..." ]
 
-
-viewSubmitButton : Bool -> Html Msg
-viewSubmitButton isValid =
-    button
-        [ class <|
-            "cyber-button "
-                ++ (if not isValid then
-                        "opacity-50 cursor-not-allowed"
-
-                    else
-                        ""
-                   )
-        , disabled (not isValid)
-        , onClick SubmitToCSG
-        ]
-        [ text "Submit" ]
+    else
+        button
+            [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
+            , onClick SubmitToCSG
+            ]
+            [ text "Submit to CSG" ]
 
 
 viewForm : Model -> Html Msg
@@ -953,11 +1003,11 @@ getPhoneValue sectionId fieldId jsonValue =
                 isValid =
                     hasPhoneValue jsonBlob
             in
-            if isValid then
+            if isValid && String.length areaCode == 3 && String.length officeCode == 3 && String.length stationCode == 4 then
                 "(" ++ areaCode ++ ") " ++ officeCode ++ "-" ++ stationCode
 
             else
-                ""
+                areaCode ++ officeCode ++ stationCode
 
         _ ->
             ""
@@ -1009,9 +1059,24 @@ validateFieldValue model section field =
             getValueFull section.id field.id model.data
 
         fieldValueValid =
-            case field.fieldType of
-                ComplexPhoneField ->
+            let
+                _ =
+                    if field.id == "medicare_information_claim_number" then
+                        Debug.log "medicare_information_claim_number" field
+
+                    else
+                        field
+            in
+            case ( field.fieldType, field.id ) of
+                ( ComplexPhoneField, _ ) ->
                     hasPhoneValue retrievedValue
+
+                ( TextField _, "medicare_information_claim_number" ) ->
+                    isValidMBI (getValueString section.id field.id model.data)
+                        |> Debug.log "isValidMBI"
+
+                ( SSNField _, _ ) ->
+                    isValidSSN (getValueString section.id field.id model.data)
 
                 _ ->
                     getValue section.id field.id model.data
@@ -1226,6 +1291,7 @@ renderFormField model section field =
                                 , class baseInputClass
                                 , value (getValueString section.id field.id model.data)
                                 , onInput (UpdateField section.id field.id)
+                                , onBlur SaveForm
                                 ]
                                 []
                             ]
@@ -1237,6 +1303,7 @@ renderFormField model section field =
                                 , class baseInputClass
                                 , value (getValueString section.id field.id model.data)
                                 , onInput (UpdateField section.id field.id)
+                                , onBlur SaveForm
                                 ]
                                 []
                             ]
@@ -1244,13 +1311,44 @@ renderFormField model section field =
                     TextField config ->
                         div []
                             [ input
-                                [ type_ "text"
-                                , class baseInputClass
-                                , value (getValueString section.id field.id model.data)
-                                , onInput (UpdateField section.id field.id)
-                                , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
-                                    |> Maybe.withDefault (class "")
-                                ]
+                                ([ type_ "text"
+                                 , class baseInputClass
+                                 , value
+                                    (if field.id == "medicare_information_claim_number" then
+                                        getValueString section.id field.id model.data
+                                            |> String.filter Char.isAlphaNum
+                                            |> String.toUpper
+
+                                     else
+                                        getValueString section.id field.id model.data
+                                    )
+                                 , onInput
+                                    (if field.id == "medicare_information_claim_number" then
+                                        \input ->
+                                            let
+                                                cleanInput =
+                                                    String.filter Char.isAlphaNum input
+                                                        |> String.toUpper
+                                            in
+                                            UpdateField section.id field.id cleanInput
+
+                                     else
+                                        UpdateField section.id field.id
+                                    )
+                                 , onBlur SaveForm
+                                 ]
+                                    ++ (if field.id == "medicare_information_claim_number" then
+                                            [ Html.Attributes.pattern "[1-9][A-HJ-KMNP-RT-Y][A-HJ-KMNP-RT-Y0-9][0-9][A-HJ-KMNP-RT-Y][A-HJ-KMNP-RT-Y0-9][0-9][A-HJ-KMNP-RT-Y][A-HJ-KMNP-RT-Y][0-9][0-9]"
+                                            , Html.Attributes.title "Please enter a valid Medicare Beneficiary Identifier (MBI)"
+                                            ]
+
+                                        else
+                                            []
+                                       )
+                                    ++ (Maybe.map (\maxLen -> [ Html.Attributes.maxlength maxLen ]) config.maxLength
+                                            |> Maybe.withDefault []
+                                       )
+                                )
                                 []
                             ]
 
@@ -1264,6 +1362,7 @@ renderFormField model section field =
                                     , onInput (UpdateField section.id field.id)
                                     , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
                                         |> Maybe.withDefault (class "")
+                                    , onBlur SaveForm
                                     ]
                                     []
                                 ]
@@ -1279,12 +1378,13 @@ renderFormField model section field =
                             [ input
                                 [ type_ "tel"
                                 , class baseInputClass
-                                , value (getPhoneValue section.id field.id model.data)
+                                , value (formatPhoneNumber (getPhoneValue section.id field.id model.data))
                                 , onInput
                                     (\input ->
                                         let
                                             digits =
                                                 String.filter Char.isDigit input
+                                                    |> String.left 10
 
                                             newAreaCode =
                                                 String.left 3 digits
@@ -1305,8 +1405,14 @@ renderFormField model section field =
                                         in
                                         UpdateComplexPhoneField section.id field.id complexObject
                                     )
+                                , Html.Attributes.placeholder "(555) 555-5555"
+                                , Html.Attributes.pattern "[0-9]*"
+                                , Html.Attributes.maxlength 14
+                                , onBlur SaveForm
                                 ]
                                 []
+                            , div [ class "text-xs text-gray-500 mt-1" ]
+                                [ text "Format: (555) 555-5555" ]
                             ]
 
                     SimpleEmailField config ->
@@ -1317,6 +1423,7 @@ renderFormField model section field =
                                 , value (getValueString section.id field.id model.data)
                                 , onInput (UpdateField section.id field.id)
                                 , Html.Attributes.maxlength config.maxLength
+                                , onBlur SaveForm
                                 ]
                                 []
                             ]
@@ -1398,6 +1505,7 @@ renderFormField model section field =
                                     , Html.Attributes.max (String.fromInt config.maximumValue)
                                     , value (getValueString section.id field.id model.data)
                                     , onInput (UpdateField section.id field.id)
+                                    , onBlur SaveForm
                                     ]
                                     []
                                 , span [ class "self-center text-cyber-primary" ] [ text config.displayType ]
@@ -1413,6 +1521,7 @@ renderFormField model section field =
                                 , Html.Attributes.max (String.fromInt config.maximumValue)
                                 , value (getValueString section.id field.id model.data)
                                 , onInput (UpdateField section.id field.id)
+                                , onBlur SaveForm
                                 ]
                                 []
                             ]
@@ -1421,14 +1530,37 @@ renderFormField model section field =
                         text ""
 
                     SSNField _ ->
+                        let
+                            currentValue =
+                                getValueString section.id field.id model.data
+                                    |> formatSSN
+                                    |> Debug.log "currentValue SSNField"
+                        in
                         div []
                             [ input
                                 [ type_ "text"
                                 , class baseInputClass
-                                , value (getValueString section.id field.id model.data)
-                                , onInput (UpdateField section.id field.id)
+                                , value currentValue
+                                , onInput
+                                    (\input ->
+                                        let
+                                            digits =
+                                                String.filter Char.isDigit input
+                                                    |> String.left 9
+
+                                            -- Don't clean/format the input when storing it
+                                            -- Just store the raw digits
+                                        in
+                                        UpdateField section.id field.id digits
+                                    )
+                                , Html.Attributes.placeholder "XXX-XX-XXXX"
+                                , Html.Attributes.pattern "[0-9]*"
+                                , Html.Attributes.maxlength 11 -- Allow for formatting characters
+                                , onBlur SaveForm
                                 ]
                                 []
+                            , div [ class "text-xs text-gray-500 mt-1" ]
+                                [ text "Format: XXX-XX-XXXX" ]
                             ]
 
                     ComplexRadioField config ->
@@ -1462,6 +1594,7 @@ renderFormField model section field =
                                                     )
                                                 , onInput (UpdateField section.id field.id)
                                                 , class "form-checkbox text-cyber-primary border-cyber-primary/50 rounded focus:ring-cyber-primary/50"
+                                                , onBlur SaveForm
                                                 ]
                                                 []
                                             , span [ class "text-cyber-text" ] [ text opt.key ]
@@ -1547,6 +1680,7 @@ renderFormField model section field =
                                 [ type_ "file"
                                 , class baseInputClass
                                 , onInput (UpdateField section.id field.id)
+                                , onBlur SaveForm
                                 ]
                                 []
                             ]
@@ -1579,6 +1713,7 @@ renderFormField model section field =
                                             , checked isSelected
                                             , onClick (UpdateField section.id field.id optionValue)
                                             , class "form-radio"
+                                            , onBlur SaveForm
                                             ]
                                             []
                                         , span [ class "text-gray-700" ] [ text opt.key ]
@@ -1750,7 +1885,9 @@ subscriptions model =
     Sub.batch
         [ saveApplicationResponse SaveFormResponse
         , getLAProTokenResponse GotLAProToken
-        , Time.every 1000 CheckForUnsavedChanges
+        , submitToCSGResponse CSGSubmissionResponse
+
+        --, Time.every 5000 CheckForUnsavedChanges -- Changed from 1000 to 5000
         ]
 
 
@@ -1885,6 +2022,7 @@ renderDrugLookupField model section field =
                             , placeholder "Search drug by name"
                             , onInput SearchDrugs
                             , value (Dict.get "drugName" model.medicationForm |> Maybe.withDefault "")
+                            , onBlur SaveForm
                             ]
                             []
                         , if model.isSearching then
@@ -1992,6 +2130,7 @@ renderDrugLookupField model section field =
                                                         , value dosage.dosageid
                                                         , onClick (UpdateMedicationField "" "dosageId" dosage.dosageid)
                                                         , class "form-radio"
+                                                        , onBlur SaveForm
                                                         ]
                                                         []
                                                     , span [ class "text-sm text-gray-900" ]
@@ -2060,6 +2199,7 @@ formField model label_ fieldName inputType =
             , type_ inputType
             , onInput (UpdateMedicationField "" fieldName)
             , value (Dict.get fieldName model.medicationForm |> Maybe.withDefault "")
+            , onBlur SaveForm
             ]
             []
         ]
@@ -2705,3 +2845,112 @@ medicationToJsonValue med =
 
 
 -- Add these helper functions
+-- Add this helper function near other helper functions
+
+
+formatPhoneNumber : String -> String
+formatPhoneNumber phoneStr =
+    let
+        digits =
+            String.filter Char.isDigit phoneStr
+    in
+    if String.length digits >= 7 then
+        "(" ++ String.left 3 digits ++ ") " ++ String.slice 3 6 digits ++ "-" ++ String.slice 6 10 digits
+
+    else if String.length digits >= 4 then
+        "(" ++ String.left 3 digits ++ ") " ++ String.slice 3 6 digits
+
+    else if String.length digits > 0 then
+        "(" ++ String.left 3 digits
+
+    else
+        ""
+
+
+formatSSN : String -> String
+formatSSN ssnStr =
+    let
+        digits =
+            String.filter Char.isDigit ssnStr
+    in
+    [ String.left 3 digits
+    , String.slice 3 5 digits
+    , String.slice 5 9 digits
+    ]
+        |> List.filterMap
+            (\str ->
+                case str of
+                    "" ->
+                        Nothing
+
+                    _ ->
+                        Just str
+            )
+        |> String.join "-"
+
+
+isValidSSN : String -> Bool
+isValidSSN ssn =
+    let
+        digits =
+            String.filter Char.isDigit ssn
+
+        invalidPrefixes =
+            [ "000", "666", "9" ]
+
+        invalidFullSSNs =
+            [ "000000000"
+            , "111111111"
+            , "222222222"
+            , "333333333"
+            , "444444444"
+            , "555555555"
+            , "666666666"
+            , "777777777"
+            , "888888888"
+            , "999999999"
+            , "123456789"
+            ]
+
+        prefix =
+            String.left 3 digits
+
+        hasValidLength =
+            String.length digits == 9
+
+        hasValidPrefix =
+            not (List.any (\p -> String.startsWith p prefix) invalidPrefixes)
+
+        isNotInvalidSSN =
+            not (List.member digits invalidFullSSNs)
+    in
+    hasValidLength && hasValidPrefix && isNotInvalidSSN
+
+
+isValidMBI : String -> Bool
+isValidMBI mbi =
+    let
+        mbiRegex =
+            [ "^" -- Start of string
+            , "[1-9]" -- Position 1: numeric 1-9
+            , "[AC-HJ-KMNP-RT-Y]" -- Position 2: letter (excluding S, L, O, I, B, Z)
+            , "[AC-HJ-KMNP-RT-Y0-9]" -- Position 3: letter or number
+            , "[0-9]" -- Position 4: numeric 0-9
+            , "[AC-HJ-KMNP-RT-Y]" -- Position 5: letter
+            , "[AC-HJ-KMNP-RT-Y0-9]" -- Position 6: letter or number
+            , "[0-9]" -- Position 7: numeric 0-9
+            , "[AC-HJ-KMNP-RT-Y]" -- Position 8: letter
+            , "[AC-HJ-KMNP-RT-Y]" -- Position 9: letter
+            , "[0-9]" -- Position 10: numeric 0-9
+            , "[0-9]" -- Position 11: numeric 0-9
+            , "$" -- End of string
+            ]
+                |> String.join ""
+                |> Regex.fromString
+                |> Maybe.withDefault Regex.never
+
+        cleanMBI =
+            String.filter Char.isAlphaNum mbi
+                |> String.toUpper
+    in
+    Regex.contains mbiRegex cleanMBI
