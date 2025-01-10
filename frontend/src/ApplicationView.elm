@@ -1128,6 +1128,9 @@ renderFormSection model section =
             in
             not (List.isEmpty visibleFields)
 
+        _ =
+            Debug.log "section.id visibleFields" ( section.id, hasVisibleFields )
+
         isExpanded =
             Dict.get section.id model.expandedSections
                 |> Maybe.withDefault False
