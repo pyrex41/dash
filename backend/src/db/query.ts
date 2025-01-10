@@ -1,7 +1,7 @@
 import { drizzle } from 'drizzle-orm/libsql'
 import { createClient } from '@libsql/client'
 import { desc, sql } from 'drizzle-orm'
-import { applications, bookings, user, csgApplications } from './schema'
+import { applications, bookings, user, csgApplications, producers } from './schema'
 import { eq } from 'drizzle-orm'
 
 const formatServer = process.env.FORMAT_SERVER_URL 
@@ -301,4 +301,47 @@ export async function updateFormattedData(id: string, formattedData: Record<stri
             updatedAt: new Date()
         })
         .where(eq(applications.id, id));
+}
+
+export async function getProducerConfig() {
+    try {
+        console.log('Querying producers from database...');
+        const producersResult = await db
+            .select({
+                id: producers.id,
+                firstName: producers.firstName,
+                lastName: producers.lastName,
+                phone: producers.phone,
+                email: producers.email,
+                addressLine1: producers.addressLine1,
+                addressCity: producers.addressCity,
+                addressState: producers.addressState,
+                addressZip5: producers.addressZip5,
+                npn: producers.npn,
+                writingNumbers: producers.writingNumbers,
+                isDefault: producers.isDefault,
+            })
+            .from(producers)
+            .orderBy(producers.lastName, producers.firstName);
+
+        console.log('Raw producers result:', {
+            count: producersResult.length,
+            firstProducer: producersResult[0] ? {
+                id: producersResult[0].id,
+                name: `${producersResult[0].firstName} ${producersResult[0].lastName}`
+            } : null
+        });
+
+        const formattedProducers = producersResult.map(p => ({
+            ...p,
+            writingNumbers: typeof p.writingNumbers === 'string' ? JSON.parse(p.writingNumbers) : p.writingNumbers
+        }));
+
+        return {
+            producers: formattedProducers
+        };
+    } catch (error) {
+        console.error('Error in getProducerConfig:', error);
+        throw error; // Re-throw to be handled by the route handler
+    }
 }

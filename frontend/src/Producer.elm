@@ -12,7 +12,8 @@ type alias ProducerConfig =
     , phone : String
     , email : String
     , writingNumbers : Carrier -> String
-    , default : Bool
+    , isDefault : Bool
+    , id : Int
     }
 
 
@@ -30,7 +31,7 @@ debugHelper message decoder value =
 producerConfigDecoder : Decoder (Dict Int ProducerConfig)
 producerConfigDecoder =
     Decode.field "producers" (Decode.list producerConfigItemDecoder)
-        |> Decode.map (List.indexedMap (\i config -> ( i + 1, config )))
+        |> Decode.map (List.map (\config -> ( config.id, config )))
         |> Decode.map Dict.fromList
         |> jdebug "PRODUCER CONFIG"
 
@@ -38,12 +39,13 @@ producerConfigDecoder =
 producerConfigItemDecoder : Decoder ProducerConfig
 producerConfigItemDecoder =
     Decode.succeed ProducerConfig
-        |> required "first_name" Decode.string
-        |> required "last_name" Decode.string
+        |> required "firstName" Decode.string
+        |> required "lastName" Decode.string
         |> required "phone" Decode.string
         |> required "email" Decode.string
-        |> required "writing_numbers" writingNumbersDecoder
-        |> optional "default" Decode.bool False
+        |> required "writingNumbers" writingNumbersDecoder
+        |> optional "isDefault" Decode.bool False
+        |> required "id" Decode.int
 
 
 writingNumbersDecoder : Decoder (Carrier -> String)
