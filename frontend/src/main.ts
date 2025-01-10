@@ -49,7 +49,7 @@ async function getLAProToken() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOM loaded, initializing Elm...');
     const target = document.getElementById('app');
     
@@ -60,12 +60,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     console.log('Producer config TS >>>>>>>>>:', producerConfig);
 
+    const producerConfigDb = await fetch('/api/producer-config')
+        .then(response => response.json())
+        .then(data => data.producers);
+
+    console.log('Producer config DB >>>>>>>>>:', producerConfigDb);
+
     try {
         const app = Elm.Main.init({
             node: target,
-            flags: {
-                producerConfig
-            }
+            flags: { producers: producerConfigDb } //producerConfig.producers }
         });
 
         console.log('Elm app initialized');

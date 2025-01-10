@@ -139,7 +139,7 @@ init producerConfigJson app =
         defaultProducer =
             producerConfigs
                 |> Dict.toList
-                |> List.filter (\( _, config ) -> config.default)
+                |> List.filter (\( _, config ) -> config.isDefault)
                 |> List.head
                 |> Maybe.map Tuple.first
                 |> Maybe.withDefault 1
@@ -182,12 +182,23 @@ init producerConfigJson app =
                         Err _ ->
                             Nothing
 
-        initialFormValues1 =
+        producerSection =
             case ( carrierInit, producerConfig ) of
                 ( Just carrier, Just config ) ->
-                    overwriteSection "producer" (getProducerSection carrier config) initialFormValues0
+                    getProducerSection carrier config |> Just
 
                 _ ->
+                    Nothing
+
+        _ =
+            Debug.log "producerSection" producerSection
+
+        initialFormValues1 =
+            case producerSection of
+                Just section ->
+                    overwriteSection "producer" section initialFormValues0
+
+                Nothing ->
                     initialFormValues0
 
         initialFormValues =
@@ -213,7 +224,7 @@ init producerConfigJson app =
                     )
 
         model =
-            { data = initialFormValues
+            { data = initialFormValues |> Debug.log "initialFormValues"
             , naic = app.naic
             , carrier = carrierInit
             , medications = Maybe.withDefault [] initialMedications

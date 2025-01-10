@@ -1,17 +1,18 @@
 {
     "producers": [
         {
-            "first_name": "Josh",
-            "last_name": "Musick",
+            "id": 1,
+            "firstName": "Josh",
+            "lastName": "Musick",
             "phone": "8167996644",
-            "default": false,
+            "isDefault": false,
             "email": "josh.musick@medicareschool.com",
             "address_line1": "10895 Grandview Dr.",
             "address_city": "Overland Park",
             "address_state": "KS",
             "address_zip5": "66210",
             "npn": "15729012",
-            "writing_numbers": {
+            "writingNumbers": {
                 "Aetna": "GNW0059444",
                 "Chubb": "I03CP",
                 "Allstate": "707653",
@@ -19,17 +20,18 @@
             }
         },
         {
-            "first_name": "Garrett",
-            "last_name": "McKinzie",
+            "id": 2,
+            "firstName": "Garrett",
+            "lastName": "McKinzie",
             "phone": "9137389842",
-            "default": true,
+            "isDefault": true,
             "email": "garrett.mckinzie@medicareschool.com",
             "address_line1": "10895 Grandview Dr.",
             "address_city": "Overland Park",
             "address_state": "KS",
             "address_zip5": "66210",
             "npn": "19756432",
-            "writing_numbers": {
+            "writingNumbers": {
                 "Aetna": "GNW6050581",
                 "Chubb": "I03QN",
                 "Allstate": "708947",

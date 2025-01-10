@@ -3,7 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
-import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { getToken } from './csg/token'
@@ -249,6 +249,36 @@ app.group('/api', app => app
       console.error('Error fetching CSG application:', error);
       return new Response(
         JSON.stringify({ error: 'Failed to fetch CSG application' }), 
+        { status: 500 }
+      );
+    }
+  })
+  .get('/producer-config', async () => {
+    try {
+      console.log('GET /producer-config - Fetching producer config...');
+      const config = await getProducerConfig();
+      console.log('GET /producer-config response:', {
+        producerCount: config.producers.length,
+        firstProducer: config.producers[0] ? {
+          id: config.producers[0].id,
+          name: `${config.producers[0].firstName} ${config.producers[0].lastName}`
+        } : null
+      });
+      
+      return new Response(
+        JSON.stringify(config), 
+        { 
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    } catch (error) {
+      console.error('Error fetching producer config:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to fetch producer config',
+          details: error instanceof Error ? error.message : String(error)
+        }), 
         { status: 500 }
       );
     }
