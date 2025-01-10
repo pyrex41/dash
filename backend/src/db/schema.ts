@@ -94,6 +94,21 @@ export const csgTokens = sqliteTable('csg_tokens', {
   expiresAtIndex: index('idx_csg_tokens_expires_at').on(table.expiresAt),
 }));
 
+export const csgTokens2 = sqliteTable('csg_tokens2', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  token: text('token').notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  tokenIndex: index('idx_csg_tokens2_token').on(table.token),
+  expiresAtIndex: index('idx_csg_tokens2_expires_at').on(table.expiresAt),
+}));
+
 export const brokers = sqliteTable('brokers', {
   id: text('id').primaryKey(),
   username: text('username').notNull().unique(),
@@ -128,6 +143,31 @@ export const bookings = sqliteTable('bookings', {
   emailIndex: index('idx_bookings_email').on(table.email),
   applicationIdIndex: index('idx_bookings_application_id').on(table.applicationId),
 }));
+
+export const producers = sqliteTable('producers', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  firstName: text('first_name').notNull(),
+  lastName: text('last_name').notNull(), 
+  phone: text('phone').notNull(),
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false),
+  email: text('email').notNull(),
+  addressLine1: text('address_line1').notNull(),
+  addressCity: text('address_city').notNull(),
+  addressState: text('address_state').notNull(),
+  addressZip5: text('address_zip5').notNull(),
+  npn: text('npn').notNull(),
+  writingNumbers: text('writing_numbers', { mode: 'json' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  emailIndex: index('idx_producers_email').on(table.email),
+  npnIndex: index('idx_producers_npn').on(table.npn),
+}));
+
 
 export const schema = {
   user,

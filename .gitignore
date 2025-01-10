@@ -27,4 +27,4 @@ dist-ssr
 .env
 
 # RepoPackage output
-**/repopack-output.txt
+**/repomix-output.txt

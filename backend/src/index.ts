@@ -5,6 +5,8 @@ import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
 import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData } from './db/query'
 import { format_application, getCarrierName } from './formatter'
+import { submitToCSG } from './csg/submit'
+import { getToken } from './csg/token'
 
 // Resolve __dirname for ESM environments
 const __filename = fileURLToPath(import.meta.url)
@@ -181,6 +183,73 @@ app.group('/api', app => app
       return new Response(
         JSON.stringify({ error: 'Failed to get token' }), 
         { status: 500, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+  })
+  .post('/applications/:id/submit', async ({ params, body }) => {
+    try {
+      const { producerId } = body as { producerId: number };
+      if (!producerId) {
+        return {
+          success: false,
+          error: 'Producer ID is required'
+        };
+      }
+      const result = await submitToCSG(params.id, producerId);
+      return { success: true, data: result };
+    } catch (error: any) {
+      console.error('Error submitting to CSG:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to submit application'
+      };
+    }
+  })
+  .get('/csg-application/:key', async ({ params }) => {
+    try {
+      const key = params.key.trim();
+      const csgApiUrl = process.env.CSG_API_URL || 'https://api.csgactuarial.com';
+      
+      // Get token using the token management system
+      console.log('key', key)
+      
+      const response = await fetch(`${csgApiUrl}/v1/e_app/enrollment_applications/${key}.json`, {
+        headers: {
+          'x-api-token': await getToken(),
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('CSG API error:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText
+        });
+        
+        return new Response(
+          JSON.stringify({ 
+            error: response.status === 404 ? 'CSG application not found' : 'Failed to fetch CSG application',
+            details: errorText
+          }), 
+          { status: response.status }
+        );
+      }
+      
+      const data = await response.json();
+      return new Response(
+        JSON.stringify(data, null, 2), 
+        { 
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    } catch (error) {
+      console.error('Error fetching CSG application:', error);
+      return new Response(
+        JSON.stringify({ error: 'Failed to fetch CSG application' }), 
+        { status: 500 }
       );
     }
   })

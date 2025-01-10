@@ -168,6 +168,25 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
 
+        app.ports.submitToCSG?.subscribe(([applicationId, producerId]: [string, number]) => {
+            fetch(`/api/applications/${applicationId}/submit`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ producerId })
+            })
+            .then(response => response.json())
+            .then(result => {
+                app.ports.submitToCSGResponse.send(result);
+            })
+            .catch(error => {
+                app.ports.submitToCSGResponse.send({
+                    success: false,
+                    error: error.message || 'Failed to submit to CSG'
+                });
+            });
+        });
 
         // Add debug logging for port availability
         console.log('Available ports:', {
