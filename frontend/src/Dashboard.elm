@@ -85,6 +85,7 @@ type alias Model =
     , applicationView : Maybe ApplicationView.Model
     , showApplicationModal : Bool
     , producerConfig : Decode.Value
+    , selectedApplicationId : Maybe String
     }
 
 
@@ -151,6 +152,7 @@ init producerConfig =
       , applicationView = Nothing
       , showApplicationModal = False
       , producerConfig = producerConfig
+      , selectedApplicationId = Nothing
       }
     , requestRefresh
         { page = 0
@@ -196,6 +198,7 @@ update msg model =
             ( { model
                 | showApplicationModal = True
                 , applicationView = Nothing
+                , selectedApplicationId = Just id
               }
             , requestApplication { id = id }
             )
@@ -373,6 +376,7 @@ update msg model =
             ( { model
                 | applicationView = Nothing
                 , showApplicationModal = False
+                , selectedApplicationId = Nothing
               }
             , Cmd.none
             )
@@ -382,6 +386,7 @@ update msg model =
                 ( { model
                     | applicationView = Nothing
                     , showApplicationModal = False
+                    , selectedApplicationId = Nothing
                   }
                 , Cmd.none
                 )
@@ -399,12 +404,7 @@ view : Model -> Html Msg
 view model =
     let
         applicationId =
-            case model.applicationView of
-                Just viewModel ->
-                    viewModel.id
-
-                Nothing ->
-                    ""
+            model.selectedApplicationId |> Maybe.withDefault ""
     in
     div [ class "min-h-screen bg-white relative" ]
         [ viewHeader
