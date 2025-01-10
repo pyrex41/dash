@@ -749,18 +749,25 @@ isFieldVisible field section formValues =
                             True
 
         sectionVisible =
-            case section.dependsOn of
-                Just (DependsOnType dependsOn) ->
-                    checkDependencies dependsOn formValues
+            if section.id == "producer" then
+                True
 
-                Just (SectionDependsOnType sectionDependsOn) ->
-                    checkAttributeDependencies sectionDependsOn formValues
+            else
+                case section.dependsOn of
+                    Just (DependsOnType dependsOn) ->
+                        checkDependencies dependsOn formValues
 
-                Nothing ->
-                    True
+                    Just (SectionDependsOnType sectionDependsOn) ->
+                        checkAttributeDependencies sectionDependsOn formValues
+
+                    Nothing ->
+                        True
+
+        hardcodeExclude =
+            [ "upload_documents", "document" ]
 
         finalResult =
-            dependenciesSatisfied && sectionVisible
+            dependenciesSatisfied && sectionVisible && not (List.member field.id hardcodeExclude)
     in
     finalResult
 
