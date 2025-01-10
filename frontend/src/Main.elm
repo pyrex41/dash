@@ -1,5 +1,6 @@
 module Main exposing (main)
 
+import ApplicationPage
 import Browser
 import Browser.Navigation as Nav
 import CSGApplicationView
@@ -43,6 +44,7 @@ type Page
     = NotFound
     | DashboardPage Dashboard.Model
     | CSGApplicationPage CSGApplicationView.Model
+    | ApplicationPage ApplicationPage.Model
 
 
 
@@ -71,6 +73,7 @@ type Msg
     | UrlChanged Url.Url
     | DashboardMsg Dashboard.Msg
     | CSGApplicationMsg CSGApplicationView.Msg
+    | ApplicationMsg ApplicationPage.Msg
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -105,6 +108,15 @@ update msg model =
             , Cmd.map CSGApplicationMsg subCmd
             )
 
+        ( ApplicationMsg subMsg, ApplicationPage subModel ) ->
+            let
+                ( newSubModel, subCmd ) =
+                    ApplicationPage.update subMsg subModel
+            in
+            ( { model | page = ApplicationPage newSubModel }
+            , Cmd.map ApplicationMsg subCmd
+            )
+
         ( _, _ ) ->
             ( model, Cmd.none )
 
@@ -122,6 +134,9 @@ subscriptions model =
         CSGApplicationPage _ ->
             Sub.none
 
+        ApplicationPage subModel ->
+            Sub.map ApplicationMsg (ApplicationPage.subscriptions subModel)
+
         NotFound ->
             Sub.none
 
@@ -133,6 +148,7 @@ subscriptions model =
 type Route
     = DashboardRoute
     | CSGApplicationRoute
+    | ApplicationRoute String
 
 
 routeParser : Parser (Route -> a) a
@@ -141,6 +157,7 @@ routeParser =
         [ Parser.map DashboardRoute Parser.top
         , Parser.map DashboardRoute (Parser.s "dashboard")
         , Parser.map CSGApplicationRoute (Parser.s "csg-application")
+        , Parser.map ApplicationRoute (Parser.s "application" </> Parser.string)
         ]
 
 
@@ -169,6 +186,15 @@ routeUrl url model =
             , Cmd.map CSGApplicationMsg pageCmd
             )
 
+        Just (ApplicationRoute id) ->
+            let
+                ( pageModel, pageCmd ) =
+                    ApplicationPage.init id model.flags
+            in
+            ( { model | url = url, page = ApplicationPage pageModel }
+            , Cmd.map ApplicationMsg pageCmd
+            )
+
         Nothing ->
             ( { model | url = url, page = NotFound }
             , Cmd.none
@@ -192,6 +218,9 @@ view model =
 
             CSGApplicationPage subModel ->
                 Html.map CSGApplicationMsg (CSGApplicationView.view subModel)
+
+            ApplicationPage subModel ->
+                Html.map ApplicationMsg (ApplicationPage.view subModel)
         ]
     }
 
