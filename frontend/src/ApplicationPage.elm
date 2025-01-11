@@ -26,6 +26,9 @@ init : String -> Decode.Value -> ( Model, Cmd Msg )
 init applicationId producerConfig =
     let
         _ =
+            Debug.log "ApplicationPage.init called with id" applicationId
+
+        _ =
             Decode.decodeValue Producer.producerConfigDecoder producerConfig
                 |> Debug.log "PRODUCER CONFIG"
     in
@@ -47,6 +50,9 @@ update msg model =
             case result of
                 Ok application ->
                     let
+                        _ =
+                            Debug.log "Application received from server" application.rawMedications
+
                         ( viewModel, viewCmd ) =
                             ApplicationView.init producerConfig application
                     in

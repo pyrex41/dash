@@ -101,7 +101,7 @@ const determineStatus = (
 
 // Add a new function to get a single application with schema
 export const getApplicationWithSchema = async (applicationId: string) => {
-  const result = await db
+  const results = await db
     .select({
       id: applications.id,
       userId: applications.userId,
@@ -109,32 +109,44 @@ export const getApplicationWithSchema = async (applicationId: string) => {
       createdAt: applications.createdAt,
       data: applications.data,
       formattedData: applications.formattedData,
+      rawMedications: applications.rawMedications,
       schema: applications.originalSchema,
       name: applications.name,
       naic: applications.naic,
     })
     .from(applications)
     .where(sql`${applications.id} = ${applicationId}`)
-    .limit(1)
+    .all()
 
-  const formattedData = await format_application(applicationId)
-  if (formattedData) {
-    result[0].data = formattedData.data
-  }
-
-  if (result.length === 0) {
+  const application = results[0]
+  if (!application) {
     return null
   }
 
-  return result[0]
+  console.log('Raw application from database:', {
+    id: application.id,
+    data: application.data,
+    formattedData: application.formattedData,
+    rawMedications: application.rawMedications
+  })
+
+  return {
+    ...application,
+    data: typeof application.data === 'string' ? JSON.parse(application.data) : application.data,
+    formattedData: application.formattedData ? (typeof application.formattedData === 'string' ? JSON.parse(application.formattedData) : application.formattedData) : null,
+    rawMedications: application.rawMedications ? (typeof application.rawMedications === 'string' ? JSON.parse(application.rawMedications) : application.rawMedications) : []
+  }
 }
 
 export const getFromattedApplicationWithSchema = async (applicationId: string) => {
   const application = await getApplicationWithSchema(applicationId)
-  console.log('getFromattedApplicationWithSchema')
-  const newData = await format_application(application)
+  if (!application) {
+    return null
+  }
+
+  const newData = await format_application(applicationId)
   // Compare old and new data structures
-  const oldData = typeof application?.data === 'string' ? JSON.parse(application?.data) : application?.data
+  const oldData = typeof application.data === 'string' ? JSON.parse(application.data) : application.data
   console.log('\nComparing old and new data:')
 
   // Get all section keys from both objects
@@ -174,9 +186,11 @@ export const getFromattedApplicationWithSchema = async (applicationId: string) =
       }
     }
   })
+
   return {
     ...application,
-    data: newData
+    data: newData,
+    rawMedications: application.rawMedications || []
   }
 }
 
