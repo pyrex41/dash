@@ -137,15 +137,18 @@ document.addEventListener('DOMContentLoaded', async () => {
             window.location.href = `/api/applications/export?searchTerm=${searchTerm}&hasContactFilter=${hasContactFilter}&hasCSGFilter=${hasCSGFilter}`;
         });
         
-        app.ports.saveApplication?.subscribe(({ id, data }) => {
-            console.log('Saving application:', { id, data });
+        app.ports.saveApplication?.subscribe(({ id, data, medications }) => {
+            console.log('Saving application:', { id, data, medications });
             
             fetch(`/api/applications/${id}/formatted`, {
                 method: 'PUT',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ data })
+                body: JSON.stringify({ 
+                    data,
+                    rawMedications: medications
+                })
             })
             .then(response => response.json())
             .then(result => {

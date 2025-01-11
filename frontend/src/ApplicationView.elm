@@ -24,7 +24,7 @@ import Time exposing (Month(..))
 -- Port for saving application data
 
 
-port saveApplication : { id : String, data : Encode.Value } -> Cmd msg
+port saveApplication : { id : String, data : Encode.Value, medications : Encode.Value } -> Cmd msg
 
 
 
@@ -119,6 +119,7 @@ type alias Application =
     , data : Decode.Value
     , formattedData : Decode.Value
     , schema : ApplicationSchema
+    , rawMedications : Decode.Value
     }
 
 
@@ -134,7 +135,6 @@ init producerConfigJson app =
                 |> Decode.decodeValue Producer.producerConfigDecoder
                 |> Result.toMaybe
                 |> Maybe.withDefault Dict.empty
-                |> Debug.log "producerConfigs"
 
         defaultProducer =
             producerConfigs
@@ -163,24 +163,81 @@ init producerConfigJson app =
         carrierInit =
             app.naic
                 |> carrierFromNaic
-                |> Debug.log "carrierInit"
 
         producerConfig =
             Dict.get defaultProducer producerConfigs
 
-        initialMedications : Maybe (List Medication)
-        initialMedications =
-            case Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
+        initialMedicationsData : Maybe (List Medication)
+        initialMedicationsData =
+            let
+                _ =
+                    Debug.log "Trying to decode medications from data" app.data
+
+                fromMedInfo =
+                    Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data
+
+                _ =
+                    Debug.log "Medications from medication_information" fromMedInfo
+
+                fromHealthHistory =
+                    Decode.decodeValue (Decode.at [ "health_history", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data
+
+                _ =
+                    Debug.log "Medications from health_history" fromHealthHistory
+            in
+            case fromMedInfo of
                 Ok medications ->
+                    let
+                        _ =
+                            Debug.log "Found medications in medication_information" medications
+                    in
                     Just medications
 
                 Err _ ->
-                    case Decode.decodeValue (Decode.at [ "health_history", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data of
+                    case fromHealthHistory of
                         Ok medications ->
+                            let
+                                _ =
+                                    Debug.log "Found medications in health_history" medications
+                            in
                             Just medications
 
                         Err _ ->
                             Nothing
+
+        initialMedications =
+            let
+                _ =
+                    Debug.log "Raw medications from server" app.rawMedications
+
+                decodedRawMeds =
+                    Decode.decodeValue (Decode.list medicationDecoder) app.rawMedications
+
+                _ =
+                    Debug.log "Decoded raw medications" decodedRawMeds
+            in
+            case decodedRawMeds of
+                Ok medications ->
+                    let
+                        _ =
+                            Debug.log "Raw medications list length" (List.length medications)
+                    in
+                    if List.isEmpty medications then
+                        let
+                            _ =
+                                Debug.log "Raw medications empty, falling back to data" initialMedicationsData
+                        in
+                        initialMedicationsData
+
+                    else
+                        Just medications
+
+                Err _ ->
+                    let
+                        _ =
+                            Debug.log "Failed to decode raw medications, falling back to data" initialMedicationsData
+                    in
+                    initialMedicationsData
 
         producerSection =
             case ( carrierInit, producerConfig ) of
@@ -189,9 +246,6 @@ init producerConfigJson app =
 
                 _ ->
                     Nothing
-
-        _ =
-            Debug.log "producerSection" producerSection
 
         initialFormValues1 =
             case producerSection of
@@ -224,7 +278,7 @@ init producerConfigJson app =
                     )
 
         model =
-            { data = initialFormValues |> Debug.log "initialFormValues"
+            { data = initialFormValues
             , naic = app.naic
             , carrier = carrierInit
             , medications = Maybe.withDefault [] initialMedications
@@ -425,7 +479,6 @@ update msg model =
                 value =
                     parseValue valueString
                         |> JsonBase
-                        |> Debug.log "UpdateField"
 
                 oldSection =
                     getSection sectionId model.data
@@ -566,6 +619,9 @@ update msg model =
                 encodedData =
                     encodeData model.data
 
+                encodedMedications =
+                    encodeMedicationList model.medications
+
                 newModel =
                     { model | error = Nothing, hasUnsavedChanges = False }
             in
@@ -574,6 +630,7 @@ update msg model =
                 saveApplication
                     { id = model.id
                     , data = encodedData
+                    , medications = encodedMedications
                     }
 
               else
@@ -621,14 +678,24 @@ update msg model =
 
                 newData =
                     updateModelDataWithMedications model.carrier newMedications model.data
+
+                newModel =
+                    { model
+                        | medications = newMedications
+                        , medicationForm = Dict.empty
+                        , data = newData
+                        , hasUnsavedChanges = True
+                        , selectedDrug = Nothing
+                        , drugSearchResults = []
+                        , drugDosages = []
+                    }
             in
-            ( { model
-                | medications = newMedications
-                , medicationForm = Dict.empty
-                , data = newData
-                , hasUnsavedChanges = True
-              }
-            , Cmd.none
+            ( newModel
+            , saveApplication
+                { id = model.id
+                , data = encodeData newData
+                , medications = encodeMedicationList newMedications
+                }
             )
 
         CancelAddMedication baseId ->
@@ -645,13 +712,20 @@ update msg model =
 
                 newData =
                     updateModelDataWithMedications model.carrier newMedications model.data
+
+                newModel =
+                    { model
+                        | medications = newMedications
+                        , data = newData
+                        , hasUnsavedChanges = True
+                    }
             in
-            ( { model
-                | medications = newMedications
-                , data = newData
-                , hasUnsavedChanges = True
-              }
-            , Cmd.none
+            ( newModel
+            , saveApplication
+                { id = model.id
+                , data = encodeData newData
+                , medications = encodeMedicationList newMedications
+                }
             )
 
         SubmitToCSG ->
@@ -672,12 +746,6 @@ update msg model =
 
         SearchDrugs query ->
             let
-                _ =
-                    Debug.log "SearchDrugs" query
-
-                _ =
-                    Debug.log "Token" model.laproToken
-
                 shouldSearch =
                     String.length query > 2
             in
@@ -704,10 +772,6 @@ update msg model =
             )
 
         DrugSearchResponse result ->
-            let
-                _ =
-                    Debug.log "DrugSearchResponse" result
-            in
             case result of
                 Ok results ->
                     ( { model
@@ -719,10 +783,6 @@ update msg model =
                     )
 
                 Err error ->
-                    let
-                        _ =
-                            Debug.log "DrugSearchError" (httpErrorToString error)
-                    in
                     case error of
                         Http.BadStatus _ ->
                             -- Token expired, get a new one and retry
@@ -792,14 +852,8 @@ update msg model =
 
         GotLAProToken token ->
             let
-                _ =
-                    Debug.log "ELM GotLAProToken" token
-
                 validToken =
                     not (String.isEmpty token)
-
-                _ =
-                    Debug.log "ELM validToken" validToken
 
                 nextCmd =
                     if not validToken then
@@ -827,15 +881,6 @@ update msg model =
 
                     else
                         Cmd.none
-
-                _ =
-                    Debug.log "Setting token in model"
-                        (if validToken then
-                            Just token
-
-                         else
-                            Nothing
-                        )
             in
             ( { model
                 | laproToken =
@@ -1070,21 +1115,12 @@ validateFieldValue model section field =
             getValueFull section.id field.id model.data
 
         fieldValueValid =
-            let
-                _ =
-                    if field.id == "medicare_information_claim_number" then
-                        Debug.log "medicare_information_claim_number" field
-
-                    else
-                        field
-            in
             case ( field.fieldType, field.id ) of
                 ( ComplexPhoneField, _ ) ->
                     hasPhoneValue retrievedValue
 
                 ( TextField _, "medicare_information_claim_number" ) ->
                     isValidMBI (getValueString section.id field.id model.data)
-                        |> Debug.log "isValidMBI"
 
                 ( SSNField _, _ ) ->
                     isValidSSN (getValueString section.id field.id model.data)
@@ -1127,9 +1163,6 @@ renderFormSection model section =
                     List.filter (\field -> isFieldVisible field section model.data) section.body
             in
             not (List.isEmpty visibleFields)
-
-        _ =
-            Debug.log "section.id visibleFields" ( section.id, hasVisibleFields )
 
         isExpanded =
             Dict.get section.id model.expandedSections
@@ -1548,7 +1581,6 @@ renderFormField model section field =
                             currentValue =
                                 getValueString section.id field.id model.data
                                     |> formatSSN
-                                    |> Debug.log "currentValue SSNField"
                         in
                         div []
                             [ input
@@ -1776,9 +1808,6 @@ validateData model =
     let
         invalidSections =
             List.filter (\section -> validateSection model section) model.schema
-
-        _ =
-            Debug.log "Invalid sections" (List.map .id invalidSections)
     in
     List.all (\section -> not (validateSection model section)) model.schema
 
@@ -2015,17 +2044,8 @@ renderDrugLookupField model section field =
             model.underwritingType /= Just 1 || model.underwritingType /= Just 2
     in
     div [ class "space-y-6" ]
-        [ -- Medication list display
-          if List.isEmpty model.medications then
-            div [ class "text-gray-500 italic" ]
-                [ text "No medications added" ]
-
-          else
-            div [ class "space-y-4" ]
-                (List.indexedMap (renderMedicationItem "") model.medications)
-
-        -- Drug search and form
-        , if showForm then
+        [ -- Drug search and form
+          if showForm then
             div [ class "space-y-4" ]
                 [ -- Drug search input with autocomplete
                   div [ class "relative" ]
@@ -2079,7 +2099,7 @@ renderDrugLookupField model section field =
                         Nothing ->
                             if not (List.isEmpty model.drugSearchResults) then
                                 div
-                                    [ class """absolute z-10 w-full mt-1 bg-white shadow-lg 
+                                    [ class """absolute z-50 w-full mt-1 bg-white shadow-lg 
                                              max-h-60 rounded-md py-1 text-base overflow-auto
                                              focus:outline-none sm:text-sm border border-gray-200"""
                                     ]
@@ -2099,7 +2119,7 @@ renderDrugLookupField model section field =
 
                             else if String.length (Dict.get "drugName" model.medicationForm |> Maybe.withDefault "") > 2 && not model.isSearching && List.isEmpty model.drugSearchResults && model.selectedDrug == Nothing then
                                 div
-                                    [ class "absolute z-10 w-full mt-1 bg-white shadow-lg rounded-md py-4 text-center text-gray-500 border border-gray-200" ]
+                                    [ class "absolute z-50 w-full mt-1 bg-white shadow-lg rounded-md py-4 text-center text-gray-500 border border-gray-200" ]
                                     [ text "No results found" ]
 
                             else
@@ -2200,6 +2220,15 @@ renderDrugLookupField model section field =
 
           else
             text ""
+
+        -- Medication list display
+        , if List.isEmpty model.medications then
+            div [ class "text-gray-500 italic" ]
+                [ text "No medications added" ]
+
+          else
+            div [ class "space-y-4" ]
+                (List.indexedMap (renderMedicationItem "") model.medications)
         ]
 
 
@@ -2514,82 +2543,104 @@ transformAllstateMedications medicationInfo =
                     )
                 |> Maybe.withDefault []
 
-        maybeSplit : String -> Maybe ( String, String )
-        maybeSplit fullName =
-            fullName
-                |> String.split " "
-                |> List.Extra.splitWhen (not << isUpper)
-                |> Maybe.map (\( a, b ) -> ( String.join " " a, String.join " " b ))
-
-        prescribedMedications : List JsonValue
-        prescribedMedications =
-            prescriptionDrugList
-                |> List.map
-                    (\object ->
-                        case object of
-                            JsonObject dic ->
-                                let
-                                    maybeFullName =
-                                        Dict.get "drugName" dic
-
-                                    diagnosis =
-                                        Dict.get "diagnosis" dic
-                                            |> Maybe.withDefault (JsonBase NullValue)
-
-                                    frequency =
-                                        Dict.get "frequency" dic
-                                            |> Maybe.withDefault (JsonBase NullValue)
-
-                                    prescriptionFreqOther =
-                                        Dict.get "quantity" dic
-                                            |> Maybe.withDefault (JsonBase NullValue)
-                                in
-                                case maybeFullName of
-                                    Just (JsonBase (StringValue fullName)) ->
-                                        case maybeSplit fullName of
-                                            Just ( medName, dosage ) ->
-                                                JsonObject
-                                                    ([ ( "med_name", medName |> (StringValue >> JsonBase) )
-                                                     , ( "diagnosis", diagnosis )
-                                                     , ( "dosage", dosage |> (StringValue >> JsonBase) )
-                                                     , ( "frequency", frequency )
-                                                     , ( "prescription_frequency_other", prescriptionFreqOther )
-                                                     , ( "using", JsonBase (BoolValue True) )
-                                                     ]
-                                                        |> List.filter (\( _, v ) -> v /= JsonBase NullValue)
-                                                        |> Dict.fromList
-                                                    )
-
-                                            Nothing ->
-                                                JsonBase NullValue
-
-                                    _ ->
-                                        JsonBase NullValue
-
-                            _ ->
-                                JsonBase NullValue
+        transformDrugName : String -> ( String, String )
+        transformDrugName fullName =
+            let
+                _ =
+                    Debug.log "transformDrugName" fullName
+            in
+            (case fullName |> String.split " " |> List.Extra.splitWhen isUpper of
+                Just ( medNameList, dosageList ) ->
+                    ( String.join " " medNameList
+                    , dosageList
+                        |> List.tail
+                        |> Maybe.withDefault []
+                        |> String.join " "
                     )
+
+                _ ->
+                    ( fullName, "" )
+            )
+                |> Debug.log "transformDrugName result"
+
+        prescribedMedications : List ( String, JsonValue )
+        prescribedMedications =
+            List.indexedMap
+                (\index object ->
+                    case object of
+                        JsonObject dic ->
+                            let
+                                maybeFullName =
+                                    Dict.get "drug" dic
+                                        |> Maybe.andThen
+                                            (\drugObj ->
+                                                case drugObj of
+                                                    JsonObject drugDict ->
+                                                        Dict.get "drugName" drugDict
+                                                            |> Maybe.andThen
+                                                                (\name ->
+                                                                    case name of
+                                                                        JsonBase (StringValue str) ->
+                                                                            Just str
+
+                                                                        _ ->
+                                                                            Nothing
+                                                                )
+
+                                                    _ ->
+                                                        Nothing
+                                            )
+
+                                diagnosis =
+                                    Dict.get "diagnosis" dic
+                                        |> Maybe.withDefault (JsonBase NullValue)
+
+                                frequency =
+                                    Dict.get "frequency" dic
+                                        |> Maybe.withDefault (JsonBase NullValue)
+
+                                quantity =
+                                    Dict.get "quantity" dic
+                                        |> Maybe.withDefault (JsonBase NullValue)
+                            in
+                            case maybeFullName of
+                                Just fullName ->
+                                    let
+                                        ( medName, dosage ) =
+                                            transformDrugName fullName
+                                    in
+                                    ( String.fromInt index
+                                    , JsonObject
+                                        ([ ( "med_name", JsonBase (StringValue medName) )
+                                         , ( "diagnosis", diagnosis )
+                                         , ( "dosage", JsonBase (StringValue dosage) )
+                                         , ( "prescription_dosage_other", JsonBase (StringValue "") )
+                                         , ( "frequency", frequency )
+                                         , ( "prescription_freq_other", JsonBase (StringValue "") )
+                                         , ( "using", JsonBase (BoolValue True) )
+                                         ]
+                                            |> List.filter (\( _, v ) -> v /= JsonBase NullValue)
+                                            |> Dict.fromList
+                                        )
+                                    )
+
+                                Nothing ->
+                                    ( String.fromInt index, JsonBase NullValue )
+
+                        _ ->
+                            ( String.fromInt index, JsonBase NullValue )
+                )
+                prescriptionDrugList
+                |> List.filter (\( _, value ) -> value /= JsonBase NullValue)
 
         lastMedication : JsonValue
         lastMedication =
             List.Extra.last prescribedMedications
                 |> Maybe.andThen
-                    (\med ->
+                    (\( _, med ) ->
                         case med of
                             JsonObject medDict ->
                                 Dict.get "med_name" medDict
-                                    |> Maybe.andThen
-                                        (\name ->
-                                            case name of
-                                                JsonBase NullValue ->
-                                                    Nothing
-
-                                                JsonBase (StringValue _) ->
-                                                    Just name
-
-                                                _ ->
-                                                    Nothing
-                                        )
 
                             _ ->
                                 Nothing
@@ -2600,22 +2651,10 @@ transformAllstateMedications medicationInfo =
         lastDosage =
             List.Extra.last prescribedMedications
                 |> Maybe.andThen
-                    (\med ->
+                    (\( _, med ) ->
                         case med of
                             JsonObject medDict ->
                                 Dict.get "dosage" medDict
-                                    |> Maybe.andThen
-                                        (\value ->
-                                            case value of
-                                                JsonBase NullValue ->
-                                                    Nothing
-
-                                                JsonBase (StringValue _) ->
-                                                    Just value
-
-                                                _ ->
-                                                    Nothing
-                                        )
 
                             _ ->
                                 Nothing
@@ -2623,8 +2662,7 @@ transformAllstateMedications medicationInfo =
                 |> Maybe.withDefault (JsonBase NullValue)
     in
     medicationInfo
-        -- |> Dict.remove "prescription_drug_list"
-        |> Dict.insert "prescribed_medications" (JsonArray prescribedMedications)
+        |> Dict.insert "prescribed_medications" (JsonObject (Dict.fromList prescribedMedications))
         |> insertIfNotNull "med_name" lastMedication
         |> insertIfNotNull "dosage" lastDosage
 
@@ -2686,7 +2724,7 @@ transformAetnaMedications healthHistory =
                                 Nothing
                     )
                 |> Maybe.withDefault []
-                |> Debug.log "Prescription drug list for Aetna transformation"
+                |> Debug.log "Prescription drug  for Aetna transformation"
 
         nameTransform : String -> String
         nameTransform fullName =
@@ -2786,6 +2824,7 @@ applicationViewDecoder =
         |> Pipeline.required "data" Decode.value
         |> Pipeline.required "formattedData" Decode.value
         |> Pipeline.required "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder)
+        |> Pipeline.optional "rawMedications" Decode.value (Encode.list identity [])
 
 
 updateModelDataWithMedications : Maybe Carrier -> List Medication -> JsonValue -> JsonValue
@@ -2800,9 +2839,6 @@ updateModelDataWithMedications carrier medications data =
 
         medicationSection =
             getSection "medication_information" baseUpdate
-
-        _ =
-            Debug.log "** carrier **" carrier
     in
     case carrier of
         Just Aetna ->
@@ -2813,7 +2849,13 @@ updateModelDataWithMedications carrier medications data =
             setSection "health_history" transformedHealthHistory baseUpdate
 
         Just Allstate ->
-            setSection "medication_information" (transformAllstateMedications medicationSection) baseUpdate
+            let
+                transformedMedicationSection =
+                    transformAllstateMedications medicationSection
+            in
+            setSection "medication_information"
+                transformedMedicationSection
+                baseUpdate
 
         _ ->
             baseUpdate

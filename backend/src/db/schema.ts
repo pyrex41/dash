@@ -27,6 +27,7 @@ export const applications = sqliteTable(
     updatedAt: integer('updated_at', { mode: 'timestamp' }).notNull(),
     data: text('data', { mode: 'json' }).$type<Record<string, any>>().notNull(),
     formattedData: text('formatted_data', { mode: 'json' }).$type<Record<string, any>>(),
+    rawMedications: text('raw_medications', { mode: 'json' }).$type<Record<string, any>>(),
     name: text('name'),
     naic: text('naic'),
     zip: text('zip').notNull(),
