@@ -293,11 +293,12 @@ export const exportApplications = async (searchTerm: string, hasContactFilter: b
   return formatApplicationData(results)
 }
 
-export async function updateFormattedData(id: string, formattedData: Record<string, any>) {
+export async function updateFormattedData(id: string, formattedData: Record<string, any>, rawMedications?: any[]) {
     return await db
         .update(applications)
         .set({ 
             formattedData,
+            rawMedications: rawMedications || null,
             updatedAt: new Date()
         })
         .where(eq(applications.id, id));

@@ -1,0 +1,1 @@
+ALTER TABLE `applications` ADD `raw_medications` text;

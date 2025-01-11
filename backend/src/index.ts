@@ -122,14 +122,15 @@ app.group('/api', app => app
   .put('/applications/:id/formatted', async ({ params, body }) => {
     try {
       const { id } = params
-      const { data } = body as { data: Record<string, any> }
+      const { data, rawMedications } = body as { data: Record<string, any>, rawMedications: any[] }
       
       console.log('PUT /applications/:id/formatted:', {
         id,
-        dataKeys: Object.keys(data)
+        dataKeys: Object.keys(data),
+        rawMedicationsCount: rawMedications?.length
       })
       
-      await updateFormattedData(id, data)
+      await updateFormattedData(id, data, rawMedications)
       
       return {
         success: true,
