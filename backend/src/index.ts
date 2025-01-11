@@ -91,33 +91,25 @@ app.group('/api', app => app
       return []
     }
   })
-  .get('/applications/:id', async ({ params }) => {
-    try {
-      const application = await getApplicationWithSchema(params.id)
-      
-      console.log('GET /application response:', {
-        id: application?.id,
-        hasData: !!application?.data,
-        hasSchema: !!application?.schema,
-        rawData: application?.data,
-        formattedData: application?.formattedData
-      })
-      
-      if (!application) {
-        return new Response('Application not found', { 
-          status: 404,
-          headers: { 'Content-Type': 'application/json' }
-        })
-      }
-      
-      return application
-    } catch (error) {
-      console.error('Error fetching application:', error)
-      return new Response('Server error', { 
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      })
+  .get('/applications/:id', async (req) => {
+    const { id } = req.params
+    const application = await getApplicationWithSchema(id)
+    if (!application) {
+      return new Response(
+        JSON.stringify({ error: 'Application not found' }),
+        { status: 404 }
+      )
     }
+    console.log('Sending application data:', {
+      id: application.id,
+      rawMedications: application.rawMedications,
+      data: application.data,
+      formattedData: application.formattedData
+    })
+    return new Response(
+      JSON.stringify(application),
+      { status: 200 }
+    )
   })
   .put('/applications/:id/formatted', async ({ params, body }) => {
     try {

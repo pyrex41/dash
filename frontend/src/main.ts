@@ -83,8 +83,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                     throw new Error(`HTTP error! status: ${response.status}`)
                 }
                 const application = await response.json()
+                console.log('Application data from server:', {
+                    id: application.id,
+                    rawMedications: application.rawMedications,
+                    data: application.data,
+                    formattedData: application.formattedData,
+                });
                 // Add producer config to the application response
-                console.log('Sending application:', application);
+                console.log('Sending application to Elm:', application);
                 app.ports.receiveApplication.send(application)
             } catch (error) {
                 console.error('Error fetching application:', error)
@@ -152,6 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             })
             .then(response => response.json())
             .then(result => {
+                console.log('Save response:', result);
                 app.ports.saveApplicationResponse.send(result);
             })
             .catch(error => {

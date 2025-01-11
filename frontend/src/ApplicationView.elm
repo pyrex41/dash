@@ -171,7 +171,13 @@ init producerConfigJson app =
         initialMedicationsData =
             let
                 _ =
-                    Debug.log "Trying to decode medications from data" app.data
+                    Debug.log "Raw medications from server" app.rawMedications
+
+                fromRawMedications =
+                    Decode.decodeValue (Decode.list medicationDecoder) app.rawMedications
+
+                _ =
+                    Debug.log "Decoded raw medications" fromRawMedications
 
                 fromMedInfo =
                     Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data
@@ -185,83 +191,41 @@ init producerConfigJson app =
                 _ =
                     Debug.log "Medications from health_history" fromHealthHistory
             in
-            case fromMedInfo of
+            case fromRawMedications of
                 Ok medications ->
                     let
                         _ =
-                            Debug.log "Found medications in medication_information" medications
+                            Debug.log "Using raw medications" medications
                     in
                     Just medications
 
                 Err _ ->
-                    case fromHealthHistory of
+                    case fromMedInfo of
                         Ok medications ->
                             let
                                 _ =
-                                    Debug.log "Found medications in health_history" medications
+                                    Debug.log "Using medications from medication_information" medications
                             in
                             Just medications
 
                         Err _ ->
-                            Nothing
+                            case fromHealthHistory of
+                                Ok medications ->
+                                    let
+                                        _ =
+                                            Debug.log "Using medications from health_history" medications
+                                    in
+                                    Just medications
+
+                                Err _ ->
+                                    Nothing
 
         initialMedications =
-            let
-                _ =
-                    Debug.log "Raw medications from server" app.rawMedications
+            initialMedicationsData
+                |> Maybe.withDefault []
 
-                decodedRawMeds =
-                    Decode.decodeValue (Decode.list medicationDecoder) app.rawMedications
-
-                _ =
-                    Debug.log "Decoded raw medications" decodedRawMeds
-            in
-            case decodedRawMeds of
-                Ok medications ->
-                    let
-                        _ =
-                            Debug.log "Raw medications list length" (List.length medications)
-                    in
-                    if List.isEmpty medications then
-                        let
-                            _ =
-                                Debug.log "Raw medications empty, falling back to data" initialMedicationsData
-                        in
-                        initialMedicationsData
-
-                    else
-                        Just medications
-
-                Err _ ->
-                    let
-                        _ =
-                            Debug.log "Failed to decode raw medications, falling back to data" initialMedicationsData
-                    in
-                    initialMedicationsData
-
-        producerSection =
-            case ( carrierInit, producerConfig ) of
-                ( Just carrier, Just config ) ->
-                    getProducerSection carrier config |> Just
-
-                _ ->
-                    Nothing
-
-        initialFormValues1 =
-            case producerSection of
-                Just section ->
-                    overwriteSection "producer" section initialFormValues0
-
-                Nothing ->
-                    initialFormValues0
-
-        initialFormValues =
-            case initialMedications of
-                Just medications ->
-                    updateModelDataWithMedications carrierInit medications initialFormValues1
-
-                Nothing ->
-                    initialFormValues1
+        initialData =
+            updateModelDataWithMedications carrierInit initialMedications initialFormValues0
 
         schema =
             app.schema
@@ -276,36 +240,33 @@ init producerConfigJson app =
                         else
                             section
                     )
-
-        model =
-            { data = initialFormValues
-            , naic = app.naic
-            , carrier = carrierInit
-            , medications = Maybe.withDefault [] initialMedications
-            , medicationForm = Dict.empty
-            , schema = schema
-            , id = app.id
-            , error = Nothing
-            , expandedSections = Dict.empty
-            , currentDate = Nothing
-            , showDebugFields = True
-            , isValid = False
-            , underwritingType = Nothing
-            , drugSearchResults = []
-            , selectedDrug = Nothing
-            , drugDosages = []
-            , loadingDrugData = False
-            , laproToken = Nothing
-            , searchError = Nothing
-            , isSearching = False
-            , hasUnsavedChanges = False
-            , producerId = defaultProducer
-            , producerConfigs = producerConfigs
-            , submittingToCSG = False
-            , csgSubmissionError = Nothing
-            }
     in
-    ( model
+    ( { id = app.id
+      , naic = app.naic
+      , carrier = carrierInit
+      , data = initialData
+      , medications = initialMedications
+      , medicationForm = Dict.empty
+      , schema = schema
+      , error = Nothing
+      , expandedSections = Dict.empty
+      , currentDate = Nothing
+      , showDebugFields = True
+      , isValid = False
+      , underwritingType = Nothing
+      , drugSearchResults = []
+      , selectedDrug = Nothing
+      , drugDosages = []
+      , loadingDrugData = False
+      , laproToken = Nothing
+      , searchError = Nothing
+      , isSearching = False
+      , hasUnsavedChanges = False
+      , producerId = defaultProducer
+      , producerConfigs = producerConfigs
+      , submittingToCSG = False
+      , csgSubmissionError = Nothing
+      }
     , Cmd.batch
         [ Task.perform GotCurrentTime Date.today
         , forceRefreshLAProToken ()
@@ -1990,8 +1951,12 @@ type alias Medication =
     }
 
 
-medicationDecoder : Decode.Decoder Medication
+medicationDecoder : Decoder Medication
 medicationDecoder =
+    let
+        _ =
+            Debug.log "Creating medication decoder" "start"
+    in
     Decode.succeed Medication
         |> Pipeline.required "drug" (Decode.maybe drugDetailsDecoder |> Decode.map (Maybe.withDefault defaultDrugDetails))
         |> Pipeline.optional "diagnosis" Decode.string ""
@@ -2818,13 +2783,25 @@ isJust maybe =
 
 applicationViewDecoder : Decode.Decoder Application
 applicationViewDecoder =
+    let
+        rawMedicationsDecoder =
+            Decode.value
+                |> Decode.map
+                    (\v ->
+                        let
+                            _ =
+                                Debug.log "Raw medications in decoder" v
+                        in
+                        v
+                    )
+    in
     Decode.succeed Application
         |> Pipeline.required "id" Decode.string
         |> Pipeline.required "naic" Decode.string
         |> Pipeline.required "data" Decode.value
         |> Pipeline.required "formattedData" Decode.value
         |> Pipeline.required "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder)
-        |> Pipeline.optional "rawMedications" Decode.value (Encode.list identity [])
+        |> Pipeline.optional "rawMedications" rawMedicationsDecoder (Encode.list identity [])
 
 
 updateModelDataWithMedications : Maybe Carrier -> List Medication -> JsonValue -> JsonValue
