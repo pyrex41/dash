@@ -29,7 +29,7 @@ function validateConfig() {
   }
 }
 
-async function getHeaders() {
+export async function getHeaders() {
   return {
     'x-api-token': await getToken(),
     'Content-Type': 'application/json',
@@ -198,16 +198,19 @@ export async function submitToCSG(applicationId: string, producerId: number, for
         // Submit application with quote
         const submitUrl = new URL('/v1/e_app/enrollment_applications.json', process.env.CSG_API_URL).toString();
         console.log('submitting application to', submitUrl);
+        const trimmedData = { ...formattedData };
+        delete trimmedData.enrollment_application;
         const payload = { 
           //tool_name: 'med_supp_tool',
           //company_identifier: application.naic || '',
           logging_key: logKey,
           quote_key: standardQuote.key,
           desired_underwriting_type: application.underwritingType || 0,
+          underwriting_type: application.underwritingType || 0,
           carrier_assigned_identifier: carrierAssignedIdentifier,
           broker_email: "josh@enlightnu.com",
           auxiliary_values: [],
-          values: formattedData,
+          values: trimmedData,
         }
         console.log('payload', payload);
         const response = await axios.post(submitUrl, payload, {

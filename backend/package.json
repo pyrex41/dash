@@ -12,7 +12,8 @@
         "@libsql/client": "^0.14.0",
         "axios": "^1.7.9",
         "drizzle-orm": "^0.38.2",
-        "elysia": "^1.1.26"
+        "elysia": "^1.1.26",
+        "puppeteer": "^24.0.0"
     },
     "devDependencies": {
         "bun-types": "latest"

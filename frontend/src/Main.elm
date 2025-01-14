@@ -4,6 +4,7 @@ import ApplicationPage
 import Browser
 import Browser.Navigation as Nav
 import CSGApplicationView
+import CSGApplicationsPage
 import Dashboard
 import Html exposing (..)
 import Html.Attributes exposing (..)
@@ -44,6 +45,7 @@ type Page
     = NotFound
     | DashboardPage Dashboard.Model
     | CSGApplicationPage CSGApplicationView.Model
+    | CSGApplicationsPage CSGApplicationsPage.Model
     | ApplicationPage ApplicationPage.Model
 
 
@@ -73,6 +75,7 @@ type Msg
     | UrlChanged Url.Url
     | DashboardMsg Dashboard.Msg
     | CSGApplicationMsg CSGApplicationView.Msg
+    | CSGApplicationsMsg CSGApplicationsPage.Msg
     | ApplicationMsg ApplicationPage.Msg
 
 
@@ -108,6 +111,15 @@ update msg model =
             , Cmd.map CSGApplicationMsg subCmd
             )
 
+        ( CSGApplicationsMsg subMsg, CSGApplicationsPage subModel ) ->
+            let
+                ( newSubModel, subCmd ) =
+                    CSGApplicationsPage.update subMsg subModel
+            in
+            ( { model | page = CSGApplicationsPage newSubModel }
+            , Cmd.map CSGApplicationsMsg subCmd
+            )
+
         ( ApplicationMsg subMsg, ApplicationPage subModel ) ->
             let
                 ( newSubModel, subCmd ) =
@@ -134,6 +146,9 @@ subscriptions model =
         CSGApplicationPage _ ->
             Sub.none
 
+        CSGApplicationsPage subModel ->
+            Sub.map CSGApplicationsMsg (CSGApplicationsPage.subscriptions subModel)
+
         ApplicationPage subModel ->
             Sub.map ApplicationMsg (ApplicationPage.subscriptions subModel)
 
@@ -148,6 +163,7 @@ subscriptions model =
 type Route
     = DashboardRoute
     | CSGApplicationRoute
+    | CSGApplicationsRoute
     | ApplicationRoute String
 
 
@@ -157,6 +173,7 @@ routeParser =
         [ Parser.map DashboardRoute Parser.top
         , Parser.map DashboardRoute (Parser.s "dashboard")
         , Parser.map CSGApplicationRoute (Parser.s "csg-application")
+        , Parser.map CSGApplicationsRoute (Parser.s "csg-applications")
         , Parser.map ApplicationRoute (Parser.s "application" </> Parser.string)
         ]
 
@@ -184,6 +201,15 @@ routeUrl url model =
             in
             ( { model | url = url, page = CSGApplicationPage pageModel }
             , Cmd.map CSGApplicationMsg pageCmd
+            )
+
+        Just CSGApplicationsRoute ->
+            let
+                ( pageModel, pageCmd ) =
+                    CSGApplicationsPage.init ()
+            in
+            ( { model | url = url, page = CSGApplicationsPage pageModel }
+            , Cmd.map CSGApplicationsMsg pageCmd
             )
 
         Just (ApplicationRoute id) ->
@@ -218,6 +244,9 @@ view model =
 
             CSGApplicationPage subModel ->
                 Html.map CSGApplicationMsg (CSGApplicationView.view subModel)
+
+            CSGApplicationsPage subModel ->
+                Html.map CSGApplicationsMsg (CSGApplicationsPage.view subModel)
 
             ApplicationPage subModel ->
                 Html.map ApplicationMsg (ApplicationPage.view subModel)
