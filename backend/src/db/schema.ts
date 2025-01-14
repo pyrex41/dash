@@ -94,7 +94,7 @@ export const csgTokens = sqliteTable('csg_tokens', {
   tokenIndex: index('idx_csg_tokens_token').on(table.token),
   expiresAtIndex: index('idx_csg_tokens_expires_at').on(table.expiresAt),
 }));
-
+  
 export const csgTokens2 = sqliteTable('csg_tokens2', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   token: text('token').notNull(),

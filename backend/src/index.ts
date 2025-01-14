@@ -6,7 +6,10 @@ import staticPlugin from '@elysiajs/static'
 import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
-import { getToken } from './csg/token'
+import { makeCSGRequest } from './csg/token'
+import axios from 'axios'
+import { getHeaders } from './csg/submit'
+import { initializeCSG, cleanup as cleanupCSG } from './csg/verify'
 
 // Resolve __dirname for ESM environments
 const __filename = fileURLToPath(import.meta.url)
@@ -15,7 +18,14 @@ const __dirname = dirname(__filename)
 // Detect environment
 const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV
 
-const app = new Elysia().use(cors({
+const app = new Elysia({
+  serve: {
+    hostname: '0.0.0.0',
+    port: Number(process.env.PORT) || 3000,
+    idleTimeout: 240, // 4 minutes (must be <= 255 seconds)
+    development: isDev
+  }
+}).use(cors({
   origin: [
     'http://localhost:5173',  // Development
     'http://localhost:3000',  // Local production
@@ -111,6 +121,41 @@ app.group('/api', app => app
       { status: 200 }
     )
   })
+  .get('/csg-applications', async ({ query }) => {
+    try {
+      console.log('GET /api/csg-applications - Starting request...');
+      const limit = query?.limit || '10';
+      
+      const data = await makeCSGRequest({
+        method: 'GET',
+        url: `/v1/e_app/enrollment_applications.json`,
+        params: { limit }
+      });
+      
+      console.log('Successfully fetched CSG applications:', {
+        count: Array.isArray(data) ? data.length : 'N/A',
+        isArray: Array.isArray(data),
+        firstItem: Array.isArray(data) && data.length > 0 ? data[0] : null
+      });
+      
+      return new Response(
+        JSON.stringify(data), 
+        { 
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    } catch (error) {
+      console.error('Error fetching CSG applications:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to fetch CSG applications',
+          details: error instanceof Error ? error.message : String(error)
+        }), 
+        { status: 500 }
+      );
+    }
+  })
   .put('/applications/:id/formatted', async ({ params, body }) => {
     try {
       const { id } = params
@@ -201,36 +246,12 @@ app.group('/api', app => app
   .get('/csg-application/:key', async ({ params }) => {
     try {
       const key = params.key.trim();
-      const csgApiUrl = process.env.CSG_API_URL || 'https://api.csgactuarial.com';
       
-      // Get token using the token management system
-      console.log('key', key)
-      
-      const response = await fetch(`${csgApiUrl}/v1/e_app/enrollment_applications/${key}.json`, {
-        headers: {
-          'x-api-token': await getToken(),
-          'Content-Type': 'application/json'
-        }
+      const data = await makeCSGRequest({
+        method: 'GET',
+        url: `/v1/e_app/enrollment_applications/${key}.json`
       });
       
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('CSG API error:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        });
-        
-        return new Response(
-          JSON.stringify({ 
-            error: response.status === 404 ? 'CSG application not found' : 'Failed to fetch CSG application',
-            details: errorText
-          }), 
-          { status: response.status }
-        );
-      }
-      
-      const data = await response.json();
       return new Response(
         JSON.stringify(data, null, 2), 
         { 
@@ -240,6 +261,15 @@ app.group('/api', app => app
       );
     } catch (error) {
       console.error('Error fetching CSG application:', error);
+      if (axios.isAxiosError(error) && error.response?.status === 404) {
+        return new Response(
+          JSON.stringify({ 
+            error: 'CSG application not found',
+            details: error.message
+          }), 
+          { status: 404 }
+        );
+      }
       return new Response(
         JSON.stringify({ error: 'Failed to fetch CSG application' }), 
         { status: 500 }
@@ -270,6 +300,36 @@ app.group('/api', app => app
       return new Response(
         JSON.stringify({ 
           error: 'Failed to fetch producer config',
+          details: error instanceof Error ? error.message : String(error)
+        }), 
+        { status: 500 }
+      );
+    }
+  })
+  
+  // Verify CSG application using Puppeteer
+  .get('/csg-application/:key/verify', async ({ params }) => {
+    try {
+      const { key } = params;
+      const { verifyCSGApplication } = await import('./csg/verify');
+      
+      const result = await verifyCSGApplication(key, {
+        headless: true,
+        debug: process.env.NODE_ENV === 'development'
+      });
+      
+      return new Response(
+        JSON.stringify(result),
+        { 
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    } catch (error) {
+      console.error('Error verifying CSG application:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to verify CSG application',
           details: error instanceof Error ? error.message : String(error)
         }), 
         { status: 500 }
@@ -344,8 +404,53 @@ if (!isDev) {
   }
 }
 
-app.listen(process.env.PORT || 3000)
+let isInitializing = false;
+let isInitialized = false;
 
-console.log(
-  `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port} (${isDev ? 'development' : 'production'} mode)`
-)
+async function startServer() {
+  try {
+    if (!isInitialized && !isInitializing) {
+      isInitializing = true;
+      console.log('Initializing CSG session...');
+      await initializeCSG(isDev);
+      console.log('CSG session initialized successfully');
+      isInitialized = true;
+      isInitializing = false;
+    }
+    
+    // Create server instance but don't start listening yet
+    const server = app.listen();
+    
+    // Wait a moment for everything to initialize
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Start accepting connections
+    server.listen(process.env.PORT || 3000);
+    
+    console.log(
+      `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port} (${isDev ? 'development' : 'production'} mode)`
+    );
+
+    // Handle cleanup on server shutdown
+    process.on('SIGTERM', async () => {
+      console.log('SIGTERM received. Cleaning up...');
+      await cleanupCSG();
+      await server.stop();
+      process.exit(0);
+    });
+
+    process.on('SIGINT', async () => {
+      console.log('SIGINT received. Cleaning up...');
+      await cleanupCSG();
+      await server.stop();
+      process.exit(0);
+    });
+
+  } catch (error) {
+    isInitializing = false;
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();

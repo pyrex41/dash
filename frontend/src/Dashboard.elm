@@ -5,13 +5,15 @@ import Browser
 import Browser.Events
 import CSGSchema exposing (Carrier(..))
 import Debounce exposing (Debounce)
-import Dict
+import Dict exposing (Dict)
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Html.Events exposing (on, onCheck, onClick, onInput, targetValue)
+import Http
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
 import Producer
+import Set exposing (Set)
 
 
 
@@ -45,6 +47,12 @@ port requestApplication : { id : String } -> Cmd msg
 
 
 port receiveApplication : (Decode.Value -> msg) -> Sub msg
+
+
+port verifyCSGApplication : ( String, String ) -> Cmd msg
+
+
+port verificationReceived : (( String, Decode.Value ) -> msg) -> Sub msg
 
 
 
@@ -86,6 +94,9 @@ type alias Model =
     , showApplicationModal : Bool
     , producerConfig : Decode.Value
     , selectedApplicationId : Maybe String
+    , verifying : Set String
+    , verificationResults : Dict String VerificationResult
+    , showScreenshotModal : Maybe String
     }
 
 
@@ -126,6 +137,14 @@ type Status
     | CallBooked
 
 
+type alias VerificationResult =
+    { success : Bool
+    , screenshot : String
+    , verifyUrl : String
+    , error : Maybe String
+    }
+
+
 
 -- INIT
 
@@ -153,6 +172,9 @@ init producerConfig =
       , showApplicationModal = False
       , producerConfig = producerConfig
       , selectedApplicationId = Nothing
+      , verifying = Set.empty
+      , verificationResults = Dict.empty
+      , showScreenshotModal = Nothing
       }
     , requestRefresh
         { page = 0
@@ -186,6 +208,9 @@ type Msg
     | ApplicationViewMsg ApplicationView.Msg
     | CloseApplicationModal
     | HandleKeyPress String
+    | VerifyApplication String
+    | VerificationReceived String (Result Http.Error VerificationResult)
+    | ViewScreenshot String
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -377,22 +402,67 @@ update msg model =
                 | applicationView = Nothing
                 , showApplicationModal = False
                 , selectedApplicationId = Nothing
+                , showScreenshotModal = Nothing
               }
             , Cmd.none
             )
 
         HandleKeyPress key ->
-            if key == "Escape" && model.showApplicationModal then
+            if key == "Escape" then
                 ( { model
                     | applicationView = Nothing
                     , showApplicationModal = False
                     , selectedApplicationId = Nothing
+                    , showScreenshotModal = Nothing
                   }
                 , Cmd.none
                 )
 
             else
                 ( model, Cmd.none )
+
+        VerifyApplication id ->
+            case List.filter (\app -> app.id == id) model.applications |> List.head of
+                Just app ->
+                    case app.csgApplication of
+                        Just csgApp ->
+                            ( { model | verifying = Set.insert id model.verifying }
+                            , verifyCSGApplication ( id, csgApp.key )
+                            )
+
+                        Nothing ->
+                            ( model, Cmd.none )
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        VerificationReceived id result ->
+            case result of
+                Ok verificationResult ->
+                    let
+                        newVerificationResults =
+                            Dict.insert id verificationResult model.verificationResults
+
+                        newVerifying =
+                            Set.remove id model.verifying
+                    in
+                    ( { model
+                        | verificationResults = newVerificationResults
+                        , verifying = newVerifying
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model
+                        | error = Just (httpErrorToString error)
+                        , verifying = Set.remove id model.verifying
+                      }
+                    , Cmd.none
+                    )
+
+        ViewScreenshot id ->
+            ( { model | showScreenshotModal = Just id }, Cmd.none )
 
 
 
@@ -444,6 +514,64 @@ view model =
 
           else
             text ""
+        , case model.showScreenshotModal of
+            Just id ->
+                case Dict.get id model.verificationResults of
+                    Just result ->
+                        div
+                            [ class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                            , onClick CloseApplicationModal
+                            ]
+                            [ div
+                                [ class "bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto"
+                                , stopPropagation "click"
+                                ]
+                                [ div [ class "flex justify-between items-center p-4 border-b" ]
+                                    [ div [ class "flex items-center gap-2" ]
+                                        [ if result.success then
+                                            div [ class "text-green-600 font-semibold" ]
+                                                [ text "✓ Verification successful" ]
+
+                                          else
+                                            div [ class "text-red-600 font-semibold" ]
+                                                [ text "✗ Verification failed" ]
+                                        , case result.error of
+                                            Just error ->
+                                                div [ class "text-red-600" ]
+                                                    [ text error ]
+
+                                            Nothing ->
+                                                text ""
+                                        ]
+                                    , div [ class "flex items-center gap-4" ]
+                                        [ a
+                                            [ href result.verifyUrl
+                                            , target "_blank"
+                                            , class "text-blue-600 hover:underline text-sm"
+                                            ]
+                                            [ text "Open in CSG Portal ↗" ]
+                                        , button
+                                            [ class "text-gray-500 hover:text-gray-700"
+                                            , onClick CloseApplicationModal
+                                            ]
+                                            [ text "×" ]
+                                        ]
+                                    ]
+                                , div [ class "p-4" ]
+                                    [ img
+                                        [ src ("data:image/png;base64," ++ result.screenshot)
+                                        , class "w-full border rounded-lg shadow-lg"
+                                        ]
+                                        []
+                                    ]
+                                ]
+                            ]
+
+                    Nothing ->
+                        text ""
+
+            Nothing ->
+                text ""
         ]
 
 
@@ -614,15 +742,15 @@ viewApplications model =
                             ]
                         ]
                     , tbody []
-                        (List.map viewApplicationRow model.applications)
+                        (List.map (viewApplicationRow model) model.applications)
                     ]
                 , viewPagination model
                 ]
         ]
 
 
-viewApplicationRow : Application -> Html Msg
-viewApplicationRow app =
+viewApplicationRow : Model -> Application -> Html Msg
+viewApplicationRow model app =
     let
         getName =
             let
@@ -672,6 +800,55 @@ viewApplicationRow app =
                 |> String.split "T"
                 |> List.head
                 |> Maybe.withDefault dateString
+
+        viewVerifyButton =
+            case app.csgApplication of
+                Just csgApp ->
+                    div [ class "flex items-center gap-2" ]
+                        [ button
+                            [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
+                            , onClick (ViewApplication app.id)
+                            ]
+                            [ text "View" ]
+                        , if Set.member app.id model.verifying then
+                            div [ class "animate-spin h-5 w-5 border-2 border-green-600 border-t-transparent rounded-full" ] []
+
+                          else
+                            case Dict.get app.id model.verificationResults of
+                                Just result ->
+                                    div [ class "flex items-center gap-2" ]
+                                        [ if result.success then
+                                            span [ class "text-green-600" ] [ text "✓" ]
+
+                                          else
+                                            span [ class "text-red-600" ] [ text "✗" ]
+                                        , button
+                                            [ class "text-blue-600 hover:underline text-sm"
+                                            , onClick (ViewScreenshot app.id)
+                                            ]
+                                            [ text "View Results" ]
+                                        , a
+                                            [ href result.verifyUrl
+                                            , target "_blank"
+                                            , class "text-blue-600 hover:underline text-sm"
+                                            ]
+                                            [ text "CSG Portal ↗" ]
+                                        ]
+
+                                Nothing ->
+                                    button
+                                        [ class "bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                                        , onClick (VerifyApplication app.id)
+                                        ]
+                                        [ text "Verify" ]
+                        ]
+
+                Nothing ->
+                    button
+                        [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
+                        , onClick (ViewApplication app.id)
+                        ]
+                        [ text "View" ]
     in
     tr [ class "border-b hover:bg-gray-50" ]
         [ td [ class "py-3 px-4 w-8" ]
@@ -685,12 +862,7 @@ viewApplicationRow app =
             [ text (getEffectiveDate |> Maybe.map formatDate |> Maybe.withDefault "") ]
         , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ] [ text (formatDate app.dateStarted) ]
         , td [ class "py-3 px-4 w-24" ]
-            [ button
-                [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
-                , onClick (ViewApplication app.id)
-                ]
-                [ text "View" ]
-            ]
+            [ viewVerifyButton ]
         ]
 
 
@@ -731,7 +903,18 @@ subscriptions model =
             (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
         , receiveApplication
             (Decode.decodeValue applicationViewDecoder >> ApplicationReceived model.producerConfig)
-        , if model.showApplicationModal then
+        , verificationReceived
+            (\( id, result ) ->
+                VerificationReceived id
+                    (case Decode.decodeValue verificationResultDecoder result of
+                        Ok value ->
+                            Ok value
+
+                        Err err ->
+                            Err (Http.BadBody (Decode.errorToString err))
+                    )
+            )
+        , if model.showApplicationModal || model.showScreenshotModal /= Nothing then
             Browser.Events.onKeyDown (Decode.map HandleKeyPress (Decode.field "key" Decode.string))
 
           else
@@ -948,3 +1131,31 @@ viewPageButton currentPage page =
 stopPropagation : String -> Attribute Msg
 stopPropagation event =
     Html.Events.stopPropagationOn event (Decode.succeed ( NoOp, True ))
+
+
+httpErrorToString : Http.Error -> String
+httpErrorToString error =
+    case error of
+        Http.BadUrl url ->
+            "Bad URL: " ++ url
+
+        Http.Timeout ->
+            "Request timed out"
+
+        Http.NetworkError ->
+            "Network error"
+
+        Http.BadStatus status ->
+            "Server returned status: " ++ String.fromInt status
+
+        Http.BadBody message ->
+            "Failed to decode response: " ++ message
+
+
+verificationResultDecoder : Decode.Decoder VerificationResult
+verificationResultDecoder =
+    Decode.map4 VerificationResult
+        (Decode.field "success" Decode.bool)
+        (Decode.field "screenshot" Decode.string)
+        (Decode.field "verifyUrl" Decode.string)
+        (Decode.maybe (Decode.field "error" Decode.string))

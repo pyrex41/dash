@@ -2,9 +2,9 @@ module CSGApplicationView exposing (Model, Msg, init, update, view)
 
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onInput, onSubmit)
+import Html.Events exposing (onClick, onInput, onSubmit)
 import Http
-import Json.Decode as Decode
+import Json.Decode as Decode exposing (Decoder)
 import Json.Encode as Encode
 
 
@@ -17,6 +17,17 @@ type alias Model =
     , data : Maybe Decode.Value
     , error : Maybe String
     , isLoading : Bool
+    , verifyError : Maybe String
+    , isVerifying : Bool
+    , verificationResult : Maybe VerificationResult
+    }
+
+
+type alias VerificationResult =
+    { success : Bool
+    , screenshot : String
+    , verifyUrl : String
+    , error : Maybe String
     }
 
 
@@ -26,6 +37,9 @@ init _ =
       , data = Nothing
       , error = Nothing
       , isLoading = False
+      , verifyError = Nothing
+      , isVerifying = False
+      , verificationResult = Nothing
       }
     , Cmd.none
     )
@@ -39,6 +53,17 @@ type Msg
     = KeyChanged String
     | FetchData
     | DataReceived (Result Http.Error String)
+    | VerifyApplication
+    | VerificationReceived (Result Http.Error VerificationResult)
+
+
+verificationDecoder : Decoder VerificationResult
+verificationDecoder =
+    Decode.map4 VerificationResult
+        (Decode.field "success" Decode.bool)
+        (Decode.field "screenshot" Decode.string)
+        (Decode.field "verifyUrl" Decode.string)
+        (Decode.maybe (Decode.field "error" Decode.string))
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -54,6 +79,52 @@ update msg model =
                 , expect = Http.expectString DataReceived
                 }
             )
+
+        VerifyApplication ->
+            ( { model | isVerifying = True, verifyError = Nothing, verificationResult = Nothing }
+            , Http.get
+                { url = "/api/csg-application/" ++ String.trim model.key ++ "/verify"
+                , expect = Http.expectJson VerificationReceived verificationDecoder
+                }
+            )
+
+        VerificationReceived result ->
+            case result of
+                Ok verificationResult ->
+                    ( { model
+                        | isVerifying = False
+                        , verificationResult = Just verificationResult
+                        , verifyError =
+                            if not verificationResult.success then
+                                verificationResult.error
+
+                            else
+                                Nothing
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model
+                        | verifyError =
+                            Just
+                                (case error of
+                                    Http.BadStatus 404 ->
+                                        "CSG Application not found"
+
+                                    Http.BadStatus 403 ->
+                                        "Not authorized to verify application"
+
+                                    Http.BadStatus 500 ->
+                                        "Server error during verification"
+
+                                    _ ->
+                                        "Failed to verify application"
+                                )
+                        , isVerifying = False
+                      }
+                    , Cmd.none
+                    )
 
         DataReceived result ->
             case result of
@@ -104,6 +175,7 @@ view model =
     div [ class "max-w-4xl mx-auto p-8" ]
         [ h1 [ class "text-2xl font-bold mb-8" ] [ text "View CSG Application" ]
         , viewForm model
+        , viewVerificationResult model
         , viewResult model
         ]
 
@@ -124,16 +196,67 @@ viewForm model =
                     ]
                     []
                 ]
-            , div [ class "flex items-end" ]
+            , div [ class "flex items-end gap-2" ]
                 [ button
                     [ type_ "submit"
                     , class "px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:opacity-50"
                     , disabled (String.isEmpty model.key || model.isLoading)
                     ]
                     [ text "View Application" ]
+                , button
+                    [ type_ "button"
+                    , onClick VerifyApplication
+                    , class "px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
+                    , disabled (String.isEmpty model.key || model.isVerifying || model.isLoading)
+                    ]
+                    [ text "Verify" ]
                 ]
             ]
+        , if model.verifyError /= Nothing then
+            div [ class "mt-4 p-4 bg-red-50 text-red-700 rounded-md" ]
+                [ text (Maybe.withDefault "" model.verifyError) ]
+
+          else
+            text ""
         ]
+
+
+viewVerificationResult : Model -> Html Msg
+viewVerificationResult model =
+    case model.verificationResult of
+        Nothing ->
+            if model.isVerifying then
+                div [ class "mb-8 flex flex-col items-center justify-center" ]
+                    [ div [ class "animate-spin h-8 w-8 border-4 border-green-600 border-t-transparent rounded-full mb-4" ] []
+                    , text "Verifying application..."
+                    ]
+
+            else
+                text ""
+
+        Just result ->
+            div [ class "mb-8" ]
+                [ div [ class "flex items-center gap-4 mb-4" ]
+                    [ if result.success then
+                        div [ class "text-green-600 font-semibold" ]
+                            [ text "✓ Verification successful" ]
+
+                      else
+                        div [ class "text-red-600 font-semibold" ]
+                            [ text "✗ Verification failed" ]
+                    , a
+                        [ href result.verifyUrl
+                        , target "_blank"
+                        , class "text-blue-600 hover:underline"
+                        ]
+                        [ text "Open verification page" ]
+                    ]
+                , img
+                    [ src ("data:image/png;base64," ++ result.screenshot)
+                    , class "w-full border rounded-lg shadow-lg"
+                    ]
+                    []
+                ]
 
 
 viewResult : Model -> Html Msg

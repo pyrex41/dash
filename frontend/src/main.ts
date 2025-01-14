@@ -49,6 +49,24 @@ async function getLAProToken() {
     }
 }
 
+async function getProducerConfig(retries = 3, delay = 1000): Promise<any> {
+    try {
+        const response = await fetch('/api/producer-config');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+        return data.producers;
+    } catch (error) {
+        if (retries > 0) {
+            console.log(`Failed to fetch producer config, retrying... (${retries} attempts left)`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return getProducerConfig(retries - 1, delay * 1.5);
+        }
+        throw error;
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOM loaded, initializing Elm...');
     const target = document.getElementById('app');
@@ -58,18 +76,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
     }
 
-    console.log('Producer config TS >>>>>>>>>:', producerConfig);
-
-    const producerConfigDb = await fetch('/api/producer-config')
-        .then(response => response.json())
-        .then(data => data.producers);
-
-    console.log('Producer config DB >>>>>>>>>:', producerConfigDb);
-
     try {
+        const producerConfigDb = await getProducerConfig();
+        console.log('Producer config DB:', producerConfigDb);
+
         const app = Elm.Main.init({
             node: target,
-            flags: { producers: producerConfigDb } //producerConfig.producers }
+            flags: { producers: producerConfigDb }
         });
 
         console.log('Elm app initialized');
@@ -200,6 +213,34 @@ document.addEventListener('DOMContentLoaded', async () => {
                     error: error.message || 'Failed to submit to CSG'
                 });
             });
+        });
+
+        // Add verification ports
+        app.ports.verifyCSGApplication?.subscribe(([applicationId, key]: [string, string]) => {
+            const verifyApplication = async () => {
+                try {
+                    const response = await fetch(`/api/csg-application/${key}/verify`, {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    
+                    const result = await response.json();
+                    app.ports.verificationReceived.send([applicationId, result]);
+                } catch (error) {
+                    app.ports.verificationReceived.send([applicationId, {
+                        success: false,
+                        error: error instanceof Error ? error.message : 'Failed to verify application'
+                    }]);
+                }
+            };
+
+            verifyApplication();
         });
 
         // Add debug logging for port availability
