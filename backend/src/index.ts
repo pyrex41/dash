@@ -10,6 +10,9 @@ import { makeCSGRequest } from './csg/token'
 import axios from 'axios'
 import { getHeaders } from './csg/submit'
 import { initializeCSG, cleanup as cleanupCSG } from './csg/verify'
+import { eq } from 'drizzle-orm'
+import { getDb } from './db'
+import { csgApplications } from './db/schema'
 
 // Resolve __dirname for ESM environments
 const __filename = fileURLToPath(import.meta.url)
@@ -169,6 +172,18 @@ app.group('/api', app => app
       
       await updateFormattedData(id, data, rawMedications)
       
+      // Reset verification status for any associated CSG application
+      const db = getDb();
+      await db.update(csgApplications)
+        .set({
+          verificationStatus: 'pending',
+          verificationScreenshot: null,
+          verificationError: null,
+          lastVerifiedAt: null,
+          updatedAt: new Date()
+        })
+        .where(eq(csgApplications.applicationId, id));
+      
       return {
         success: true,
         error: null
@@ -226,15 +241,45 @@ app.group('/api', app => app
   })
   .post('/applications/:id/submit', async ({ params, body }) => {
     try {
-      const { producerId } = body as { producerId: number };
+      const { producerId, forceResubmit } = body as { producerId: number, forceResubmit?: boolean };
       if (!producerId) {
         return {
           success: false,
           error: 'Producer ID is required'
         };
       }
+
+      const db = getDb();
+      const [existingCsg] = await db
+        .select()
+        .from(csgApplications)
+        .where(eq(csgApplications.applicationId, params.id));
+
+      // If there's an existing submission and we're not forcing resubmit, return error
+      if (existingCsg && !forceResubmit) {
+        return {
+          success: false,
+          error: 'Application already submitted to CSG',
+          existingSubmission: true,
+          key: existingCsg.key,
+          verificationStatus: existingCsg.verificationStatus
+        };
+      }
+
       const result = await submitToCSG(params.id, producerId);
-      return { success: true, data: result };
+      
+      // Start verification in the background
+      const port = Number(process.env.PORT) || 3000;
+      const verifyUrl = `http://localhost:${port}/api/csg-application/${result.key}/verify`;
+      fetch(verifyUrl).catch(error => {
+        console.error('Error starting verification:', error);
+      });
+
+      return { 
+        success: true,  
+        data: result,
+        verificationStatus: 'pending'
+      };
     } catch (error: any) {
       console.error('Error submitting to CSG:', error);
       return {
@@ -330,6 +375,37 @@ app.group('/api', app => app
       return new Response(
         JSON.stringify({ 
           error: 'Failed to verify CSG application',
+          details: error instanceof Error ? error.message : String(error)
+        }), 
+        { status: 500 }
+      );
+    }
+  })
+
+  // Add new endpoint for Chubb zip code fix
+  .post('/csg-application/:key/fix-zip', async ({ params }) => {
+    try {
+      const { key } = params;
+      const { fixChubbZipCode, getAuthenticatedPage } = await import('./csg/verify');
+      
+      const page = await getAuthenticatedPage(true); // debug mode on
+      try {
+        await fixChubbZipCode(page, key, true);
+        return new Response(
+          JSON.stringify({ success: true }),
+          { 
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      } finally {
+        await page.close();
+      }
+    } catch (error) {
+      console.error('Error fixing Chubb zip code:', error);
+      return new Response(
+        JSON.stringify({ 
+          error: 'Failed to fix Chubb zip code',
           details: error instanceof Error ? error.message : String(error)
         }), 
         { status: 500 }

@@ -9,6 +9,7 @@ import Dashboard
 import Html exposing (..)
 import Html.Attributes exposing (..)
 import Json.Decode as Decode
+import Producer exposing (producerConfigDecoder)
 import Url
 import Url.Parser as Parser exposing ((</>), Parser, oneOf)
 

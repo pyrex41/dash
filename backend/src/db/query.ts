@@ -24,7 +24,7 @@ const client = createClient({
   url: process.env.TURSO_DATABASE_URL!,
   authToken: process.env.TURSO_AUTH_TOKEN!,
 })
-export const db = drizzle(client)
+const db = drizzle(client)
 
 // Helper function to format application data
 export const formatApplicationData = async (rawApplications: any[]) => {
@@ -78,7 +78,11 @@ export const formatApplicationData = async (rawApplications: any[]) => {
       } : null,
       csgApplication: relatedCsgApp ? {
         key: relatedCsgApp.key,
-        brokerEmail: relatedCsgApp.brokerEmail
+        brokerEmail: relatedCsgApp.brokerEmail,
+        verificationStatus: relatedCsgApp.verificationStatus,
+        verificationScreenshot: relatedCsgApp.verificationScreenshot,
+        verificationError: relatedCsgApp.verificationError,
+        lastVerifiedAt: relatedCsgApp.lastVerifiedAt ? safeDate(relatedCsgApp.lastVerifiedAt) : null
       } : null
     }
   })
@@ -123,17 +127,19 @@ export const getApplicationWithSchema = async (applicationId: string) => {
     return null
   }
 
+  const formattedData = application.formattedData || (await format_application(application.id)).data
+
   console.log('Raw application from database:', {
     id: application.id,
     data: application.data,
-    formattedData: application.formattedData,
+    formattedData: formattedData,
     rawMedications: application.rawMedications
   })
 
   return {
     ...application,
     data: typeof application.data === 'string' ? JSON.parse(application.data) : application.data,
-    formattedData: application.formattedData ? (typeof application.formattedData === 'string' ? JSON.parse(application.formattedData) : application.formattedData) : null,
+    formattedData: formattedData ? (typeof formattedData === 'string' ? JSON.parse(formattedData) : formattedData) : null,
     rawMedications: application.rawMedications ? (typeof application.rawMedications === 'string' ? JSON.parse(application.rawMedications) : application.rawMedications) : []
   }
 }
@@ -308,14 +314,28 @@ export const exportApplications = async (searchTerm: string, hasContactFilter: b
 }
 
 export async function updateFormattedData(id: string, formattedData: Record<string, any>, rawMedications?: any[]) {
-    return await db
-        .update(applications)
-        .set({ 
-            formattedData,
-            rawMedications: rawMedications || null,
-            updatedAt: new Date()
-        })
-        .where(eq(applications.id, id));
+    const now = sql`CURRENT_TIMESTAMP`;
+    return await db.transaction(async (tx) => {
+        // Update the application data
+        await tx.update(applications)
+            .set({ 
+                formattedData,
+                rawMedications: rawMedications || null,
+                updatedAt: now
+            })
+            .where(eq(applications.id, id));
+        
+        // Reset verification status for any associated CSG application
+        await tx.update(csgApplications)
+            .set({
+                verificationStatus: 'pending',
+                verificationScreenshot: null,
+                verificationError: null,
+                lastVerifiedAt: null,
+                updatedAt: now
+            })
+            .where(eq(csgApplications.applicationId, id));
+    });
 }
 
 export async function getProducerConfig() {

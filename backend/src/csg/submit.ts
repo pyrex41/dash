@@ -1,7 +1,7 @@
 import { getDb } from '../db';
 import { applications, csgApplications, producers } from '../db/schema';
 import { eq } from 'drizzle-orm';
-import { getToken, getQuoteToken } from './token';
+import { getToken, getQuoteToken, makeCSGRequest, handleTokenError } from './token';
 import axios from 'axios';
 
 interface QuoteRequest {
@@ -14,6 +14,14 @@ interface QuoteRequest {
   plan: string;
   naic?: string;
   select?: number;
+}
+
+interface CSGApplication {
+  key: string;
+  tracking?: {
+    application_id?: string;
+  };
+  [key: string]: any;
 }
 
 // Validate environment variables
@@ -100,12 +108,50 @@ async function getCarrierAssignedIdentifier(producerId: number, naic: string) {
   }
 }
 
+async function findApplicationByTrackingId(applicationId: string): Promise<CSGApplication | null> {
+  try {
+    console.log('Attempting to find application with tracking ID:', applicationId);
+    
+    // Fetch recent applications with a larger limit
+    const response = await makeCSGRequest<CSGApplication[]>({
+      method: 'GET',
+      url: '/v1/e_app/enrollment_applications.json',
+      params: { limit: 10 } // Fetch last 10 applications to ensure we catch it
+    });
+
+    console.log('Fetched', response.length, 'recent applications');
+    
+    // Find the application with matching tracking ID
+    const matchingApp = response.find(app => {
+      const matches = app.values?.tracking?.application_id === applicationId;
+      if (matches) {
+        console.log('Found matching application:', app.key);
+      }
+      return matches;
+    });
+
+    if (!matchingApp) {
+      console.log('No matching application found. First few applications:', 
+        response.slice(0, 3).map(app => ({
+          key: app.key,
+          tracking: app.tracking,
+          created_date: app.created_date
+        }))
+      );
+    }
+
+    return matchingApp || null;
+  } catch (error) {
+    console.error('Error finding application by tracking ID:', error);
+    return null;
+  }
+}
+
 export async function submitToCSG(applicationId: string, producerId: number, forceQuote: boolean = false): Promise<any> {
   try {
     // Validate configuration
     validateConfig();
 
-    
     const db = getDb();
     const [application] = await db
     .select()
@@ -123,8 +169,17 @@ export async function submitToCSG(applicationId: string, producerId: number, for
       .from(csgApplications)
       .where(eq(csgApplications.applicationId, applicationId));
 
+    const now = new Date();
+
+    // If there's an existing submission, update lastSubmittedAt
     if (existingCsg) {
-      throw new Error('Application already submitted to CSG');
+      await db.update(csgApplications)
+        .set({
+          lastSubmittedAt: now,
+          verificationStatus: 'pending',
+          updatedAt: now
+        })
+        .where(eq(csgApplications.id, existingCsg.id));
     }
 
     const applicationHeaders = await getHeaders();
@@ -177,7 +232,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
           params: params
         });
 
-
         const quoteData = quoteResponse.data;
         console.log('quote response status', quoteResponse.status);
         const logKey = quoteResponse.headers['csg-log-key'] || '';
@@ -210,7 +264,12 @@ export async function submitToCSG(applicationId: string, producerId: number, for
           carrier_assigned_identifier: carrierAssignedIdentifier,
           broker_email: "josh@enlightnu.com",
           auxiliary_values: [],
-          values: trimmedData,
+          values: {
+            ...trimmedData,
+            tracking: {
+              application_id: applicationId
+            }
+          },
         }
         console.log('payload', payload);
         const response = await axios.post(submitUrl, payload, {
@@ -224,17 +283,29 @@ export async function submitToCSG(applicationId: string, producerId: number, for
           db.update(applications)
             .set({       
               status: 'submitted_to_csg',
-              updatedAt: new Date()
+              updatedAt: now
             })
             .where(eq(applications.id, applicationId)),
 
-          db.insert(csgApplications).values({
-            applicationId,
-            key: responseData.key,
-            responseBody: JSON.stringify(responseData),
-            createdAt: new Date(),
-            updatedAt: new Date(),
-          })
+          existingCsg ? 
+            db.update(csgApplications)
+              .set({
+                key: responseData.key,
+                responseBody: JSON.stringify(responseData),
+                lastSubmittedAt: now,
+                verificationStatus: 'pending',
+                updatedAt: now
+              })
+              .where(eq(csgApplications.id, existingCsg.id)) :
+            db.insert(csgApplications).values({
+              applicationId,
+              key: responseData.key,
+              responseBody: JSON.stringify(responseData),
+              lastSubmittedAt: now,
+              verificationStatus: 'pending',
+              createdAt: now,
+              updatedAt: now,
+            })
         ]);
 
         return responseData;
@@ -246,6 +317,57 @@ export async function submitToCSG(applicationId: string, producerId: number, for
             headers: error.response?.headers,
             data: error.response?.data
           });
+
+          // Handle token invalidation
+          if (error.response?.status === 403) {
+            console.log('Token invalidated, retrying with new token...');
+            const newToken = await handleTokenError(error, applicationHeaders['x-api-token'], false);
+            applicationHeaders['x-api-token'] = newToken;
+            // Retry the request with new token
+            return submitToCSG(applicationId, producerId, forceQuote);
+          }
+
+          // If we got a 500 error, try to recover the application
+          if (error.response?.status === 500) {
+            console.log('Got 500 error, attempting to recover application...');
+            const recoveredApp = await findApplicationByTrackingId(applicationId);
+            
+            if (recoveredApp) {
+              console.log('Successfully recovered application:', recoveredApp.key);
+              
+              // Update database with recovered application
+              await Promise.all([
+                db.update(applications)
+                  .set({       
+                    status: 'submitted_to_csg',
+                    updatedAt: now
+                  })
+                  .where(eq(applications.id, applicationId)),
+
+                existingCsg ?
+                  db.update(csgApplications)
+                    .set({
+                      key: recoveredApp.key,
+                      responseBody: JSON.stringify(recoveredApp),
+                      lastSubmittedAt: now,
+                      verificationStatus: 'pending',
+                      updatedAt: now
+                    })
+                    .where(eq(csgApplications.id, existingCsg.id)) :
+                  db.insert(csgApplications).values({
+                    applicationId,
+                    key: recoveredApp.key,
+                    responseBody: JSON.stringify(recoveredApp),
+                    lastSubmittedAt: now,
+                    verificationStatus: 'pending',
+                    createdAt: now,
+                    updatedAt: now,
+                  })
+              ]);
+
+              return recoveredApp;
+            }
+          }
           throw new Error(`Failed to interact with CSG: ${error.message}`);
         }
         throw error;
@@ -261,7 +383,12 @@ export async function submitToCSG(applicationId: string, producerId: number, for
         company_identifier: application.naic,
         desired_underwriting_type: application.underwritingType || 0,
         carrier_assigned_identifier: carrierAssignedIdentifier,
-        values: formattedData,
+        values: {
+          ...formattedData,
+          tracking: {
+            application_id: applicationId
+          }
+        },
       }, {
         headers: applicationHeaders
       });
@@ -273,21 +400,50 @@ export async function submitToCSG(applicationId: string, producerId: number, for
         db.update(applications)
           .set({ 
             status: 'submitted_to_csg',
-            updatedAt: new Date()
+            updatedAt: now
           })
           .where(eq(applications.id, applicationId)),
 
-        db.insert(csgApplications).values({
-          applicationId,
-          key: responseData.key,
-          responseBody: JSON.stringify(responseData),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
+        existingCsg ?
+          db.update(csgApplications)
+            .set({
+              key: responseData.key,
+              responseBody: JSON.stringify(responseData),
+              lastSubmittedAt: now,
+              verificationStatus: 'pending',
+              updatedAt: now
+            })
+            .where(eq(csgApplications.id, existingCsg.id)) :
+          db.insert(csgApplications).values({
+            applicationId,
+            key: responseData.key,
+            responseBody: JSON.stringify(responseData),
+            lastSubmittedAt: now,
+            verificationStatus: 'pending',
+            createdAt: now,
+            updatedAt: now,
+          })
       ]);
 
       return responseData;
     } catch (error) {
+      if (axios.isAxiosError(error)) {
+        console.error('CSG Error Response:', {
+          status: error.response?.status,
+          statusText: error.response?.statusText,
+          headers: error.response?.headers,
+          data: error.response?.data
+        });
+
+        // Handle token invalidation
+        if (error.response?.status === 403) {
+          console.log('Token invalidated, retrying with new token...');
+          const newToken = await handleTokenError(error, applicationHeaders['x-api-token'], false);
+          applicationHeaders['x-api-token'] = newToken;
+          // Retry the request with new token
+          return submitToCSG(applicationId, producerId, forceQuote);
+        }
+      }
       // If direct submission fails, try quote method as fallback
       return submitToCSG(applicationId, producerId, true);
     }
