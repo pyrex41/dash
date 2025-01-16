@@ -162,10 +162,22 @@ export async function fixChubbZipCode(page: Page, urlSlug: string, debug: boolea
     await page.waitForSelector(inputSelector);
     log('Found zip code input field');
 
+    // Clear any existing value first
+    log('Clearing existing zip code...');
+    for (let i = 0; i < 5; i++) {
+      await page.keyboard.press('Backspace');
+    }
+    log('Cleared existing zip code');
+
     // Fill in the zip code
     log(`Typing zip code: ${zipCode}`);
     await page.type(inputSelector, zipCode);
     log('Finished typing zip code');
+
+    // Wait for 3 seconds after entering zip code
+    log('Waiting 3 seconds...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    log('Wait complete');
 
     // Click the continue button
     log('Looking for continue button...');
@@ -174,10 +186,28 @@ export async function fixChubbZipCode(page: Page, urlSlug: string, debug: boolea
     await continueButton?.click();
     log('Clicked continue button');
 
-    // Wait for navigation to complete
-    log('Waiting for navigation after continue...');
-    await page.waitForNavigation({ waitUntil: 'networkidle0' });
-    log('Navigation complete');
+    // Navigate to the prelude page
+    const preludeUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}/med_supp_tool/prelude`;
+    log(`Navigating to prelude page: ${preludeUrl}`);
+    await page.goto(preludeUrl, {
+      waitUntil: 'networkidle0',
+      timeout: 60000
+    });
+    log('Successfully loaded prelude page');
+
+    // Verify the zip code was set correctly
+    log('Verifying zip code was set correctly...');
+    const updatedData = await makeCSGRequest<any>({
+      method: 'GET',
+      url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
+    });
+
+    const updatedZip = updatedData?.values?.applicant_info?.zip5;
+    if (updatedZip !== zipCode) {
+      console.warn(`⚠️ Zip code verification failed. Expected ${zipCode} but got ${updatedZip || 'undefined'}`);
+    } else {
+      log(`✓ Zip code verified: ${updatedZip}`);
+    }
 
     log('Successfully applied Chubb zip code workaround');
   } catch (error) {
