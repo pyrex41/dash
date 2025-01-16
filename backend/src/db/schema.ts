@@ -53,6 +53,15 @@ export const csgApplications = sqliteTable(
     key: text('key').notNull(),
     responseBody: text('response_body').notNull(),
     brokerEmail: text('broker_email'),
+    lastSubmittedAt: integer('last_submitted_at', { mode: 'timestamp' })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP`),
+    verificationStatus: text('verification_status')
+      .notNull()
+      .default('pending'),
+    verificationScreenshot: text('verification_screenshot'),
+    verificationError: text('verification_error'),
+    lastVerifiedAt: integer('last_verified_at', { mode: 'timestamp' }),
     createdAt: integer('created_at', { mode: 'timestamp' })
       .notNull()
       .default(sql`CURRENT_TIMESTAMP`),
@@ -108,6 +117,20 @@ export const csgTokens2 = sqliteTable('csg_tokens2', {
 }, (table) => ({
   tokenIndex: index('idx_csg_tokens2_token').on(table.token),
   expiresAtIndex: index('idx_csg_tokens2_expires_at').on(table.expiresAt),
+}));
+
+export const csgSessions = sqliteTable('csg_sessions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  cookie: text('cookie').notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp' }).notNull(),
+  createdAt: integer('created_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: integer('updated_at', { mode: 'timestamp' })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP`),
+}, (table) => ({
+  expiresAtIndex: index('idx_csg_sessions_expires_at').on(table.expiresAt),
 }));
 
 export const brokers = sqliteTable('brokers', {

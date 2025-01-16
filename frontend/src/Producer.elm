@@ -11,6 +11,10 @@ type alias ProducerConfig =
     , lastName : String
     , phone : String
     , email : String
+    , address : String
+    , city : String
+    , state : String
+    , zip : String
     , writingNumbers : Carrier -> String
     , isDefault : Bool
     , id : Int
@@ -43,6 +47,10 @@ producerConfigItemDecoder =
         |> required "lastName" Decode.string
         |> required "phone" Decode.string
         |> required "email" Decode.string
+        |> required "addressLine1" Decode.string
+        |> required "addressCity" Decode.string
+        |> required "addressState" Decode.string
+        |> required "addressZip5" Decode.string
         |> required "writingNumbers" writingNumbersDecoder
         |> optional "isDefault" Decode.bool False
         |> required "id" Decode.int
@@ -116,16 +124,18 @@ getProducerSection carrier config =
         ACE ->
             JsonObject
                 (Dict.fromList
-                    [ ( "producer_first_name", JsonBase (StringValue config.firstName) )
-                    , ( "producer_last_name", JsonBase (StringValue config.lastName) )
-                    , ( "producer_phone", formatPhone config.phone )
-                    , ( "producer_email", JsonBase (StringValue config.email) )
-                    , ( "business_type", JsonBase (StringValue "new") )
+                    [ ( "business_type", JsonBase (StringValue "new") )
                     , ( "has_other_inforce_policies", JsonBase (BoolValue False) )
+                    , ( "Electronic_Combined", JsonBase (BoolValue False) )
                     , ( "deliver_policy_to", JsonBase (StringValue "APP") )
                     , ( "policy_delivery_type", JsonBase (StringValue "paper") )
+                    , ( "producer_first_name", JsonBase (StringValue config.firstName) )
+                    , ( "producer_last_name", JsonBase (StringValue config.lastName) )
+                    , ( "agent_address_line1", JsonBase (StringValue config.address) )
+                    , ( "agent_zip5", JsonBase (StringValue config.zip) )
+                    , ( "agent_address_city", JsonBase (StringValue config.city) )
+                    , ( "agent_address_state", JsonBase (StringValue config.state) )
                     , ( "replacement_notice_copy", JsonBase (BoolValue True) )
-                    , ( "Electronic_Combined", JsonBase (BoolValue False) )
                     ]
                 )
 

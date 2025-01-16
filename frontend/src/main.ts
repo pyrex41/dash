@@ -205,12 +205,22 @@ document.addEventListener('DOMContentLoaded', async () => {
             })
             .then(response => response.json())
             .then(result => {
-                app.ports.submitToCSGResponse.send(result);
+                // Send the full response with all fields
+                app.ports.submitToCSGResponse.send({
+                    success: result.success || false,
+                    error: result.error || null,
+                    existingSubmission: result.existingSubmission || null,
+                    key: result.key || null,
+                    verificationStatus: result.verificationStatus || null
+                });
             })
             .catch(error => {
                 app.ports.submitToCSGResponse.send({
                     success: false,
-                    error: error.message || 'Failed to submit to CSG'
+                    error: error.message || 'Failed to submit to CSG',
+                    existingSubmission: null,
+                    key: null,
+                    verificationStatus: null
                 });
             });
         });
@@ -231,11 +241,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                     }
                     
                     const result = await response.json();
-                    app.ports.verificationReceived.send([applicationId, result]);
+                    // Send complete verification result including screenshot
+                    app.ports.verificationReceived.send([applicationId, {
+                        success: result.success,
+                        error: result.error || null,
+                        screenshot: result.screenshot,
+                        verifyUrl: result.verifyUrl,
+                        verificationStatus: result.success ? 'verified' : 'failed'
+                    }]);
                 } catch (error) {
                     app.ports.verificationReceived.send([applicationId, {
                         success: false,
-                        error: error instanceof Error ? error.message : 'Failed to verify application'
+                        error: error instanceof Error ? error.message : 'Failed to verify application',
+                        screenshot: null,
+                        verifyUrl: null,
+                        verificationStatus: 'failed'
                     }]);
                 }
             };

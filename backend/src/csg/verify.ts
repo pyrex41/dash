@@ -1,6 +1,9 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
 import axios from 'axios';
 import { getToken, handleTokenError, makeCSGRequest } from './token';
+import { getDb } from '../db';
+import { eq } from 'drizzle-orm';
+import { csgApplications, applications } from '../db/schema';
 
 let browserInstance: Browser | null = null;
 let lastLoginTime: number = 0;
@@ -64,7 +67,7 @@ export async function initializeCSG(debug: boolean = false): Promise<void> {
   }
 }
 
-async function getAuthenticatedPage(debug: boolean = false): Promise<Page> {
+export async function getAuthenticatedPage(debug: boolean = false): Promise<Page> {
   const log = debug ? console.log : () => {};
   const browser = await getBrowser();
   const page = await browser.newPage();
@@ -96,6 +99,93 @@ async function getAuthenticatedPage(debug: boolean = false): Promise<Page> {
   return page;
 }
 
+// New function to handle Chubb zip code workaround
+export async function fixChubbZipCode(page: Page, urlSlug: string, debug: boolean = false): Promise<void> {
+  const log = debug ? console.log : () => {};
+  
+  try {
+    log('Applying Chubb zip code workaround...');
+    
+    // Get the zip code from our database
+    const db = getDb();
+    const [csgApp] = await db
+      .select()
+      .from(csgApplications)
+      .where(eq(csgApplications.key, urlSlug));
+
+    if (!csgApp) {
+      throw new Error('CSG application not found in database');
+    }
+
+    const [application] = await db
+      .select()
+      .from(applications)
+      .where(eq(applications.id, csgApp.applicationId));
+
+    if (!application) {
+      throw new Error('Application not found in database');
+    }
+
+    const formattedData = application.formattedData as Record<string, any>;
+    const zipCode = formattedData?.applicant_info?.zip5;
+    if (!zipCode) {
+      throw new Error('Zip code not found in application formatted data');
+    }
+
+    log(`Found zip code ${zipCode} for application ${application.id}`);
+    
+    // Navigate to the application page first
+    const applicationUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}`;
+    log(`Navigating to application page: ${applicationUrl}`);
+    await page.goto(applicationUrl, {
+      waitUntil: 'networkidle0',
+      timeout: 60000
+    });
+    log('Successfully loaded application page');
+
+    // Wait for the content to load
+    log('Waiting for content to load...');
+    await page.waitForSelector('#content', { timeout: 30000 });
+    log('Content loaded');
+
+    // Find and click the zip code field container
+    const zipCodeSelector = 'div[id*="string_search_field-section-applicant_info-field-zip5"]';
+    log('Waiting for zip code field...');
+    await page.waitForSelector(zipCodeSelector);
+    log('Clicking zip code field...');
+    await page.click(zipCodeSelector);
+    log('Clicked zip code field');
+
+    // Wait for and find the input field
+    const inputSelector = '#react-select-2-input';
+    log('Waiting for zip code input field...');
+    await page.waitForSelector(inputSelector);
+    log('Found zip code input field');
+
+    // Fill in the zip code
+    log(`Typing zip code: ${zipCode}`);
+    await page.type(inputSelector, zipCode);
+    log('Finished typing zip code');
+
+    // Click the continue button
+    log('Looking for continue button...');
+    const continueButton = await page.waitForSelector('#content button');
+    log('Clicking continue button...');
+    await continueButton?.click();
+    log('Clicked continue button');
+
+    // Wait for navigation to complete
+    log('Waiting for navigation after continue...');
+    await page.waitForNavigation({ waitUntil: 'networkidle0' });
+    log('Navigation complete');
+
+    log('Successfully applied Chubb zip code workaround');
+  } catch (error) {
+    console.error('Error applying Chubb zip code workaround:', error);
+    throw error;
+  }
+}
+
 interface VerifyOptions {
   headless?: boolean;
   slowMo?: number;
@@ -104,6 +194,7 @@ interface VerifyOptions {
 
 interface CSGApplicationData {
   in_good_order: boolean;
+  naic?: string;
   [key: string]: any;
 }
 
@@ -123,6 +214,17 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
       height: 1363
     });
 
+    // Fetch the application data to check NAIC
+    const applicationData = await makeCSGRequest<CSGApplicationData>({
+      method: 'GET',
+      url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
+    });
+
+    // If this is a Chubb application, apply the zip code workaround
+    if (applicationData.naic === '20699') {
+      await fixChubbZipCode(page, urlSlug, debug);
+    }
+
     const verifyUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}/verify`;
     log(`Navigating to: ${verifyUrl}`);
     
@@ -139,7 +241,7 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
       });
 
       // Ensure the page is fully rendered
-      log('Waiting additional time for rendering...');
+      log('Waiting additional time for rendering...'); 
       await new Promise(resolve => setTimeout(resolve, 5000));
 
       // Set a very tall viewport to capture everything
@@ -177,13 +279,27 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
       });
 
       const inGoodOrder = applicationData.in_good_order === true;
+      const verificationStatus = inGoodOrder && !hasErrors ? 'verified' : 'failed';
+      const verificationError = hasErrors ? 'Verification page shows highlighted errors' : !inGoodOrder ? 'Application is not in good order' : null;
+
+      // Save verification results to database
+      const db = getDb();
+      await db.update(csgApplications)
+        .set({
+          verificationStatus,
+          verificationScreenshot: screenshot,
+          verificationError,
+          lastVerifiedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(csgApplications.key, urlSlug));
 
       if (hasErrors || !inGoodOrder) {
         return { 
           success: false, 
           screenshot: screenshot,
           verifyUrl,
-          error: hasErrors ? 'Verification page shows highlighted errors' : 'Application is not in good order'
+          error: verificationError
         };
       }
 
@@ -203,6 +319,19 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           fullPage: true,
           encoding: 'base64'
         });
+
+        // Save error state to database
+        const db = getDb();
+        await db.update(csgApplications)
+          .set({
+            verificationStatus: 'failed',
+            verificationScreenshot: errorScreenshot,
+            verificationError: error instanceof Error ? error.message : 'Unknown error occurred',
+            lastVerifiedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(csgApplications.key, urlSlug));
+
         return {
           success: false,
           screenshot: errorScreenshot,

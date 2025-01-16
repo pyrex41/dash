@@ -1,4 +1,4 @@
-port module ApplicationView exposing (Application, Model, Msg(..), applicationViewDecoder, init, subscriptions, update, view)
+module ApplicationView exposing (Application, Model, Msg(..), applicationViewDecoder, init, subscriptions, update, view)
 
 import CSGSchema exposing (ApplicationSchema, Carrier(..), FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), carrierFromNaic, defaultAetnaMedicationSection, defaultMedicationSection, isFieldVisible, jsonValueDecoder, parseValue, unwrapJValue)
 import DataEncoder exposing (unflattenData)
@@ -14,48 +14,11 @@ import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Pipeline exposing (optional, required)
 import Json.Encode as Encode
 import List.Extra
+import Ports exposing (..)
 import Producer exposing (getProducerSection)
 import Regex
 import Task
 import Time exposing (Month(..))
-
-
-
--- Port for saving application data
-
-
-port saveApplication : { id : String, data : Encode.Value, medications : Encode.Value } -> Cmd msg
-
-
-
--- Port for receiving save response
-
-
-port saveApplicationResponse : ({ success : Bool, error : Maybe String } -> msg) -> Sub msg
-
-
-
--- Add at the top with other ports
-
-
-port forceRefreshLAProToken : () -> Cmd msg
-
-
-port getLAProTokenResponse : (String -> msg) -> Sub msg
-
-
-
--- Port for submitting to CSG
-
-
-port submitToCSG : ( String, Int ) -> Cmd msg
-
-
-
--- Port for receiving CSG submission response
-
-
-port submitToCSGResponse : ({ success : Bool, error : Maybe String } -> msg) -> Sub msg
 
 
 type alias Model =
@@ -98,7 +61,7 @@ type Msg
     | SetProducer Int
     | GotCurrentTime Date
     | SubmitToCSG
-    | CSGSubmissionResponse { success : Bool, error : Maybe String }
+    | CSGSubmissionResponse { success : Bool, error : Maybe String, existingSubmission : Maybe Bool, key : Maybe String, verificationStatus : Maybe String }
     | NoOp
     | GotRoutingNumber (Result Http.Error String)
     | UpdateMedicationField String String String
@@ -167,6 +130,19 @@ init producerConfigJson app =
         producerConfig =
             Dict.get defaultProducer producerConfigs
 
+        initialData =
+            case ( carrierInit, producerConfig ) of
+                ( Just carrier, Just config ) ->
+                    case getProducerSection carrier config of
+                        JsonObject dict ->
+                            setSection "producer" dict initialFormValues0
+
+                        _ ->
+                            initialFormValues0
+
+                _ ->
+                    initialFormValues0
+
         initialMedicationsData : Maybe (List Medication)
         initialMedicationsData =
             let
@@ -224,9 +200,6 @@ init producerConfigJson app =
             initialMedicationsData
                 |> Maybe.withDefault []
 
-        initialData =
-            updateModelDataWithMedications carrierInit initialMedications initialFormValues0
-
         schema =
             app.schema
                 |> List.map
@@ -240,11 +213,14 @@ init producerConfigJson app =
                         else
                             section
                     )
+
+        finalData =
+            updateModelDataWithMedications carrierInit initialMedications initialData
     in
     ( { id = app.id
       , naic = app.naic
       , carrier = carrierInit
-      , data = initialData
+      , data = finalData
       , medications = initialMedications
       , medicationForm = Dict.empty
       , schema = schema
@@ -438,8 +414,30 @@ update msg model =
         UpdateField sectionId fieldId valueString ->
             let
                 value =
-                    parseValue valueString
-                        |> JsonBase
+                    case List.filter (\section -> section.id == sectionId) model.schema of
+                        [] ->
+                            parseValue valueString
+                                |> JsonBase
+
+                        section :: _ ->
+                            case List.filter (\field -> field.id == fieldId) section.body of
+                                [] ->
+                                    parseValue valueString
+                                        |> JsonBase
+
+                                field :: _ ->
+                                    case field.fieldType of
+                                        StringSearchField _ ->
+                                            StringValue valueString
+                                                |> JsonBase
+
+                                        TextField _ ->
+                                            StringValue valueString
+                                                |> JsonBase
+
+                                        _ ->
+                                            parseValue valueString
+                                                |> JsonBase
 
                 oldSection =
                     getSection sectionId model.data
@@ -973,11 +971,19 @@ viewSubmitButton model =
             [ text "Submitting..." ]
 
     else
-        button
-            [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
-            , onClick SubmitToCSG
+        div [ class "flex items-center gap-2" ]
+            [ button
+                [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded"
+                , onClick SubmitToCSG
+                ]
+                [ text "Submit to CSG" ]
+            , case model.csgSubmissionError of
+                Just error ->
+                    span [ class "text-red-600 text-sm" ] [ text error ]
+
+                Nothing ->
+                    text ""
             ]
-            [ text "Submit to CSG" ]
 
 
 viewForm : Model -> Html Msg
