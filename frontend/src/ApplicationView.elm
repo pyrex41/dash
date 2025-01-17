@@ -1,4 +1,4 @@
-module ApplicationView exposing (Application, Model, Msg(..), applicationViewDecoder, init, subscriptions, update, view)
+module ApplicationView exposing (Application, Model, Msg(..), Status(..), applicationViewDecoder, init, subscriptions, update, view)
 
 import CSGSchema exposing (ApplicationSchema, Carrier(..), FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), carrierFromNaic, defaultAetnaMedicationSection, defaultMedicationSection, isFieldVisible, jsonValueDecoder, parseValue, unwrapJValue)
 import DataEncoder exposing (unflattenData)
@@ -76,6 +76,16 @@ type Msg
     | CheckForUnsavedChanges Time.Posix
 
 
+type Status
+    = CompletedApp
+    | WaitingReview
+    | PartialApplication
+    | SubmissionIssue
+    | IssuedPolicy
+    | DeclinedPolicy
+    | AwaitingSignature
+
+
 type alias Application =
     { id : String
     , naic : String
@@ -83,6 +93,7 @@ type alias Application =
     , formattedData : Decode.Value
     , schema : ApplicationSchema
     , rawMedications : Decode.Value
+    , status : Status
     }
 
 
@@ -2792,14 +2803,6 @@ applicationViewDecoder =
     let
         rawMedicationsDecoder =
             Decode.value
-                |> Decode.map
-                    (\v ->
-                        let
-                            _ =
-                                Debug.log "Raw medications in decoder" v
-                        in
-                        v
-                    )
     in
     Decode.succeed Application
         |> Pipeline.required "id" Decode.string
@@ -2808,6 +2811,39 @@ applicationViewDecoder =
         |> Pipeline.required "formattedData" Decode.value
         |> Pipeline.required "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder)
         |> Pipeline.optional "rawMedications" rawMedicationsDecoder (Encode.list identity [])
+        |> Pipeline.required "status" statusDecoder
+
+
+statusDecoder : Decode.Decoder Status
+statusDecoder =
+    Decode.string
+        |> Decode.andThen
+            (\str ->
+                case str of
+                    "completed" ->
+                        Decode.succeed CompletedApp
+
+                    "waiting_review" ->
+                        Decode.succeed WaitingReview
+
+                    "partial" ->
+                        Decode.succeed PartialApplication
+
+                    "submission_issue" ->
+                        Decode.succeed SubmissionIssue
+
+                    "issued" ->
+                        Decode.succeed IssuedPolicy
+
+                    "declined" ->
+                        Decode.succeed DeclinedPolicy
+
+                    "awaiting_signature" ->
+                        Decode.succeed AwaitingSignature
+
+                    _ ->
+                        Decode.succeed PartialApplication
+            )
 
 
 updateModelDataWithMedications : Maybe Carrier -> List Medication -> JsonValue -> JsonValue

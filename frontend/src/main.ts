@@ -158,6 +158,52 @@ async function pollPendingVerifications(app: any) {
     poll();
 }
 
+// Add polling for CSG application status
+async function pollCSGStatus(key: string, app: any) {
+    const pollInterval = 30000; // 30 seconds
+    const maxAttempts = 120; // 1 hour total
+    let attempts = 0;
+
+    const poll = async () => {
+        if (attempts >= maxAttempts) {
+            console.log('Stopping CSG status polling after max attempts');
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/csg-application/${key}`);
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const data = await response.json();
+            console.log('CSG application status:', data);
+
+            // Refresh applications list to get updated status
+            if (app.ports?.receiveApplications?.send) {
+                const applicationsResponse = await fetch('/api/applications');
+                if (applicationsResponse.ok) {
+                    const applicationsData = await applicationsResponse.json();
+                    app.ports.receiveApplications.send(applicationsData);
+                }
+            }
+
+            // Continue polling if not in a final state
+            if (data.status !== 'approved' && data.status !== 'declined') {
+                attempts++;
+                setTimeout(poll, pollInterval);
+            }
+        } catch (error) {
+            console.error('Error polling CSG status:', error);
+            attempts++;
+            setTimeout(poll, pollInterval);
+        }
+    };
+
+    // Start polling
+    poll();
+}
+
 // WebSocket connection handler
 function setupWebSocket(app: any) {
     let wsUrl = import.meta.env.VITE_API_WS_URL;
@@ -196,13 +242,28 @@ function setupWebSocket(app: any) {
             }
             
             if (message.type === 'verification_update') {
-                // First, send the verification update through verificationReceived port
+                // Map verification status to application status
+                const verificationStatus = message.body.status;
+                const applicationStatus = (() => {
+                    switch (verificationStatus) {
+                        case 'verified':
+                            return 'awaiting_signature';
+                        case 'failed':
+                            return 'submission_issue';
+                        case 'pending':
+                        case 'verifying':
+                            return 'waiting_review';
+                        default:
+                            return 'partial';
+                    }
+                })();
+
+                // Send the verification update through verificationReceived port
                 if (app.ports?.verificationReceived?.send) {
-                    // Construct verification result matching the Elm decoder
                     const verificationResult = {
                         applicationId: message.applicationId,
                         key: message.body.csg_id,
-                        verificationStatus: message.body.status === 'verified',
+                        verificationStatus: message.body.status,
                         verificationError: message.body.error || null,
                         verificationScreenshot: message.body.screenshot || null,
                         lastVerifiedAt: new Date().toISOString(),
@@ -210,27 +271,27 @@ function setupWebSocket(app: any) {
                     console.log('Sending verification update to Elm:', verificationResult);
                     
                     app.ports.verificationReceived.send(verificationResult);
+
+                    // Start polling CSG status if verification was successful
+                    if (verificationStatus === 'verified' && message.body.csg_id) {
+                        pollCSGStatus(message.body.csg_id, app);
+                    }
                 } else {
                     console.error('verificationReceived port not available');
                 }
 
-                // Then, refresh the applications list to update the UI
-                /*
-                if (app.ports?.requestRefresh?.send) {
-                    // Get current search params from URL
-                    const urlParams = new URLSearchParams(window.location.search);
-                    const currentState = {
-                        page: Number(urlParams.get('page')) || 0,
-                        pageSize: Number(urlParams.get('pageSize')) || 20,
-                        searchTerm: urlParams.get('searchTerm') || '',
-                        hasContactFilter: urlParams.get('hasContactFilter') === 'true',
-                        naics: urlParams.getAll('naics')
-                    };
-                    
-                    console.log('Requesting refresh with state:', currentState);
-                    app.ports.requestRefresh.send(currentState);
+                // Also send an application update to refresh the dashboard
+                if (app.ports?.receiveApplications?.send) {
+                    fetch('/api/applications')
+                        .then(response => response.json())
+                        .then(data => {
+                            console.log('Refreshing applications after verification update');
+                            app.ports.receiveApplications.send(data);
+                        })
+                        .catch(error => {
+                            console.error('Error refreshing applications:', error);
+                        });
                 }
-                */
             }
         } catch (error) {
             console.error('Error handling WebSocket message:', error);

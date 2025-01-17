@@ -9,7 +9,6 @@ import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
 import axios from 'axios'
 import { getHeaders } from './csg/submit'
-import { initializeCSG, cleanup as cleanupCSG } from './csg/verify'
 import { eq } from 'drizzle-orm'
 import { getDb } from './db'
 import { csgApplications } from './db/schema'
@@ -30,7 +29,24 @@ export function broadcastVerificationUpdate(applicationId: string, body: any) {
   const message = JSON.stringify({
     type: 'verification_update',
     applicationId,
-    body
+    body: {
+      ...body,
+      // Map verification status to application status
+      status: body.status,
+      applicationStatus: (() => {
+        switch (body.status) {
+          case 'verified':
+            return 'completed';
+          case 'failed':
+            return 'submission_issue';
+          case 'pending':
+          case 'verifying':
+            return 'waiting_review';
+          default:
+            return 'partial';
+        }
+      })()
+    }
   });
   
   wsClients.forEach(client => {
@@ -40,6 +56,13 @@ export function broadcastVerificationUpdate(applicationId: string, body: any) {
       console.error('Error sending WebSocket message:', error);
     }
   });
+}
+
+// Add type definition for CSG application response
+interface CSGApplicationResponse {
+  key: string;
+  status: string;
+  // Add other fields as needed
 }
 
 const app = new Elysia({
@@ -395,7 +418,45 @@ const app = new Elysia({
       const data = await makeCSGRequest({
         method: 'GET',
         url: `/v1/e_app/enrollment_applications/${key}.json`
-      });
+      }) as CSGApplicationResponse;
+
+      // Get the application ID from the database
+      const db = getDb();
+      const [csgApp] = await db
+        .select()
+        .from(csgApplications)
+        .where(eq(csgApplications.key, key));
+
+      if (csgApp) {
+        // Check CSG application status
+        const csgStatus = data.status;
+        let newStatus = csgApp.verificationStatus;
+
+        // Update application status based on CSG status
+        if (csgStatus === 'approved') {
+          newStatus = 'completed';
+        } else if (csgStatus === 'declined') {
+          newStatus = 'declined';
+        }
+        // For now, we don't change the status for other CSG statuses
+        // This is where we'll add more status mappings in the future
+
+        // Update the status if it changed
+        if (newStatus !== csgApp.verificationStatus) {
+          await db.update(csgApplications)
+            .set({
+              verificationStatus: newStatus,
+              updatedAt: new Date()
+            })
+            .where(eq(csgApplications.id, csgApp.id));
+
+          // Broadcast the status update
+          broadcastVerificationUpdate(csgApp.applicationId, {
+            status: newStatus,
+            csg_id: key
+          });
+        }
+      }
       
       return new Response(
         JSON.stringify(data, null, 2), 
@@ -594,9 +655,6 @@ if (!isDev) {
 // Initialize CSG and start server
 async function startServer() {
   try {
-    // Initialize CSG
-    await initializeCSG(isDev);
-    
     // Start the server
     const port = Number(process.env.PORT) || 3000;
     await app.listen({
@@ -606,19 +664,6 @@ async function startServer() {
     });
     
     console.log(`🦊 Server is running at http://localhost:${port} (${isDev ? 'development' : 'production'} mode)`);
-
-    // Handle cleanup on server shutdown
-    process.on('SIGTERM', async () => {
-      console.log('SIGTERM received. Cleaning up...');
-      await cleanupCSG();
-      process.exit(0);
-    });
-
-    process.on('SIGINT', async () => {
-      console.log('SIGINT received. Cleaning up...');
-      await cleanupCSG();
-      process.exit(0);
-    });
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);
