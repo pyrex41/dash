@@ -3,6 +3,7 @@ import { applications, csgApplications, producers } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { getToken, getQuoteToken, makeCSGRequest, handleTokenError } from './token';
 import axios from 'axios';
+import { broadcastVerificationUpdate } from '../index';
 
 interface QuoteRequest {
   effective_date: string;
@@ -161,6 +162,10 @@ export async function submitToCSG(applicationId: string, producerId: number, for
     if (!application || !application.naic) {
       throw new Error('Application not found');
     }
+
+    // Broadcast initial pending status
+    broadcastVerificationUpdate(applicationId, 'pending');
+
     const carrierAssignedIdentifier = await getCarrierAssignedIdentifier(producerId, application.naic);
 
     // Check for existing CSG application
