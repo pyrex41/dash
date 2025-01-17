@@ -62,7 +62,7 @@ type alias Model =
     , searchTerm : String
     , hasContactFilter : Bool
     , hasCSGFilter : Bool
-    , selectedCarrier : Maybe Carrier
+    , selectedCarrier : Maybe CSGSchema.Carrier
     , isLoading : Bool
     , error : Maybe String
     , searchDebouncer : Debounce String
@@ -214,6 +214,8 @@ type Msg
     | ViewScreenshot String
     | ToggleActionMenu String
     | CloseActionMenu
+    | SubmitToCSG String String
+    | SubmissionReceived String (Result Http.Error SubmissionResult)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -506,6 +508,43 @@ update msg model =
             ( { model | openActionMenu = Nothing }
             , Cmd.none
             )
+
+        SubmitToCSG id producerId ->
+            case String.toInt producerId of
+                Just pid ->
+                    ( { model | submitting = Set.insert id model.submitting }
+                    , submitToCSG ( id, pid )
+                    )
+
+                Nothing ->
+                    ( { model | error = Just "Invalid producer ID" }
+                    , Cmd.none
+                    )
+
+        SubmissionReceived id result ->
+            case result of
+                Ok submissionResult ->
+                    let
+                        newSubmissionResults =
+                            Dict.insert id submissionResult model.submissionResults
+
+                        newSubmitting =
+                            Set.remove id model.submitting
+                    in
+                    ( { model
+                        | submissionResults = newSubmissionResults
+                        , submitting = newSubmitting
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model
+                        | error = Just (httpErrorToString error)
+                        , submitting = Set.remove id model.submitting
+                      }
+                    , Cmd.none
+                    )
 
 
 
@@ -856,10 +895,21 @@ viewApplicationRow model app =
                             ]
                             [ text "View" ]
                         , if Set.member app.id model.verifying then
-                            div [ class "flex items-center gap-2 text-sm text-gray-600" ]
-                                [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ]
-                                    []
-                                , text "Verifying..."
+                            div [ class "flex items-center gap-2" ]
+                                [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
+                                , span [ class "text-sm text-gray-600" ] [ text "Verifying..." ]
+                                ]
+
+                          else if Set.member app.id model.submitting then
+                            div [ class "flex items-center gap-2" ]
+                                [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
+                                , span [ class "text-sm text-gray-600" ] [ text "Submitting..." ]
+                                ]
+
+                          else if csgApp.verificationStatus == "pending" then
+                            div [ class "flex items-center gap-2" ]
+                                [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
+                                , span [ class "text-sm text-gray-600" ] [ text "Verifying..." ]
                                 ]
 
                           else
@@ -893,10 +943,6 @@ viewApplicationRow model app =
                                         , span [ class "text-sm text-red-600" ]
                                             [ text (Maybe.withDefault "Verification failed" csgApp.verificationError) ]
                                         ]
-
-                                "pending" ->
-                                    div [ class "text-sm text-gray-600" ]
-                                        [ text "Verification pending..." ]
 
                                 _ ->
                                     text ""

@@ -9,6 +9,7 @@ let browserInstance: Browser | null = null;
 let lastLoginTime: number = 0;
 const LOGIN_TIMEOUT = 1000 * 60 * 30; // 30 minutes
 const LOAD_ASSETS = true; // Toggle for loading images, stylesheets and fonts
+const VERIFICATION_TIMEOUT = 120000; // 2 minutes timeout
 
 async function getBrowser(): Promise<Browser> {
   if (!browserInstance) {
@@ -228,7 +229,21 @@ interface CSGApplicationData {
   [key: string]: any;
 }
 
-export async function verifyCSGApplication(urlSlug: string, options: VerifyOptions = {}) {
+interface VerificationResult {
+  success: boolean;
+  screenshot: string | null;
+  verifyUrl: string | null;
+  error: string | null;
+}
+
+interface VerificationResponse {
+  success: boolean;
+  screenshot: string | null;
+  verifyUrl: string | null;
+  error: string | null;
+}
+
+export async function verifyCSGApplication(urlSlug: string, options: VerifyOptions = {}): Promise<VerificationResponse> {
   const {
     debug = false
   } = options;
@@ -238,125 +253,180 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
   try {
     const page = await getAuthenticatedPage(debug);
     
-    log('Setting initial viewport...');
-    await page.setViewport({
-      width: 2166,
-      height: 1363
+    // Create a timeout promise
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Verification timed out after 2 minutes'));
+      }, VERIFICATION_TIMEOUT);
     });
 
-    // Fetch the application data to check NAIC
-    const applicationData = await makeCSGRequest<CSGApplicationData>({
-      method: 'GET',
-      url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
-    });
-
-    // If this is a Chubb application, apply the zip code workaround
-    if (applicationData.naic === '20699') {
-      await fixChubbZipCode(page, urlSlug, debug);
-    }
-
-    const verifyUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}/verify`;
-    log(`Navigating to: ${verifyUrl}`);
-    
-    await page.goto(verifyUrl, {
-      waitUntil: 'networkidle0',
-      timeout: 60000
-    });
-
-    try {
-      log('Waiting for page content...');
-      await page.waitForSelector('#content', { 
-        visible: true,
-        timeout: 30000 
-      });
-
-      // Ensure the page is fully rendered
-      log('Waiting additional time for rendering...'); 
-      await new Promise(resolve => setTimeout(resolve, 5000));
-
-      // Set a very tall viewport to capture everything
-      log('Setting tall viewport for full page capture...');
-      await page.setViewport({
-        width: 2166,
-        height: 5000  // Very tall to capture everything
-      });
-
-      // Always take screenshot now
-      log('Taking screenshot...');
-      const screenshot = await page.screenshot({
-        fullPage: true,
-        encoding: 'base64'
-      });
-
-      // Check for yellow highlighted error elements
-      const hasErrors = await page.evaluate(() => {
-        const elements = document.querySelectorAll('*');
-        for (const element of elements) {
-          const style = window.getComputedStyle(element);
-          const backgroundColor = style.backgroundColor;
-          // Check for yellow background (could be rgba or hex)
-          if (backgroundColor.includes('255, 255, 0') || backgroundColor === 'rgb(255, 255, 0)' || backgroundColor === '#ffff00') {
-            return true;
-          }
-        }
-        return false;
-      });
-
-      // Fetch the application data to check in_good_order
-      const applicationData = await makeCSGRequest<CSGApplicationData>({
-        method: 'GET',
-        url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
-      });
-
-      const inGoodOrder = applicationData.in_good_order === true;
-      const verificationStatus = inGoodOrder && !hasErrors ? 'verified' : 'failed';
-      const verificationError = hasErrors ? 'Verification page shows highlighted errors' : !inGoodOrder ? 'Application is not in good order' : null;
-
-      // Save verification results to database
-      const db = getDb();
-      await db.update(csgApplications)
-        .set({
-          verificationStatus,
-          verificationScreenshot: screenshot,
-          verificationError,
-          lastVerifiedAt: new Date(),
-          updatedAt: new Date()
-        })
-        .where(eq(csgApplications.key, urlSlug));
-
-      if (hasErrors || !inGoodOrder) {
-        return { 
-          success: false, 
-          screenshot: screenshot,
-          verifyUrl,
-          error: verificationError
-        };
-      }
-
-      return { 
-        success: true, 
-        screenshot: screenshot,
-        verifyUrl
-      };
-    } catch (error) {
-      if (debug) {
-        // Ensure tall viewport for error screenshot too
+    // Create the verification promise
+    const verificationPromise = (async () => {
+      try {
+        log('Setting initial viewport...');
         await page.setViewport({
           width: 2166,
-          height: 5000
-        });
-        const errorScreenshot = await page.screenshot({
-          fullPage: true,
-          encoding: 'base64'
+          height: 1363
         });
 
-        // Save error state to database
+        // Fetch the application data to check NAIC
+        const initialAppData = await makeCSGRequest<CSGApplicationData>({
+          method: 'GET',
+          url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
+        });
+
+        // If this is a Chubb application, apply the zip code workaround
+        if (initialAppData.naic === '20699' && !/^\d{5}$/.test(initialAppData.values.applicant_info.zip5)) {
+          await fixChubbZipCode(page, urlSlug, debug);
+        }
+
+        const verifyUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}/verify`;
+        log(`Navigating to: ${verifyUrl}`);
+        
+        await page.goto(verifyUrl, {
+          waitUntil: 'networkidle0',
+          timeout: 60000
+        });
+
+        log('Waiting for page content...');
+        await page.waitForSelector('#content', { 
+          visible: true,
+          timeout: 30000 
+        });
+
+        // Ensure the page is fully rendered
+        log('Waiting additional time for rendering...'); 
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        // Set a very tall viewport to capture everything
+        log('Setting tall viewport for full page capture...');
+        await page.setViewport({
+          width: 2166,
+          height: 5000  // Very tall to capture everything
+        });
+
+        // Always take screenshot now
+        log('Taking screenshot...');
+        const screenshot = await page.screenshot({
+          fullPage: true,
+          encoding: 'base64'
+        }) as string;
+
+        // Click the E-sign button (handles different text variations)
+        log('Looking for E-sign button...');
+        const buttonSelectors = [
+          '#e_sign',
+          'button:has-text("Continue to E-Sign")',
+          'button:has-text("Lock and E-Sign")',
+          'button:has-text("Lock and Esign")',
+          'button:has-text("Continue to Esign")'
+        ];
+
+        // Try each selector until we find one that works
+        let clicked = false;
+        for (const selector of buttonSelectors) {
+          try {
+            const button = await page.waitForSelector(selector, { timeout: 1000 });
+            if (button) {
+              log(`Found button with selector: ${selector}`);
+              await button.click();
+              clicked = true;
+              break;
+            }
+          } catch (error) {
+            // Button not found with this selector, try next one
+            continue;
+          }
+        }
+
+        if (!clicked) {
+          log('Warning: Could not find E-sign button with any selector');
+        } else {
+          log('Clicked E-sign button');
+          // Wait for navigation after click
+          await page.waitForNavigation({ timeout: 30000 }).catch(error => {
+            log('Warning: Navigation timeout after clicking E-sign button');
+          });
+        }
+
+        // Check for yellow highlighted error elements
+        const hasErrors = await page.evaluate(() => {
+          const elements = document.querySelectorAll('*');
+          for (const element of elements) {
+            const style = window.getComputedStyle(element);
+            const backgroundColor = style.backgroundColor;
+            // Check for yellow background (could be rgba or hex)
+            if (backgroundColor.includes('255, 255, 0') || backgroundColor === 'rgb(255, 255, 0)' || backgroundColor === '#ffff00') {
+              return true;
+            }
+          }
+          return false;
+        });
+
+        // Fetch the application data to check in_good_order
+        const finalAppData = await makeCSGRequest<CSGApplicationData>({
+          method: 'GET',
+          url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
+        });
+
+        const inGoodOrder = finalAppData.in_good_order === true;
+        const verificationStatus = inGoodOrder && !hasErrors ? 'verified' : 'failed';
+        const verificationError = hasErrors ? 'Verification page shows highlighted errors' : !inGoodOrder ? 'Application is not in good order' : null;
+
+        // Save verification results to database
         const db = getDb();
+        await db.update(csgApplications)
+          .set({
+            verificationStatus,
+            verificationScreenshot: screenshot,
+            verificationError,
+            lastVerifiedAt: new Date(),
+            updatedAt: new Date()
+          })
+          .where(eq(csgApplications.key, urlSlug));
+
+        if (hasErrors || !inGoodOrder) {
+          return { 
+            success: false, 
+            screenshot,
+            verifyUrl,
+            error: verificationError || 'Unknown verification error'
+          } satisfies VerificationResponse;
+        }
+
+        return { 
+          success: true, 
+          screenshot,
+          verifyUrl,
+          error: null
+        } satisfies VerificationResponse;
+      } catch (error) {
+        // Handle errors during verification
+        const db = getDb();
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        
+        // Take error screenshot if possible
+        let errorScreenshot: string | null = null;
+        try {
+          await page.setViewport({
+            width: 2166,
+            height: 5000
+          });
+          const screenshot = await page.screenshot({
+            fullPage: true,
+            encoding: 'base64'
+          });
+          errorScreenshot = screenshot as string;
+        } catch (screenshotError) {
+          log('Failed to capture error screenshot:', screenshotError);
+        }
+
+        // Save error state to database
         await db.update(csgApplications)
           .set({
             verificationStatus: 'failed',
             verificationScreenshot: errorScreenshot,
-            verificationError: error instanceof Error ? error.message : 'Unknown error occurred',
+            verificationError: errorMessage,
             lastVerifiedAt: new Date(),
             updatedAt: new Date()
           })
@@ -365,17 +435,39 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
         return {
           success: false,
           screenshot: errorScreenshot,
-          verifyUrl,
-          error: error instanceof Error ? error.message : 'Unknown error occurred'
-        };
+          verifyUrl: null,
+          error: errorMessage
+        } satisfies VerificationResponse;
+      } finally {
+        await page.close();
       }
-      throw error;
-    } finally {
-      await page.close(); // Close just this page, not the browser
-    }
+    })();
+
+    // Race between verification and timeout
+    const result = await Promise.race([verificationPromise, timeoutPromise]) as VerificationResponse;
+    return result;
   } catch (error) {
-    console.error('Verification failed:', error);
-    throw new Error(`Verification failed: ${error.message}`);
+    // Handle timeout or other errors
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error('Verification failed:', errorMessage);
+    
+    // Update database with timeout/error status
+    const db = getDb();
+    await db.update(csgApplications)
+      .set({
+        verificationStatus: 'failed',
+        verificationError: errorMessage,
+        lastVerifiedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(csgApplications.key, urlSlug));
+
+    return {
+      success: false,
+      screenshot: null,
+      verifyUrl: null,
+      error: errorMessage
+    } satisfies VerificationResponse;
   }
 } 
 

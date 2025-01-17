@@ -21,29 +21,80 @@ const __dirname = dirname(__filename)
 // Detect environment
 const isDev = process.env.NODE_ENV === 'development' || !process.env.NODE_ENV
 
-const app = new Elysia({
-  serve: {
-    hostname: '0.0.0.0',
-    port: Number(process.env.PORT) || 3000,
-    idleTimeout: 240, // 4 minutes (must be <= 255 seconds)
-    development: isDev
-  }
-}).use(cors({
-  origin: [
-    'http://localhost:5173',  // Development
-    'http://localhost:3000',  // Local production
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'HEAD'],
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-  exposeHeaders: ['Content-Length', 'Content-Type'],
-  maxAge: 600
-}))
+// WebSocket clients store
+type WSClient = { send: (data: string) => void };
+const wsClients = new Set<WSClient>();
 
-// --------------------------
-// API Routes
-// --------------------------
-app.group('/api', app => app
+// Helper function to broadcast verification updates
+export function broadcastVerificationUpdate(applicationId: string, status: string) {
+  const message = JSON.stringify({
+    type: 'verification_update',
+    applicationId,
+    status
+  });
+  
+  wsClients.forEach(client => {
+    try {
+      client.send(message);
+    } catch (error) {
+      console.error('Error sending WebSocket message:', error);
+    }
+  });
+}
+
+const app = new Elysia({
+  websocket: {
+    idleTimeout: 30 // Reduced to 30 seconds to work with our heartbeat
+  },
+  serve: {
+    idleTimeout: 120 // 2 minutes for long-running requests
+  }
+})
+.use(cors())
+.ws('/ws', {
+  open(ws) {
+    console.log('WebSocket client connected');
+    wsClients.add(ws);
+    
+    // Start heartbeat for this connection
+    const heartbeat = setInterval(() => {
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } catch (error) {
+        console.error('Heartbeat failed, cleaning up:', error);
+        clearInterval(heartbeat);
+        wsClients.delete(ws);
+      }
+    }, 20000); // Send heartbeat every 20 seconds
+    
+    // Store heartbeat interval for cleanup
+    (ws as any).heartbeat = heartbeat;
+  },
+  close(ws) {
+    console.log('WebSocket client disconnected');
+    // Clear heartbeat interval
+    if ((ws as any).heartbeat) {
+      clearInterval((ws as any).heartbeat);
+    }
+    wsClients.delete(ws);
+  },
+  message(ws, message) {
+    try {
+      // Handle both string and object messages
+      const data = typeof message === 'string' ? JSON.parse(message) : message;
+      
+      // Handle ping/pong
+      if (data.type === 'pong') {
+        console.log('Received pong from client');
+      } else {
+        console.log('Received message:', data);
+      }
+    } catch (error) {
+      console.error('Error handling message:', error);
+    }
+  }
+})
+.group('/api', app => app
   .get('/applications', async ({ query: params }) => {
     try {
       const page = Number(params?.page) || 0
@@ -63,10 +114,20 @@ app.group('/api', app => app
       })
       
       const result = await getApplications(page, pageSize, searchTerm, hasContactFilter, naics)
+
+      // Log verification statuses for debugging
+      console.log('Verification statuses:', result.applications.map(app => ({
+        id: app.id,
+        verificationStatus: app.csgApplication?.verificationStatus
+      })))
+      
       console.log('GET /applications response:', {
         total: result.pagination.total,
         totalPages: result.pagination.totalPages,
-        applicationCount: result.applications.length
+        applicationCount: result.applications.length,
+        pendingVerifications: result.applications.filter(
+          app => app.csgApplication?.verificationStatus === 'pending'
+        ).length
       })
       
       return result
@@ -360,25 +421,31 @@ app.group('/api', app => app
       
       const result = await verifyCSGApplication(key, {
         headless: true,
-        debug: process.env.NODE_ENV === 'development'
+        debug: isDev
       });
+
+      // Get the application ID from the database
+      const db = getDb();
+      const [csgApp] = await db
+        .select()
+        .from(csgApplications)
+        .where(eq(csgApplications.key, key));
+
+      if (csgApp) {
+        // Broadcast the verification update
+        broadcastVerificationUpdate(
+          csgApp.applicationId,
+          result.success ? 'verified' : 'failed'
+        );
+      }
       
-      return new Response(
-        JSON.stringify(result),
-        { 
-          status: 200,
-          headers: { 'Content-Type': 'application/json' }
-        }
-      );
+      return result;
     } catch (error) {
       console.error('Error verifying CSG application:', error);
-      return new Response(
-        JSON.stringify({ 
-          error: 'Failed to verify CSG application',
-          details: error instanceof Error ? error.message : String(error)
-        }), 
-        { status: 500 }
-      );
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred'
+      };
     }
   })
 
@@ -480,50 +547,35 @@ if (!isDev) {
   }
 }
 
-let isInitializing = false;
-let isInitialized = false;
-
+// Initialize CSG and start server
 async function startServer() {
   try {
-    if (!isInitialized && !isInitializing) {
-      isInitializing = true;
-      console.log('Initializing CSG session...');
-      await initializeCSG(isDev);
-      console.log('CSG session initialized successfully');
-      isInitialized = true;
-      isInitializing = false;
-    }
+    // Initialize CSG
+    await initializeCSG(isDev);
     
-    // Create server instance but don't start listening yet
-    const server = app.listen();
+    // Start the server
+    const port = Number(process.env.PORT) || 3000;
+    await app.listen({
+      port,
+      hostname: '0.0.0.0',
+      development: isDev
+    });
     
-    // Wait a moment for everything to initialize
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Start accepting connections
-    server.listen(process.env.PORT || 3000);
-    
-    console.log(
-      `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port} (${isDev ? 'development' : 'production'} mode)`
-    );
+    console.log(`🦊 Server is running at http://localhost:${port} (${isDev ? 'development' : 'production'} mode)`);
 
     // Handle cleanup on server shutdown
     process.on('SIGTERM', async () => {
       console.log('SIGTERM received. Cleaning up...');
       await cleanupCSG();
-      await server.stop();
       process.exit(0);
     });
 
     process.on('SIGINT', async () => {
       console.log('SIGINT received. Cleaning up...');
       await cleanupCSG();
-      await server.stop();
       process.exit(0);
     });
-
   } catch (error) {
-    isInitializing = false;
     console.error('Failed to start server:', error);
     process.exit(1);
   }
