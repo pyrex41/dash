@@ -1,6 +1,6 @@
 module Dashboard exposing (Model, Msg, init, subscriptions, update, view)
 
-import ApplicationView exposing (applicationViewDecoder)
+import ApplicationView exposing (Status(..), applicationViewDecoder)
 import Browser
 import Browser.Events
 import CSGSchema exposing (Carrier(..))
@@ -115,14 +115,6 @@ type alias Booking =
     , url : String
     , status : String
     }
-
-
-type Status
-    = CompletedApp
-    | WaitingReview
-    | QuoteSent
-    | SubmittedToCSG
-    | CallBooked
 
 
 type alias SubmissionResult =
@@ -343,8 +335,8 @@ update msg model =
                 | applications = response.applications
                 , isLoading = False
                 , searchLoading = False
-                , quoteSent = List.length (List.filter (\a -> a.status == QuoteSent) response.applications)
-                , submissions = List.length (List.filter (\a -> a.status == QuoteSent) response.applications)
+                , quoteSent = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
+                , submissions = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
                 , waitingReview = List.length (List.filter (\a -> a.status == WaitingReview) response.applications)
                 , completedApps = List.length (List.filter (\a -> a.status == CompletedApp) response.applications)
                 , total = response.pagination.total
@@ -1007,14 +999,20 @@ viewStatus status =
                 WaitingReview ->
                     ( "Waiting Review", "text-red-600 bg-red-50" )
 
-                QuoteSent ->
-                    ( "Started", "text-blue-600 bg-blue-50" )
+                PartialApplication ->
+                    ( "Started App", "text-blue-600 bg-blue-50" )
 
-                SubmittedToCSG ->
-                    ( "Submitted to CSG", "text-purple-600 bg-purple-50" )
+                SubmissionIssue ->
+                    ( "Submission Issue", "text-purple-600 bg-purple-50" )
 
-                CallBooked ->
-                    ( "Intro Call", "text-orange-600 bg-orange-50" )
+                IssuedPolicy ->
+                    ( "Issued", "text-green-600 bg-green-50" )
+
+                DeclinedPolicy ->
+                    ( "Declined", "text-gray-600 bg-gray-50" )
+
+                AwaitingSignature ->
+                    ( "Awaiting Signature", "text-yellow-600 bg-yellow-50" )
     in
     div [ class ("flex items-center gap-2 " ++ statusColor ++ " px-3 py-1 rounded-full w-fit") ]
         [ div [ class "w-2 h-2 rounded-full bg-current" ] []
@@ -1129,20 +1127,23 @@ statusDecoder =
                     "completed" ->
                         Decode.succeed CompletedApp
 
-                    "review" ->
+                    "waiting_review" ->
                         Decode.succeed WaitingReview
 
-                    "quote" ->
-                        Decode.succeed QuoteSent
+                    "partial" ->
+                        Decode.succeed PartialApplication
 
-                    "submitted_to_csg" ->
-                        Decode.succeed SubmittedToCSG
+                    "submission_issue" ->
+                        Decode.succeed SubmissionIssue
 
-                    "call_booked" ->
-                        Decode.succeed CallBooked
+                    "issued" ->
+                        Decode.succeed IssuedPolicy
+
+                    "declined" ->
+                        Decode.succeed DeclinedPolicy
 
                     _ ->
-                        Decode.succeed QuoteSent
+                        Decode.succeed PartialApplication
             )
 
 

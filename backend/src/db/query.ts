@@ -26,6 +26,57 @@ const client = createClient({
 })
 const db = drizzle(client)
 
+// Add function to check if application is complete
+const isApplicationComplete = (data: any): boolean => {
+  try {
+    // Required sections that must be complete
+    const requiredSections = [
+      'applicant_info',
+      'medicare_information',
+      'previous_coverage_information',
+      'payment',
+      'producer'
+    ];
+
+    // Check if all required sections exist
+    for (const section of requiredSections) {
+      if (!data[section]) {
+        return false;
+      }
+    }
+
+    // Check applicant info completeness
+    const applicantInfo = data.applicant_info;
+    const requiredApplicantFields = ['f_name', 'l_name', 'dob', 'phone', 'email', 'address_line1', 'city', 'state', 'zip'];
+    if (!applicantInfo || !requiredApplicantFields.every(field => applicantInfo[field])) {
+      return false;
+    }
+
+    // Check Medicare info completeness
+    const medicareInfo = data.medicare_information;
+    if (!medicareInfo?.medicare_number || !medicareInfo?.part_a_date || !medicareInfo?.part_b_date) {
+      return false;
+    }
+
+    // Check payment info completeness
+    const payment = data.payment;
+    if (!payment?.payment_mode || !payment?.payment_method) {
+      return false;
+    }
+
+    // Check producer info completeness
+    const producer = data.producer;
+    if (!producer?.agent_reviewed || !producer?.applicant_reviewed) {
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error checking application completeness:', error);
+    return false;
+  }
+};
+
 // Helper function to format application data
 export const formatApplicationData = async (rawApplications: any[]) => {
   if (rawApplications.length === 0) return []
@@ -56,7 +107,13 @@ export const formatApplicationData = async (rawApplications: any[]) => {
       }
     }
 
-    const status = determineStatus(app.status, !!relatedCsgApp, !!relatedBooking)
+    const appData = typeof app.data === 'string' ? JSON.parse(app.data) : app.data;
+    const status = determineStatus(
+      app.status, 
+      !!relatedCsgApp, 
+      !!relatedBooking,
+      relatedCsgApp
+    )
 
     return {
       id: app.id,
@@ -67,7 +124,7 @@ export const formatApplicationData = async (rawApplications: any[]) => {
       dateCompleted: null,
       status,
       state: null,
-      data: typeof app.data === 'string' ? JSON.parse(app.data) : app.data,
+      data: appData,
       name: app.name || 'Unknown',
       naic: app.naic,
       booking: relatedBooking ? {
@@ -91,15 +148,43 @@ export const formatApplicationData = async (rawApplications: any[]) => {
 const determineStatus = (
   status: string,
   hasCsgApp: boolean,
-  hasBooking: boolean
-): 'completed' | 'review' | 'quote' | 'submitted_to_csg' | 'call_booked' => {
-  if (hasCsgApp) return 'submitted_to_csg'
-  if (hasBooking) return 'call_booked'
+  hasBooking: boolean,
+  csgApp?: { verificationStatus: string }
+): string => {
+  // If there's a CSG app, status depends on verification status
+  if (hasCsgApp && csgApp) {
+    switch (csgApp.verificationStatus) {
+      case 'verified':
+        return 'awaiting_signature';
+      case 'failed':
+        return 'submission_issue';
+      case 'pending':
+      case 'verifying':
+        return 'waiting_review';
+      default:
+        return 'partial';
+    }
+  }
+
+  // If there's a booking but no CSG app, it's waiting for review
+  if (hasBooking) return 'waiting_review';
   
+  // Otherwise use the stored status or default to partial
   switch (status.toLowerCase()) {
-    case 'completed': return 'completed'
-    case 'review': return 'review'
-    default: return 'quote'
+    case 'completed':
+      return 'completed';
+    case 'review':
+      return 'waiting_review';
+    case 'submitted_to_csg':
+      return 'waiting_review';
+    case 'declined':
+      return 'declined';
+    case 'issued':
+      return 'issued';
+    case 'awaiting_signature':
+      return 'awaiting_signature';
+    default:
+      return 'partial';
   }
 }
 
