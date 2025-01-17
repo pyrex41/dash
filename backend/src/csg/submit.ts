@@ -3,7 +3,6 @@ import { applications, csgApplications, producers } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { getToken, getQuoteToken, makeCSGRequest, handleTokenError } from './token';
 import axios from 'axios';
-import { broadcastVerificationUpdate } from '../index';
 
 interface QuoteRequest {
   effective_date: string;
@@ -164,8 +163,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
     }
 
     // Broadcast initial pending status
-    broadcastVerificationUpdate(applicationId, 'pending');
-
     const carrierAssignedIdentifier = await getCarrierAssignedIdentifier(producerId, application.naic);
 
     // Check for existing CSG application
@@ -336,10 +333,11 @@ export async function submitToCSG(applicationId: string, producerId: number, for
           if (error.response?.status === 500) {
             console.log('Got 500 error, attempting to recover application...');
             const recoveredApp = await findApplicationByTrackingId(applicationId);
+
             
             if (recoveredApp) {
               console.log('Successfully recovered application:', recoveredApp.key);
-              
+
               // Update database with recovered application
               await Promise.all([
                 db.update(applications)

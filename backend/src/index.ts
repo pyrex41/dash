@@ -26,11 +26,11 @@ type WSClient = { send: (data: string) => void };
 const wsClients = new Set<WSClient>();
 
 // Helper function to broadcast verification updates
-export function broadcastVerificationUpdate(applicationId: string, status: string) {
+export function broadcastVerificationUpdate(applicationId: string, body: any) {
   const message = JSON.stringify({
     type: 'verification_update',
     applicationId,
-    status
+    body
   });
   
   wsClients.forEach(client => {
@@ -327,19 +327,58 @@ const app = new Elysia({
         };
       }
 
+      broadcastVerificationUpdate(params.id, { status: 'pending' });
       const result = await submitToCSG(params.id, producerId);
-      
-      // Start verification in the background
-      const port = Number(process.env.PORT) || 3000;
-      const verifyUrl = `http://localhost:${port}/api/csg-application/${result.key}/verify`;
-      fetch(verifyUrl).catch(error => {
-        console.error('Error starting verification:', error);
+
+      if (result.status !== 200) {
+        broadcastVerificationUpdate(params.id, { status: 'failed' });
+        return { 
+          success: false,
+          error: 'Failed to submit application'
+        };
+      }
+
+      // Broadcast that verification is starting and return immediately
+      broadcastVerificationUpdate(params.id, { 
+        status: 'verifying', 
+        csg_id: result.key,
+        verifyUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${result.key}/verify`
       });
 
+      // Start verification process in the background
+      const { verifyCSGApplication } = await import('./csg/verify');
+      verifyCSGApplication(result.key, {
+        headless: true,
+        debug: isDev
+      }).then(verifyResult => {
+        if (verifyResult.success) {
+          broadcastVerificationUpdate(params.id, { 
+            status: 'verified', 
+            csg_id: result.key,
+            verifyUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${result.key}/verify`,
+            signatureUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${result.key}/esign/consent`
+          });
+        } else {
+          broadcastVerificationUpdate(params.id, { 
+            status: 'failed', 
+            error: verifyResult.error,
+            verifyUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${result.key}/verify`
+          });
+        }
+      }).catch(error => {
+        console.error('Error during verification:', error);
+        broadcastVerificationUpdate(params.id, { 
+          status: 'failed', 
+          error: error.message,
+          verifyUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${result.key}/verify`
+        });
+      });
+
+      // Return immediately with verifying status
       return { 
         success: true,  
         data: result,
-        verificationStatus: 'pending'
+        verificationStatus: 'verifying'
       };
     } catch (error: any) {
       console.error('Error submitting to CSG:', error);
@@ -435,7 +474,12 @@ const app = new Elysia({
         // Broadcast the verification update
         broadcastVerificationUpdate(
           csgApp.applicationId,
-          result.success ? 'verified' : 'failed'
+          {
+            status: result.success ? 'verified' : 'failed',
+            screenshot: result.screenshot,
+            verifyUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${csgApp.key}/verify`,
+            error: result.success ? undefined : result.error
+          }
         );
       }
       

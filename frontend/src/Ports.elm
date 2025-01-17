@@ -22,7 +22,7 @@ port receiveApplication : (Decode.Value -> msg) -> Sub msg
 port verifyCSGApplication : ( String, String ) -> Cmd msg
 
 
-port verificationReceived : (( String, Decode.Value ) -> msg) -> Sub msg
+port verificationReceived : (Decode.Value -> msg) -> Sub msg
 
 
 

@@ -135,11 +135,12 @@ type alias SubmissionResult =
 
 
 type alias VerificationResult =
-    { success : Bool
-    , screenshot : String
-    , verifyUrl : String
-    , error : Maybe String
+    { applicationId : String
+    , key : String
     , verificationStatus : String
+    , verificationError : Maybe String
+    , verificationScreenshot : Maybe String
+    , lastVerifiedAt : Maybe String
     }
 
 
@@ -210,7 +211,7 @@ type Msg
     | CloseApplicationModal
     | HandleKeyPress String
     | VerifyApplication String
-    | VerificationReceived String (Result Http.Error VerificationResult)
+    | VerificationReceived (Result Http.Error VerificationResult)
     | ViewScreenshot String
     | ToggleActionMenu String
     | CloseActionMenu
@@ -431,6 +432,10 @@ update msg model =
                 Just app ->
                     case app.csgApplication of
                         Just csgApp ->
+                            let
+                                _ =
+                                    Debug.log "VerifyApplication" ( id, csgApp.key )
+                            in
                             ( { model | verifying = Set.insert id model.verifying }
                             , verifyCSGApplication ( id, csgApp.key )
                             )
@@ -441,10 +446,13 @@ update msg model =
                 Nothing ->
                     ( model, Cmd.none )
 
-        VerificationReceived id result ->
+        VerificationReceived result ->
             case result of
                 Ok verificationResult ->
                     let
+                        id =
+                            verificationResult.applicationId
+
                         newVerificationResults =
                             Dict.insert id verificationResult model.verificationResults
 
@@ -461,8 +469,8 @@ update msg model =
                                                     (\csgApp ->
                                                         { csgApp
                                                             | verificationStatus = verificationResult.verificationStatus
-                                                            , verificationScreenshot = Just verificationResult.screenshot
-                                                            , verificationError = verificationResult.error
+                                                            , verificationScreenshot = verificationResult.verificationScreenshot
+                                                            , verificationError = verificationResult.verificationError
                                                         }
                                                     )
                                                     app.csgApplication
@@ -484,7 +492,8 @@ update msg model =
                 Err error ->
                     ( { model
                         | error = Just (httpErrorToString error)
-                        , verifying = Set.remove id model.verifying
+
+                        --, verifying = Set.remove id model.verifying
                       }
                     , Cmd.none
                     )
@@ -894,19 +903,13 @@ viewApplicationRow model app =
                             , onClick (ViewApplication app.id)
                             ]
                             [ text "View" ]
-                        , if Set.member app.id model.verifying then
-                            div [ class "flex items-center gap-2" ]
-                                [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
-                                , span [ class "text-sm text-gray-600" ] [ text "Verifying..." ]
-                                ]
-
-                          else if Set.member app.id model.submitting then
+                        , if Set.member app.id model.submitting then
                             div [ class "flex items-center gap-2" ]
                                 [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
                                 , span [ class "text-sm text-gray-600" ] [ text "Submitting..." ]
                                 ]
 
-                          else if csgApp.verificationStatus == "pending" then
+                          else if Set.member app.id model.verifying then
                             div [ class "flex items-center gap-2" ]
                                 [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
                                 , span [ class "text-sm text-gray-600" ] [ text "Verifying..." ]
@@ -914,6 +917,23 @@ viewApplicationRow model app =
 
                           else
                             case csgApp.verificationStatus of
+                                "verifying" ->
+                                    div [ class "flex items-center gap-2" ]
+                                        [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
+                                        , span [ class "text-sm text-gray-600" ] [ text "Verifying..." ]
+                                        ]
+
+                                "pending" ->
+                                    div [ class "flex items-center gap-2" ]
+                                        [ button
+                                            [ class "inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-md"
+                                            , onClick (SubmitToCSG app.id "1")
+                                            ]
+                                            [ text "Resubmit" ]
+                                        , span [ class "text-sm text-gray-600" ]
+                                            [ text "Submission pending" ]
+                                        ]
+
                                 "verified" ->
                                     div [ class "flex items-center gap-2" ]
                                         [ button
@@ -923,12 +943,17 @@ viewApplicationRow model app =
                                             [ span [ class "text-green-600" ] [ text "✓" ]
                                             , text "View Verification"
                                             ]
-                                        , a
-                                            [ class "inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
-                                            , href ("https://eapp.csgactuarial.com/applications/" ++ csgApp.key ++ "/esign/sign")
-                                            , target "_blank"
-                                            ]
-                                            [ text "E-Sign" ]
+                                        , case csgApp.verificationScreenshot of
+                                            Just _ ->
+                                                a
+                                                    [ class "inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
+                                                    , href ("https://eapp.csgactuarial.com/applications/" ++ csgApp.key ++ "/esign/consent")
+                                                    , target "_blank"
+                                                    ]
+                                                    [ text "E-Sign" ]
+
+                                            Nothing ->
+                                                text ""
                                         ]
 
                                 "failed" ->
@@ -954,31 +979,6 @@ viewApplicationRow model app =
                         , onClick (ViewApplication app.id)
                         ]
                         [ text "View" ]
-
-        actionMenuItem : String -> String -> Msg -> Html Msg
-        actionMenuItem label icon msg =
-            button
-                [ class "w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors duration-200"
-                , onClick msg
-                ]
-                [ span [ class "w-5 text-purple-600" ] [ text icon ]
-                , text label
-                ]
-
-        actionMenuLink : String -> String -> String -> Html Msg
-        actionMenuLink label icon url =
-            a
-                [ class "w-full flex items-center px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 transition-colors duration-200"
-                , href url
-                , target "_blank"
-                ]
-                [ span [ class "w-5 text-purple-600" ] [ text icon ]
-                , text label
-                ]
-
-        onClickStopPropagation : msg -> Attribute msg
-        onClickStopPropagation msg =
-            stopPropagationOn "click" (Decode.succeed ( msg, True ))
     in
     tr [ class "border-b hover:bg-gray-50" ]
         [ td [ class "py-3 px-4 w-8" ]
@@ -1034,14 +1034,16 @@ subscriptions model =
         , receiveApplication
             (Decode.decodeValue applicationViewDecoder >> ApplicationReceived model.producerConfig)
         , verificationReceived
-            (\( id, result ) ->
-                VerificationReceived id
+            (\result ->
+                VerificationReceived
                     (case Decode.decodeValue verificationResultDecoder result of
                         Ok value ->
                             Ok value
+                                |> Debug.log "VerificationReceived"
 
                         Err err ->
                             Err (Http.BadBody (Decode.errorToString err))
+                                |> Debug.log "VerificationReceived Error"
                     )
             )
         , if model.showApplicationModal || model.showScreenshotModal /= Nothing then
@@ -1293,9 +1295,10 @@ httpErrorToString error =
 
 verificationResultDecoder : Decode.Decoder VerificationResult
 verificationResultDecoder =
-    Decode.map5 VerificationResult
-        (Decode.field "success" Decode.bool)
-        (Decode.field "screenshot" Decode.string)
-        (Decode.field "verifyUrl" Decode.string)
-        (Decode.maybe (Decode.field "error" Decode.string))
-        (Decode.field "verificationStatus" Decode.string)
+    Decode.succeed VerificationResult
+        |> Pipeline.required "applicationId" Decode.string
+        |> Pipeline.required "key" Decode.string
+        |> Pipeline.required "verificationStatus" Decode.string
+        |> Pipeline.optional "verificationError" (Decode.nullable Decode.string) Nothing
+        |> Pipeline.optional "verificationScreenshot" (Decode.nullable Decode.string) Nothing
+        |> Pipeline.optional "lastVerifiedAt" (Decode.nullable Decode.string) Nothing

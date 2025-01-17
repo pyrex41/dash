@@ -198,26 +198,24 @@ function setupWebSocket(app: any) {
             if (message.type === 'verification_update') {
                 // First, send the verification update through verificationReceived port
                 if (app.ports?.verificationReceived?.send) {
-                    console.log('Sending verification update to Elm:', message);
-                    
                     // Construct verification result matching the Elm decoder
                     const verificationResult = {
-                        success: message.status === 'verified',
-                        error: message.status === 'failed' ? 'Verification failed' : null,
-                        screenshot: message.screenshot || null,
-                        verifyUrl: message.verifyUrl || `https://eapp.csgactuarial.com/applications/${message.key}/verify`,
-                        verificationStatus: message.status
+                        applicationId: message.applicationId,
+                        key: message.body.csg_id,
+                        verificationStatus: message.body.status === 'verified',
+                        verificationError: message.body.error || null,
+                        verificationScreenshot: message.body.screenshot || null,
+                        lastVerifiedAt: new Date().toISOString(),
                     };
+                    console.log('Sending verification update to Elm:', verificationResult);
                     
-                    app.ports.verificationReceived.send([
-                        message.applicationId,
-                        verificationResult
-                    ]);
+                    app.ports.verificationReceived.send(verificationResult);
                 } else {
                     console.error('verificationReceived port not available');
                 }
 
                 // Then, refresh the applications list to update the UI
+                /*
                 if (app.ports?.requestRefresh?.send) {
                     // Get current search params from URL
                     const urlParams = new URLSearchParams(window.location.search);
@@ -232,6 +230,7 @@ function setupWebSocket(app: any) {
                     console.log('Requesting refresh with state:', currentState);
                     app.ports.requestRefresh.send(currentState);
                 }
+                */
             }
         } catch (error) {
             console.error('Error handling WebSocket message:', error);
