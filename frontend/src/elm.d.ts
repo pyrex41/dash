@@ -41,6 +41,23 @@ declare module '*.elm' {
                         send: (data: { success: boolean; error?: string }) => void;
                     };
 
+                    // WebSocket Ports
+                    wsSubscribe?: {
+                        subscribe: (callback: (data: string[]) => void) => void;
+                    };
+                    wsUnsubscribe?: {
+                        subscribe: (callback: (data: string[]) => void) => void;
+                    };
+                    wsSubscribed?: {
+                        send: (data: string[]) => void;
+                    };
+                    wsUnsubscribed?: {
+                        send: (data: string[]) => void;
+                    };
+                    wsError?: {
+                        send: (data: string) => void;
+                    };
+
                     // CSG Integration Ports
                     submitToCSG?: {
                         subscribe: (callback: (data: [string, number]) => void) => void;
@@ -57,7 +74,7 @@ declare module '*.elm' {
 
                     // Token Management
                     forceRefreshLAProToken?: {
-                        subscribe: (callback: (data: null) => void) => void;
+                        subscribe: (callback: () => void) => void;
                     };
                     getLAProTokenResponse?: {
                         send: (data: string) => void;

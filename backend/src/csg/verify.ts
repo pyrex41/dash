@@ -374,17 +374,51 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
         const verificationStatus = inGoodOrder && !hasErrors ? 'verified' : 'failed';
         const verificationError = hasErrors ? 'Verification page shows highlighted errors' : !inGoodOrder ? 'Application is not in good order' : null;
 
-        // Save verification results to database
+        // First update application status to verifying
         const db = getDb();
-        await db.update(csgApplications)
+        await db.update(applications)
           .set({
-            verificationStatus,
-            verificationScreenshot: screenshot,
-            verificationError,
-            lastVerifiedAt: new Date(),
+            status: 'verifying',
             updatedAt: new Date()
           })
-          .where(eq(csgApplications.key, urlSlug));
+          .where(
+            eq(applications.id, 
+              db.select({ id: applications.id })
+                .from(applications)
+                .innerJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
+                .where(eq(csgApplications.key, urlSlug))
+                .limit(1)
+            )
+          );
+
+        // Then save verification results to database
+        await Promise.all([
+          db.update(csgApplications)
+            .set({
+              verificationStatus,
+              verificationScreenshot: screenshot,
+              verificationError,
+              lastVerifiedAt: new Date(),
+              updatedAt: new Date()
+            })
+            .where(eq(csgApplications.key, urlSlug)),
+          
+          // Update final application status
+          db.update(applications)
+            .set({
+              status: inGoodOrder && !hasErrors ? 'awaiting_signature' : 'submission_issue',
+              updatedAt: new Date()
+            })
+            .where(
+              eq(applications.id, 
+                db.select({ id: applications.id })
+                  .from(applications)
+                  .innerJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
+                  .where(eq(csgApplications.key, urlSlug))
+                  .limit(1)
+              )
+            )
+        ]);
 
         // Get the application ID for broadcasting
         const [csgApp] = await db
@@ -393,22 +427,20 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           .where(eq(csgApplications.key, urlSlug));
 
         if (csgApp?.applicationId) {
-          // Broadcast verification update
+          // First broadcast verifying status
+          broadcastVerificationUpdate(csgApp.applicationId, {
+            status: 'verifying',
+            key: urlSlug,
+            applicationStatus: 'verifying'
+          });
+
+          // Then broadcast final verification status
           broadcastVerificationUpdate(csgApp.applicationId, {
             status: verificationStatus,
             key: urlSlug,
-            error: verificationError
+            error: verificationError,
+            applicationStatus: inGoodOrder && !hasErrors ? 'awaiting_signature' : 'submission_issue'
           });
-
-          // Update application status if verification succeeded
-          if (inGoodOrder && !hasErrors) {
-            await db.update(applications)
-              .set({
-                status: 'awaiting_signature',
-                updatedAt: new Date()
-              })
-              .where(eq(applications.id, csgApp.applicationId));
-          }
         }
 
         if (hasErrors || !inGoodOrder) {
@@ -448,15 +480,33 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
         }
 
         // Save error state to database
-        await db.update(csgApplications)
-          .set({
-            verificationStatus: 'failed',
-            verificationScreenshot: errorScreenshot,
-            verificationError: errorMessage,
-            lastVerifiedAt: new Date(),
-            updatedAt: new Date()
-          })
-          .where(eq(csgApplications.key, urlSlug));
+        await Promise.all([
+          db.update(csgApplications)
+            .set({
+              verificationStatus: 'failed',
+              verificationScreenshot: errorScreenshot,
+              verificationError: errorMessage,
+              lastVerifiedAt: new Date(),
+              updatedAt: new Date()
+            })
+            .where(eq(csgApplications.key, urlSlug)),
+          
+          // Update application status
+          db.update(applications)
+            .set({
+              status: 'submission_issue',
+              updatedAt: new Date()
+            })
+            .where(
+              eq(applications.id, 
+                db.select({ id: applications.id })
+                  .from(applications)
+                  .innerJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
+                  .where(eq(csgApplications.key, urlSlug))
+                  .limit(1)
+              )
+            )
+        ]);
 
         // Get application ID for broadcasting error
         const [errorCsgApp] = await db
@@ -469,7 +519,8 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           broadcastVerificationUpdate(errorCsgApp.applicationId, {
             status: 'failed',
             key: urlSlug,
-            error: errorMessage
+            error: errorMessage,
+            applicationStatus: 'submission_issue'
           });
         }
 

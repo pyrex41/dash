@@ -216,9 +216,6 @@ export const getApplicationWithSchema = async (applicationId: string) => {
 
   console.log('Raw application from database:', {
     id: application.id,
-    data: application.data,
-    formattedData: formattedData,
-    rawMedications: application.rawMedications
   })
 
   return {
