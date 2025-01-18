@@ -30,6 +30,28 @@ port saveApplication : { id : String, data : Encode.Value, medications : Encode.
 port saveApplicationResponse : ({ success : Bool, error : Maybe String } -> msg) -> Sub msg
 
 
+port statusUpdate : ({ id : String, status : String } -> msg) -> Sub msg
+
+
+
+-- WebSocket Ports
+
+
+port wsSubscribe : List String -> Cmd msg
+
+
+port wsUnsubscribe : List String -> Cmd msg
+
+
+port wsSubscribed : (List String -> msg) -> Sub msg
+
+
+port wsUnsubscribed : (List String -> msg) -> Sub msg
+
+
+port wsError : (String -> msg) -> Sub msg
+
+
 
 -- CSG Integration Ports
 

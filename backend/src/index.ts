@@ -11,7 +11,7 @@ import axios from 'axios'
 import { getHeaders } from './csg/submit'
 import { eq } from 'drizzle-orm'
 import { getDb } from './db'
-import { csgApplications } from './db/schema'
+import { csgApplications, applications } from './db/schema'
 import type { ServerWebSocket } from 'bun';
 
 // Resolve __dirname for ESM environments
@@ -31,52 +31,55 @@ interface WSData {
 const wsClients = new Map<string, WSData>();
 
 // Helper function to broadcast verification updates only to subscribed clients
-export function broadcastVerificationUpdate(applicationId: string, body: any) {
-  console.log('Broadcasting verification update for application:', applicationId);
+export async function broadcastVerificationUpdate(applicationId: string, body: any) {
+  const msgId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const timestamp = new Date().toISOString();
+  
+  console.log(`[${timestamp}] Broadcasting verification update (msgId: ${msgId}) for application:`, applicationId);
   console.log('Update body:', body);
+
+  // Get the current application state from the database
+  const db = getDb();
+  const [application] = await db
+    .select()
+    .from(applications)
+    .leftJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
+    .where(eq(applications.id, applicationId));
+
+  if (!application) {
+    console.error(`[${timestamp}] Application not found for verification update:`, applicationId);
+    return;
+  }
   
   const message = JSON.stringify({
     type: 'verification_update',
+    msgId,
+    timestamp,
     applicationId,
     body: {
-      ...body,
-      status: body.status,
-      csg_id: body.key,
-      applicationStatus: (() => {
-        switch (body.status) {
-          case 'verified':
-            return 'awaiting_signature'
-          case 'failed':
-            return 'submission_issue'
-          case 'pending':
-          case 'verifying':
-            return 'waiting_review'
-          default:
-            return 'partial'
-        }
-      })()
+      status: application.csg_applications?.verificationStatus || body.status,
+      csg_id: application.csg_applications?.key || body.key,
+      applicationStatus: application.applications.status || body.applicationStatus,
+      error: application.csg_applications?.verificationError || body.error,
+      screenshot: application.csg_applications?.verificationScreenshot || body.screenshot,
+      verifyUrl: body.verifyUrl,
+      signatureUrl: body.signatureUrl
     }
-  })
+  });
   
-  console.log('Total connected clients:', wsClients.size);
+  console.log(`[${timestamp}] Total connected clients:`, wsClients.size);
   
   // Only send to clients subscribed to this application
   wsClients.forEach((data, clientId) => {
-    console.log(`Checking client ${clientId}:`, {
-      subscriptions: Array.from(data.subscriptions),
-      hasSubscription: data.subscriptions.has(applicationId)
-    });
-    
     if (data.subscriptions.has(applicationId)) {
       try {
-        console.log(`Sending update to client ${clientId}`);
-        data.ws.send(message)
+        console.log(`[${timestamp}] Sending update (msgId: ${msgId}) to client ${clientId}`);
+        data.ws.send(message);
       } catch (error) {
-        console.error(`Error sending WebSocket message to client ${clientId}:`, error)
-        // Clean up will happen in the error handler of the WebSocket
+        console.error(`[${timestamp}] Error sending WebSocket message (msgId: ${msgId}) to client ${clientId}:`, error);
       }
     }
-  })
+  });
 }
 
 // Add type definition for CSG application response
@@ -137,11 +140,8 @@ const app = new Elysia({
       if (data.type === 'subscribe') {
         const applicationIds = data.applicationIds as string[]
         if (Array.isArray(applicationIds)) {
-          // Clear existing subscriptions and add new ones
-          console.log('Client subscriptions before clearing:', Array.from(wsData.subscriptions));
-          wsData.subscriptions.clear()
+          // Add new subscriptions without clearing existing ones
           applicationIds.forEach(id => wsData.subscriptions.add(id))
-          console.log('Client subscriptions after update:', Array.from(wsData.subscriptions));
           
           // Send confirmation
           ws.send(JSON.stringify({
@@ -150,6 +150,7 @@ const app = new Elysia({
           }))
           
           console.log('Client subscribed to applications:', applicationIds)
+          console.log('Total subscriptions:', Array.from(wsData.subscriptions))
         }
       }
       
@@ -157,9 +158,7 @@ const app = new Elysia({
       if (data.type === 'unsubscribe') {
         const applicationIds = data.applicationIds as string[]
         if (Array.isArray(applicationIds)) {
-          console.log('Client subscriptions before unsubscribe:', Array.from(wsData.subscriptions));
           applicationIds.forEach(id => wsData.subscriptions.delete(id))
-          console.log('Client subscriptions after unsubscribe:', Array.from(wsData.subscriptions));
           
           // Send confirmation
           ws.send(JSON.stringify({
@@ -168,7 +167,85 @@ const app = new Elysia({
           }))
           
           console.log('Client unsubscribed from applications:', applicationIds)
+          console.log('Remaining subscriptions:', Array.from(wsData.subscriptions))
         }
+      }
+
+      // Handle application requests
+      if (data.type === 'request_application') {
+        const applicationId = data.applicationId as string
+        if (applicationId) {
+          getApplicationWithSchema(applicationId).then(application => {
+            if (application) {
+              ws.send(JSON.stringify({
+                type: 'application_data',
+                applicationId,
+                application
+              }))
+            } else {
+              ws.send(JSON.stringify({
+                type: 'application_error',
+                applicationId,
+                error: 'Application not found'
+              }))
+            }
+          }).catch(error => {
+            ws.send(JSON.stringify({
+              type: 'application_error',
+              applicationId,
+              error: error instanceof Error ? error.message : 'Failed to load application'
+            }))
+          })
+        }
+      }
+
+      // Handle applications list requests
+      if (data.type === 'request_applications') {
+        const { page = 0, pageSize = 20, searchTerm = '', hasContactFilter = false, naics = [] } = data
+        getApplications(page, pageSize, searchTerm, hasContactFilter, naics).then(result => {
+          ws.send(JSON.stringify({
+            type: 'applications_data',
+            applications: result
+          }))
+        }).catch(error => {
+          ws.send(JSON.stringify({
+            type: 'applications_error',
+            error: error instanceof Error ? error.message : 'Failed to load applications'
+          }))
+        })
+      }
+
+      // Handle save application requests
+      if (data.type === 'save_application') {
+        const { id, formData, medications } = data
+        updateFormattedData(id, formData, medications).then(() => {
+          // Reset verification status for any associated CSG application
+          const db = getDb()
+          return db.update(csgApplications)
+            .set({
+              verificationStatus: 'pending',
+              verificationScreenshot: null,
+              verificationError: null,
+              lastVerifiedAt: null,
+              updatedAt: new Date()
+            })
+            .where(eq(csgApplications.applicationId, id))
+            .then(() => {
+              ws.send(JSON.stringify({
+                type: 'save_application_response',
+                id,
+                success: true,
+                error: null
+              }))
+            })
+        }).catch(error => {
+          ws.send(JSON.stringify({
+            type: 'save_application_response',
+            id,
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to save application'
+          }))
+        })
       }
       
     } catch (error) {
@@ -267,9 +344,6 @@ const app = new Elysia({
     }
     console.log('Sending application data:', {
       id: application.id,
-      rawMedications: application.rawMedications,
-      data: application.data,
-      formattedData: application.formattedData
     })
     return new Response(
       JSON.stringify(application),
@@ -418,69 +492,87 @@ const app = new Elysia({
         }
       }
 
-      broadcastVerificationUpdate(params.id, { status: 'pending' })
-      const result = await submitToCSG(params.id, producerId)
+      // Update status to submitting in database first
+      await db.update(applications)
+        .set({
+          status: 'submitting',
+          updatedAt: new Date()
+        })
+        .where(eq(applications.id, params.id));
+
+      // Then broadcast the update
+      await broadcastVerificationUpdate(params.id, { status: 'submitting' });
+
+      const result = await submitToCSG(params.id, producerId);
 
       // Handle both direct submission and recovered application cases
-      const csgKey = result.key
+      const csgKey = result.key;
       if (!csgKey) {
-        broadcastVerificationUpdate(params.id, { status: 'failed' })
+        // Update database first
+        await Promise.all([
+          db.update(applications)
+            .set({
+              status: 'submission_issue',
+              updatedAt: new Date()
+            })
+            .where(eq(applications.id, params.id)),
+          db.update(csgApplications)
+            .set({
+              verificationStatus: 'failed',
+              updatedAt: new Date()
+            })
+            .where(eq(csgApplications.applicationId, params.id))
+        ]);
+
+        // Then broadcast the update
+        await broadcastVerificationUpdate(params.id, { status: 'failed' });
         return { 
           success: false,
           error: 'Failed to get CSG application key'
-        }
+        };
       }
 
-      // Start verification process immediately
-      broadcastVerificationUpdate(params.id, { 
+      // Update database to verifying state
+      await Promise.all([
+        db.update(applications)
+          .set({
+            status: 'verifying',
+            updatedAt: new Date()
+          })
+          .where(eq(applications.id, params.id)),
+        db.update(csgApplications)
+          .set({
+            verificationStatus: 'verifying',
+            updatedAt: new Date()
+          })
+          .where(eq(csgApplications.applicationId, params.id))
+      ]);
+
+      // Then broadcast the verification update
+      await broadcastVerificationUpdate(params.id, { 
         status: 'verifying', 
         key: csgKey,
         verifyUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${csgKey}/verify`
-      })
+      });
 
-      // Import and start verification process
-      const { verifyCSGApplication } = await import('./csg/verify')
+      // Start verification process
+      const { verifyCSGApplication } = await import('./csg/verify');
       verifyCSGApplication(csgKey, {
         headless: true,
         debug: isDev
-      }).then(verifyResult => {
-        if (verifyResult.success) {
-          broadcastVerificationUpdate(params.id, { 
-            status: 'awaiting_signature', 
-            key: csgKey,
-            screenshot: verifyResult.screenshot,
-            verifyUrl: verifyResult.verifyUrl,
-            signatureUrl: `https://eapp.csgactuarial.com/applications/${csgKey}/esign/consent`
-          })
-        } else {
-          broadcastVerificationUpdate(params.id, { 
-            status: 'failed', 
-            error: verifyResult.error,
-            screenshot: verifyResult.screenshot,
-            verifyUrl: verifyResult.verifyUrl
-          })
-        }
-      }).catch(error => {
-        console.error('Error during verification:', error)
-        broadcastVerificationUpdate(params.id, { 
-          status: 'failed', 
-          error: error.message,
-          verifyUrl: `${process.env.CSG_API_URL}/v1/e_app/enrollment_applications/${csgKey}/verify`
-        })
-      })
+      });
 
-      // Return success with key and verifying status
       return { 
         success: true,
         key: csgKey,
         verificationStatus: 'verifying'
-      }
+      };
     } catch (error: any) {
-      console.error('Error submitting to CSG:', error)
+      console.error('Error submitting to CSG:', error);
       return {
         success: false,
         error: error.message || 'Failed to submit application'
-      }
+      };
     }
   })
   .get('/csg-application/:key', async ({ params }) => {

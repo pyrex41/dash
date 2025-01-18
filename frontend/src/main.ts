@@ -204,6 +204,23 @@ async function pollCSGStatus(key: string, app: any) {
     poll();
 }
 
+// Add type for verification update message
+interface VerificationUpdateMessage {
+    type: 'verification_update';
+    msgId: string;
+    timestamp: string;
+    applicationId: string;
+    body: {
+        status: string;
+        applicationStatus: string;
+        csg_id: string;
+        error?: string;
+        screenshot?: string;
+        verifyUrl?: string;
+        signatureUrl?: string;
+    };
+}
+
 // WebSocket connection handler
 function setupWebSocket(app: any) {
     let wsUrl = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3000/ws';
@@ -224,6 +241,15 @@ function setupWebSocket(app: any) {
     const maxReconnectAttempts = 5;
     const baseReconnectDelay = 1000; // Start with 1 second
     let currentSubscriptions = new Set<string>();
+
+    // Track current view state
+    let currentViewState = {
+        page: 0,
+        pageSize: 20,
+        searchTerm: '',
+        hasContactFilter: false,
+        naics: [] as string[]
+    };
     
     socket.onopen = () => {
         console.log('WebSocket connected');
@@ -243,7 +269,39 @@ function setupWebSocket(app: any) {
     socket.onmessage = async (event) => {
         try {
             const message = JSON.parse(event.data);
-            console.log('WebSocket message received:', message);
+            const receivedAt = new Date().toISOString();
+            console.log(`[${receivedAt}] WebSocket message received:`, message);
+
+            if (message.type === 'verification_update') {
+                if (app.ports?.receiveApplication?.send) {
+                    console.log(`[${receivedAt}] Received verification update:`, {
+                        msgId: message.msgId,
+                        applicationId: message.applicationId,
+                        status: message.body.status,
+                        timeDiff: new Date(receivedAt).getTime() - new Date(message.timestamp).getTime()
+                    });
+
+                    // Update the application with the verification data directly
+                    const updatedApplication = {
+                        id: message.applicationId,
+                        status: message.body.applicationStatus,
+                        csgApplication: {
+                            key: message.body.csg_id,
+                            verificationStatus: message.body.status,
+                            verificationError: message.body.error,
+                            verificationScreenshot: message.body.screenshot,
+                            verifyUrl: message.body.verifyUrl,
+                            signatureUrl: message.body.signatureUrl
+                        }
+                    };
+
+                    // Send the updated application to Elm
+                    app.ports.statusUpdate.send({
+                        id: message.applicationId,
+                        status: message.body.applicationStatus
+                    });
+                }
+            }
             
             // Handle ping/pong
             if (message.type === 'ping') {
@@ -253,63 +311,63 @@ function setupWebSocket(app: any) {
             
             // Handle subscription confirmations
             if (message.type === 'subscribed') {
-                console.log('Subscription confirmed for:', message.applicationIds);
-                console.log('Current subscriptions before:', Array.from(currentSubscriptions));
+                console.log(`[${receivedAt}] Subscription confirmed for:`, message.applicationIds);
                 message.applicationIds.forEach((id: string) => currentSubscriptions.add(id));
-                console.log('Current subscriptions after:', Array.from(currentSubscriptions));
                 return;
             }
             
             if (message.type === 'unsubscribed') {
-                console.log('Unsubscription confirmed for:', message.applicationIds);
-                console.log('Current subscriptions before:', Array.from(currentSubscriptions));
+                console.log(`[${receivedAt}] Unsubscribed from:`, message.applicationIds);
                 message.applicationIds.forEach((id: string) => currentSubscriptions.delete(id));
-                console.log('Current subscriptions after:', Array.from(currentSubscriptions));
                 return;
             }
-            
-            if (message.type === 'verification_update') {
-                // Get the latest application data
-                try {
-                    const response = await fetch(`/api/applications/${message.applicationId}`);
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    const application = await response.json();
-                    
-                    // Send the updated application through receiveApplication port
-                    if (app.ports?.receiveApplication?.send) {
-                        console.log('Sending updated application to Elm:', application);
-                        app.ports.receiveApplication.send(application);
-                    }
 
-                    // Also refresh the applications list to update the dashboard
-                    const applicationsResponse = await fetch('/api/applications');
-                    if (applicationsResponse.ok) {
-                        const applicationsData = await applicationsResponse.json();
-                        if (app.ports?.receiveApplications?.send) {
-                            console.log('Refreshing applications after verification update');
-                            app.ports.receiveApplications.send(applicationsData);
-                        }
-                        
-                        // Subscribe to any new applications in the current view without clearing existing ones
-                        const newApplicationIds = applicationsData.applications
-                            .map((app: any) => app.id)
-                            .filter(id => !currentSubscriptions.has(id));
-                            
-                        if (newApplicationIds.length > 0) {
-                            socket.send(JSON.stringify({
-                                type: 'subscribe',
-                                applicationIds: newApplicationIds
-                            }));
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error handling verification update:', error);
+            // Handle application data responses
+            if (message.type === 'application_data') {
+                if (app.ports?.receiveApplication?.send) {
+                    console.log(`[${receivedAt}] Sending updated application to Elm:`, message.application);
+                    app.ports.receiveApplication.send(message.application);
+
+                    // Subscribe to the individual application
+                    socket.send(JSON.stringify({
+                        type: 'subscribe',
+                        applicationIds: [message.applicationId]
+                    }));
                 }
+                return;
+            }
+
+            // Handle applications list responses
+            if (message.type === 'applications_data') {
+                if (app.ports?.receiveApplications?.send) {
+                    console.log(`[${receivedAt}] Sending applications data to Elm:`, message.applications);
+                    app.ports.receiveApplications.send(message.applications);
+
+                    // Subscribe to all applications in the current view
+                    const applicationIds = message.applications.applications.map((app: any) => app.id);
+                    if (applicationIds.length > 0) {
+                        socket.send(JSON.stringify({
+                            type: 'subscribe',
+                            applicationIds
+                        }));
+                    }
+                }
+                return;
+            }
+
+            // Handle save application responses
+            if (message.type === 'save_application_response') {
+                if (app.ports?.saveApplicationResponse?.send) {
+                    console.log(`[${receivedAt}] Sending save response to Elm:`, message);
+                    app.ports.saveApplicationResponse.send({
+                        success: message.success,
+                        error: message.error
+                    });
+                }
+                return;
             }
         } catch (error) {
-            console.error('Error handling WebSocket message:', error);
+            console.error(`[${receivedAt}] Error handling WebSocket message:`, error);
         }
     };
     
@@ -320,7 +378,7 @@ function setupWebSocket(app: any) {
         if (reconnectAttempts < maxReconnectAttempts) {
             // Exponential backoff for reconnection
             const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 30000);
-            console.log(`Attempting to reconnect in ${delay}ms... (Attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`);
+            console.log(`[${new Date().toISOString()}] Attempting to reconnect in ${delay}ms... (Attempt ${reconnectAttempts + 1}/${maxReconnectAttempts})`);
             
             setTimeout(() => {
                 if (!isConnected) {
@@ -343,22 +401,48 @@ function setupWebSocket(app: any) {
             socket.close();
         }
     });
-    
-    // Subscribe to applications when they're loaded
-    if (app.ports?.receiveApplications?.subscribe) {
-        app.ports.receiveApplications.subscribe((data: any) => {
+
+    // Replace HTTP requests with WebSocket messages
+    if (app.ports?.requestApplication?.subscribe) {
+        app.ports.requestApplication.subscribe(({ id }) => {
             if (socket.readyState === WebSocket.OPEN) {
-                // Subscribe to any new applications without clearing existing ones
-                const newApplicationIds = data.applications
-                    .map((app: any) => app.id)
-                    .filter(id => !currentSubscriptions.has(id));
-                    
-                if (newApplicationIds.length > 0) {
-                    socket.send(JSON.stringify({
-                        type: 'subscribe',
-                        applicationIds: newApplicationIds
-                    }));
-                }
+                socket.send(JSON.stringify({
+                    type: 'request_application',
+                    applicationId: id
+                }));
+            }
+        });
+    }
+
+    if (app.ports?.requestRefresh?.subscribe) {
+        app.ports.requestRefresh.subscribe(({ page, pageSize, searchTerm, hasContactFilter, naics }) => {
+            if (socket.readyState === WebSocket.OPEN) {
+                // Update current view state
+                currentViewState = {
+                    page,
+                    pageSize,
+                    searchTerm,
+                    hasContactFilter,
+                    naics
+                };
+                
+                socket.send(JSON.stringify({
+                    type: 'request_applications',
+                    ...currentViewState
+                }));
+            }
+        });
+    }
+
+    if (app.ports?.saveApplication?.subscribe) {
+        app.ports.saveApplication.subscribe(({ id, data, medications }) => {
+            if (socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify({
+                    type: 'save_application',
+                    id,
+                    formData: data,
+                    medications
+                }));
             }
         });
     }

@@ -214,6 +214,7 @@ type Msg
     | GotApplications (Result Http.Error ApplicationsResponse)
     | RequestRefresh
     | ApplicationUpdated Decode.Value
+    | StatusUpdate { id : String, status : String }
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -599,6 +600,47 @@ update msg model =
                 , naics = model.naicsFilter
                 }
             )
+
+        StatusUpdate { id, status } ->
+            let
+                _ =
+                    Debug.log "StatusUpdate" ( id, status )
+
+                maybeNewStatus =
+                    case status of
+                        "submitting" ->
+                            Just Submitting
+
+                        "awaiting_signature" ->
+                            Just AwaitingSignature
+
+                        "verified" ->
+                            Just AwaitingSignature
+
+                        "failed" ->
+                            Just SubmissionIssue
+
+                        "verifying" ->
+                            Just Verifying
+
+                        "submission_issue" ->
+                            Just SubmissionIssue
+
+                        _ ->
+                            Nothing
+
+                newApplications =
+                    model.applications
+                        |> List.map
+                            (\app ->
+                                if app.id == id then
+                                    { app | status = maybeNewStatus |> Maybe.withDefault app.status }
+
+                                else
+                                    app
+                            )
+            in
+            ( { model | applications = newApplications }, Cmd.none )
 
 
 
@@ -1087,6 +1129,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ receiveApplications (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
+        , statusUpdate StatusUpdate
         , receiveApplication
             (\value ->
                 case model.selectedApplicationId of

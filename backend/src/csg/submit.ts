@@ -166,30 +166,22 @@ export async function submitToCSG(applicationId: string, producerId: number, for
     // Broadcast initial pending status
     const carrierAssignedIdentifier = await getCarrierAssignedIdentifier(producerId, application.naic);
 
-    // Check for existing CSG application
-    const [existingCsg] = await db
-      .select()
-      .from(csgApplications)
+    // Delete existing CSG application if it exists
+    await db
+      .delete(csgApplications)
       .where(eq(csgApplications.applicationId, applicationId));
 
     const now = new Date();
 
-    // If there's an existing submission, update lastSubmittedAt
-    if (existingCsg) {
-      await db.update(csgApplications)
-        .set({
-          lastSubmittedAt: now,
-          verificationStatus: 'pending',
-          updatedAt: now
-        })
-        .where(eq(csgApplications.id, existingCsg.id));
-      
-      // Broadcast update after status change
-      broadcastVerificationUpdate(applicationId, {
+
+    // Update application status to submitting
+    await db.update(applications)
+      .set({
         status: 'submitting',
-        key: existingCsg.key
-      });
-    }
+        updatedAt: now
+      })
+      .where(eq(applications.id, applicationId));
+    
 
     const applicationHeaders = await getHeaders();
     console.log('Application Headers:', applicationHeaders); 
@@ -197,7 +189,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
     if (!formattedData) {
       throw new Error('Formatted data not found');
     }
-    console.log('Formatted Data applicant info:', formattedData?.applicant_info);
     
     if (!application.naic) {
       throw new Error('NAIC is required for CSG submission');
@@ -206,7 +197,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
     // For carriers requiring quotes first (UHC, Allstate)
     if (['79413', '60534', '82538'].includes(application.naic) || forceQuote) {
       const quoteHeaders = await getQuoteHeaders();
-      console.log('Quote Headers:', quoteHeaders); 
       console.log('Preparing CSG quote request for NAIC:', application.naic);
 
       const calculatedAge = calculateAge(formattedData.applicant_info.applicant_dob, formattedData.applicant_info.effective_date);
@@ -231,7 +221,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
         ...(quoteRequest.naic && { naic: quoteRequest.naic }),
         ...(quoteRequest.county != null && quoteRequest.county !== undefined && { county: quoteRequest.county })
       };
-      console.log('Quote Request:', params);
 
       const quoteUrl = new URL('/v1/med_supp/quotes.json', process.env.CSG_API_URL).toString();
       
@@ -280,7 +269,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
             }
           },
         }
-        console.log('payload', payload);
         const response = await axios.post(submitUrl, payload, {
           headers: applicationHeaders
         });
@@ -289,48 +277,38 @@ export async function submitToCSG(applicationId: string, producerId: number, for
         console.log('CSG submission response:', {
           key: responseData.key,
           responseKeys: Object.keys(responseData),
-          fullResponse: responseData
         });
 
-        // Update database
+        // Update database after successful submission
         await Promise.all([
           db.update(applications)
-            .set({       
-              status: 'submitted_to_csg',
+            .set({ 
+              status: 'verifying',
               updatedAt: now
             })
             .where(eq(applications.id, applicationId)),
 
-          existingCsg ? 
-            db.update(csgApplications)
-              .set({
-                key: responseData.key,
-                responseBody: JSON.stringify(responseData),
-                lastSubmittedAt: now,
-                verificationStatus: 'pending',
-                updatedAt: now
-              })
-              .where(eq(csgApplications.id, existingCsg.id)) :
-            db.insert(csgApplications).values({
-              applicationId,
-              key: responseData.key,
-              responseBody: JSON.stringify(responseData),
-              lastSubmittedAt: now,
-              verificationStatus: 'pending',
-              createdAt: now,
-              updatedAt: now,
-            })
+          
+          db.insert(csgApplications).values({
+            applicationId,
+            key: responseData.key,
+            responseBody: JSON.stringify(responseData),
+            lastSubmittedAt: now,
+            verificationStatus: 'verifying',
+            createdAt: now,
+            updatedAt: now,
+          })
         ]);
 
         // Broadcast update after successful submission
         broadcastVerificationUpdate(applicationId, {
           status: 'verifying',
-          key: responseData.key
+          key: responseData.key,
+          applicationStatus: 'verifying'
         });
 
         console.log('Returning from quote-based submission:', {
           key: responseData.key,
-          responseData
         });
         return responseData;
       } catch (error) {
@@ -339,7 +317,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
             status: error.response?.status,
             statusText: error.response?.statusText,
             headers: error.response?.headers,
-            data: error.response?.data
           });
 
           // Handle token invalidation
@@ -360,30 +337,18 @@ export async function submitToCSG(applicationId: string, producerId: number, for
               console.log('Successfully recovered application:', {
                 key: recoveredApp.key,
                 recoveredKeys: Object.keys(recoveredApp),
-                fullRecovered: recoveredApp
               });
 
-              if (existingCsg) {
-                await db.update(csgApplications)
-                  .set({
-                    key: recoveredApp.key,
-                    responseBody: JSON.stringify(recoveredApp),
-                    lastSubmittedAt: now,
-                    verificationStatus: 'verifying',
-                    updatedAt: now
-                  })
-                  .where(eq(csgApplications.id, existingCsg.id));
-              } else {
-                await db.insert(csgApplications).values({
-                  applicationId,
-                  key: recoveredApp.key,
-                  responseBody: JSON.stringify(recoveredApp),
-                  lastSubmittedAt: now,
-                  verificationStatus: 'verifying',
-                  createdAt: now,
-                  updatedAt: now
-                });
-              }
+              await db.insert(csgApplications).values({
+                applicationId,
+                key: recoveredApp.key,
+                responseBody: JSON.stringify(recoveredApp),
+                lastSubmittedAt: now,
+                verificationStatus: 'verifying',
+                createdAt: now,
+                updatedAt: now
+              });
+              
 
               await db.update(applications)
                 .set({       
@@ -394,7 +359,6 @@ export async function submitToCSG(applicationId: string, producerId: number, for
 
               console.log('Returning recovered application:', {
                 key: recoveredApp.key,
-                recoveredApp
               });
               return recoveredApp;
             }
@@ -429,48 +393,38 @@ export async function submitToCSG(applicationId: string, producerId: number, for
       console.log('Direct submission response:', {
         key: responseData.key,
         responseKeys: Object.keys(responseData),
-        fullResponse: responseData
       });
 
-      // Update database
+      // Update database after successful submission
       await Promise.all([
         db.update(applications)
           .set({ 
-            status: 'submitted_to_csg',
+            status: 'verifying',
             updatedAt: now
           })
           .where(eq(applications.id, applicationId)),
 
-        existingCsg ?
-          db.update(csgApplications)
-            .set({
-              key: responseData.key,
-              responseBody: JSON.stringify(responseData),
-              lastSubmittedAt: now,
-              verificationStatus: 'verifying',
-              updatedAt: now
-            })
-            .where(eq(csgApplications.id, existingCsg.id)) :
-          db.insert(csgApplications).values({
-            applicationId,
-            key: responseData.key,
-            responseBody: JSON.stringify(responseData),
-            lastSubmittedAt: now,
-            verificationStatus: 'verifying',
-            createdAt: now,
-            updatedAt: now,
-          })
+       
+        db.insert(csgApplications).values({
+          applicationId,
+          key: responseData.key,
+          responseBody: JSON.stringify(responseData),
+          lastSubmittedAt: now,
+          verificationStatus: 'verifying',
+          createdAt: now,
+          updatedAt: now,
+        })
       ]);
 
       // Broadcast update after successful submission
       broadcastVerificationUpdate(applicationId, {
         status: 'verifying',
-        key: responseData.key
+        key: responseData.key,
+        applicationStatus: 'verifying'
       });
 
       console.log('Returning from direct submission:', {
         key: responseData.key,
-        responseData
       });
       return responseData;
     } catch (error) {
