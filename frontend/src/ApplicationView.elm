@@ -78,12 +78,14 @@ type Msg
 
 type Status
     = CompletedApp
+    | Submitting
     | WaitingReview
     | PartialApplication
     | SubmissionIssue
     | IssuedPolicy
     | DeclinedPolicy
     | AwaitingSignature
+    | Verifying
 
 
 type alias Application =
@@ -2840,6 +2842,12 @@ statusDecoder =
 
                     "awaiting_signature" ->
                         Decode.succeed AwaitingSignature
+
+                    "submitting" ->
+                        Decode.succeed Submitting
+
+                    "verifying" ->
+                        Decode.succeed Verifying
 
                     _ ->
                         Decode.succeed PartialApplication

@@ -1,4 +1,4 @@
-module Dashboard exposing (Model, Msg, init, subscriptions, update, view)
+module Dashboard exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import ApplicationView exposing (Status(..), applicationViewDecoder)
 import Browser
@@ -81,6 +81,7 @@ type alias Model =
     , submitting : Set String
     , submissionResults : Dict String SubmissionResult
     , openActionMenu : Maybe String
+    , naicsFilter : List String
     }
 
 
@@ -169,6 +170,7 @@ init producerConfig =
       , submitting = Set.empty
       , submissionResults = Dict.empty
       , openActionMenu = Nothing
+      , naicsFilter = []
       }
     , requestRefresh
         { page = 0
@@ -209,6 +211,9 @@ type Msg
     | CloseActionMenu
     | SubmitToCSG String String
     | SubmissionReceived String (Result Http.Error SubmissionResult)
+    | GotApplications (Result Http.Error ApplicationsResponse)
+    | RequestRefresh
+    | ApplicationUpdated Decode.Value
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -429,7 +434,7 @@ update msg model =
                                     Debug.log "VerifyApplication" ( id, csgApp.key )
                             in
                             ( { model | verifying = Set.insert id model.verifying }
-                            , verifyCSGApplication ( id, csgApp.key )
+                            , submitToCSG ( id, 1 )
                             )
 
                         Nothing ->
@@ -546,6 +551,54 @@ update msg model =
                       }
                     , Cmd.none
                     )
+
+        GotApplications result ->
+            case result of
+                Ok response ->
+                    ( { model
+                        | applications = response.applications
+                        , isLoading = False
+                        , searchLoading = False
+                        , quoteSent = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
+                        , submissions = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
+                        , waitingReview = List.length (List.filter (\a -> a.status == WaitingReview) response.applications)
+                        , completedApps = List.length (List.filter (\a -> a.status == CompletedApp) response.applications)
+                        , total = response.pagination.total
+                        , totalPages = response.pagination.totalPages
+                        , currentPage = response.pagination.page
+                        , pageSize = response.pagination.pageSize
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model | error = Just (httpErrorToString error), isLoading = False }, Cmd.none )
+
+        RequestRefresh ->
+            ( model
+            , requestRefresh
+                { page = model.currentPage
+                , pageSize = model.pageSize
+                , searchTerm = model.searchTerm
+                , hasContactFilter = model.hasContactFilter
+                , naics = model.naicsFilter
+                }
+            )
+
+        ApplicationUpdated value ->
+            let
+                _ =
+                    Debug.log "Application updated" value
+            in
+            ( model
+            , requestRefresh
+                { page = model.currentPage
+                , pageSize = model.pageSize
+                , searchTerm = model.searchTerm
+                , hasContactFilter = model.hasContactFilter
+                , naics = model.naicsFilter
+                }
+            )
 
 
 
@@ -1013,6 +1066,12 @@ viewStatus status =
 
                 AwaitingSignature ->
                     ( "Awaiting Signature", "text-yellow-600 bg-yellow-50" )
+
+                Submitting ->
+                    ( "Submitting", "text-purple-600 bg-purple-50" )
+
+                Verifying ->
+                    ( "Verifying", "text-blue-600 bg-blue-50" )
     in
     div [ class ("flex items-center gap-2 " ++ statusColor ++ " px-3 py-1 rounded-full w-fit") ]
         [ div [ class "w-2 h-2 rounded-full bg-current" ] []
@@ -1027,22 +1086,17 @@ viewStatus status =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ receiveApplications
-            (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
+        [ receiveApplications (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
         , receiveApplication
-            (Decode.decodeValue applicationViewDecoder >> ApplicationReceived model.producerConfig)
-        , verificationReceived
-            (\result ->
-                VerificationReceived
-                    (case Decode.decodeValue verificationResultDecoder result of
-                        Ok value ->
-                            Ok value
-                                |> Debug.log "VerificationReceived"
+            (\value ->
+                case model.selectedApplicationId of
+                    Just id ->
+                        -- If we have a selected application ID, treat it as a modal view response
+                        ApplicationReceived model.producerConfig (Decode.decodeValue applicationViewDecoder value)
 
-                        Err err ->
-                            Err (Http.BadBody (Decode.errorToString err))
-                                |> Debug.log "VerificationReceived Error"
-                    )
+                    Nothing ->
+                        -- Otherwise treat it as a general application update
+                        ApplicationUpdated value
             )
         , if model.showApplicationModal || model.showScreenshotModal /= Nothing then
             Browser.Events.onKeyDown (Decode.map HandleKeyPress (Decode.field "key" Decode.string))
@@ -1141,6 +1195,9 @@ statusDecoder =
 
                     "declined" ->
                         Decode.succeed DeclinedPolicy
+
+                    "awaiting_signature" ->
+                        Decode.succeed AwaitingSignature
 
                     _ ->
                         Decode.succeed PartialApplication

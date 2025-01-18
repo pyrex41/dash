@@ -3,6 +3,7 @@ import { applications, csgApplications, producers } from '../db/schema';
 import { eq } from 'drizzle-orm';
 import { getToken, getQuoteToken, makeCSGRequest, handleTokenError } from './token';
 import axios from 'axios';
+import { broadcastVerificationUpdate } from '../index';
 
 interface QuoteRequest {
   effective_date: string;
@@ -182,6 +183,12 @@ export async function submitToCSG(applicationId: string, producerId: number, for
           updatedAt: now
         })
         .where(eq(csgApplications.id, existingCsg.id));
+      
+      // Broadcast update after status change
+      broadcastVerificationUpdate(applicationId, {
+        status: 'submitting',
+        key: existingCsg.key
+      });
     }
 
     const applicationHeaders = await getHeaders();
@@ -279,6 +286,11 @@ export async function submitToCSG(applicationId: string, producerId: number, for
         });
 
         const responseData = response.data;
+        console.log('CSG submission response:', {
+          key: responseData.key,
+          responseKeys: Object.keys(responseData),
+          fullResponse: responseData
+        });
 
         // Update database
         await Promise.all([
@@ -310,6 +322,16 @@ export async function submitToCSG(applicationId: string, producerId: number, for
             })
         ]);
 
+        // Broadcast update after successful submission
+        broadcastVerificationUpdate(applicationId, {
+          status: 'verifying',
+          key: responseData.key
+        });
+
+        console.log('Returning from quote-based submission:', {
+          key: responseData.key,
+          responseData
+        });
         return responseData;
       } catch (error) {
         if (axios.isAxiosError(error)) {
@@ -333,44 +355,51 @@ export async function submitToCSG(applicationId: string, producerId: number, for
           if (error.response?.status === 500) {
             console.log('Got 500 error, attempting to recover application...');
             const recoveredApp = await findApplicationByTrackingId(applicationId);
-
             
             if (recoveredApp) {
-              console.log('Successfully recovered application:', recoveredApp.key);
+              console.log('Successfully recovered application:', {
+                key: recoveredApp.key,
+                recoveredKeys: Object.keys(recoveredApp),
+                fullRecovered: recoveredApp
+              });
 
-              // Update database with recovered application
-              await Promise.all([
-                db.update(applications)
-                  .set({       
-                    status: 'submitted_to_csg',
-                    updatedAt: now
-                  })
-                  .where(eq(applications.id, applicationId)),
-
-                existingCsg ?
-                  db.update(csgApplications)
-                    .set({
-                      key: recoveredApp.key,
-                      responseBody: JSON.stringify(recoveredApp),
-                      lastSubmittedAt: now,
-                      verificationStatus: 'pending',
-                      updatedAt: now
-                    })
-                    .where(eq(csgApplications.id, existingCsg.id)) :
-                  db.insert(csgApplications).values({
-                    applicationId,
+              if (existingCsg) {
+                await db.update(csgApplications)
+                  .set({
                     key: recoveredApp.key,
                     responseBody: JSON.stringify(recoveredApp),
                     lastSubmittedAt: now,
-                    verificationStatus: 'pending',
-                    createdAt: now,
-                    updatedAt: now,
+                    verificationStatus: 'verifying',
+                    updatedAt: now
                   })
-              ]);
+                  .where(eq(csgApplications.id, existingCsg.id));
+              } else {
+                await db.insert(csgApplications).values({
+                  applicationId,
+                  key: recoveredApp.key,
+                  responseBody: JSON.stringify(recoveredApp),
+                  lastSubmittedAt: now,
+                  verificationStatus: 'verifying',
+                  createdAt: now,
+                  updatedAt: now
+                });
+              }
 
+              await db.update(applications)
+                .set({       
+                  status: 'verifying',
+                  updatedAt: now
+                })
+                .where(eq(applications.id, applicationId));
+
+              console.log('Returning recovered application:', {
+                key: recoveredApp.key,
+                recoveredApp
+              });
               return recoveredApp;
             }
           }
+
           throw new Error(`Failed to interact with CSG: ${error.message}`);
         }
         throw error;
@@ -397,6 +426,11 @@ export async function submitToCSG(applicationId: string, producerId: number, for
       });
 
       const responseData = response.data;
+      console.log('Direct submission response:', {
+        key: responseData.key,
+        responseKeys: Object.keys(responseData),
+        fullResponse: responseData
+      });
 
       // Update database
       await Promise.all([
@@ -413,7 +447,7 @@ export async function submitToCSG(applicationId: string, producerId: number, for
               key: responseData.key,
               responseBody: JSON.stringify(responseData),
               lastSubmittedAt: now,
-              verificationStatus: 'pending',
+              verificationStatus: 'verifying',
               updatedAt: now
             })
             .where(eq(csgApplications.id, existingCsg.id)) :
@@ -422,12 +456,22 @@ export async function submitToCSG(applicationId: string, producerId: number, for
             key: responseData.key,
             responseBody: JSON.stringify(responseData),
             lastSubmittedAt: now,
-            verificationStatus: 'pending',
+            verificationStatus: 'verifying',
             createdAt: now,
             updatedAt: now,
           })
       ]);
 
+      // Broadcast update after successful submission
+      broadcastVerificationUpdate(applicationId, {
+        status: 'verifying',
+        key: responseData.key
+      });
+
+      console.log('Returning from direct submission:', {
+        key: responseData.key,
+        responseData
+      });
       return responseData;
     } catch (error) {
       if (axios.isAxiosError(error)) {

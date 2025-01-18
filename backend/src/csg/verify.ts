@@ -4,6 +4,7 @@ import { getToken, handleTokenError, makeCSGRequest } from './token';
 import { getDb } from '../db';
 import { eq } from 'drizzle-orm';
 import { csgApplications, applications } from '../db/schema';
+import { broadcastVerificationUpdate } from '../index';
 
 let browserInstance: Browser | null = null;
 let lastLoginTime: number = 0;
@@ -385,6 +386,31 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           })
           .where(eq(csgApplications.key, urlSlug));
 
+        // Get the application ID for broadcasting
+        const [csgApp] = await db
+          .select()
+          .from(csgApplications)
+          .where(eq(csgApplications.key, urlSlug));
+
+        if (csgApp?.applicationId) {
+          // Broadcast verification update
+          broadcastVerificationUpdate(csgApp.applicationId, {
+            status: verificationStatus,
+            key: urlSlug,
+            error: verificationError
+          });
+
+          // Update application status if verification succeeded
+          if (inGoodOrder && !hasErrors) {
+            await db.update(applications)
+              .set({
+                status: 'awaiting_signature',
+                updatedAt: new Date()
+              })
+              .where(eq(applications.id, csgApp.applicationId));
+          }
+        }
+
         if (hasErrors || !inGoodOrder) {
           return { 
             success: false, 
@@ -431,6 +457,21 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
             updatedAt: new Date()
           })
           .where(eq(csgApplications.key, urlSlug));
+
+        // Get application ID for broadcasting error
+        const [errorCsgApp] = await db
+          .select()
+          .from(csgApplications)
+          .where(eq(csgApplications.key, urlSlug));
+
+        if (errorCsgApp?.applicationId) {
+          // Broadcast verification failure
+          broadcastVerificationUpdate(errorCsgApp.applicationId, {
+            status: 'failed',
+            key: urlSlug,
+            error: errorMessage
+          });
+        }
 
         return {
           success: false,

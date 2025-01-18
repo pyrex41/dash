@@ -24,7 +24,8 @@ type alias Model =
 
 
 type alias VerificationResult =
-    { success : Bool
+    { applicationId : String
+    , success : Bool
     , screenshot : String
     , verifyUrl : String
     , error : Maybe String
@@ -59,7 +60,8 @@ type Msg
 
 verificationDecoder : Decoder VerificationResult
 verificationDecoder =
-    Decode.map4 VerificationResult
+    Decode.map5 VerificationResult
+        (Decode.field "applicationId" Decode.string)
         (Decode.field "success" Decode.bool)
         (Decode.field "screenshot" Decode.string)
         (Decode.field "verifyUrl" Decode.string)
