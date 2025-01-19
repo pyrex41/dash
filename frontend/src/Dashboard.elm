@@ -982,90 +982,11 @@ viewApplicationRow model app =
                 |> Maybe.withDefault dateString
 
         viewActionButtons =
-            case app.csgApplication of
-                Just csgApp ->
-                    div [ class "flex items-center gap-2" ]
-                        [ button
-                            [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
-                            , onClick (ViewApplication app.id)
-                            ]
-                            [ text "View" ]
-                        , if Set.member app.id model.submitting then
-                            div [ class "flex items-center gap-2" ]
-                                [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
-                                , span [ class "text-sm text-gray-600" ] [ text "Submitting..." ]
-                                ]
-
-                          else if Set.member app.id model.verifying then
-                            div [ class "flex items-center gap-2" ]
-                                [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
-                                , span [ class "text-sm text-gray-600" ] [ text "Verifying..." ]
-                                ]
-
-                          else
-                            case csgApp.verificationStatus of
-                                "verifying" ->
-                                    div [ class "flex items-center gap-2" ]
-                                        [ div [ class "animate-spin h-4 w-4 border-2 border-purple-600 border-t-transparent rounded-full" ] []
-                                        , span [ class "text-sm text-gray-600" ] [ text "Verifying..." ]
-                                        ]
-
-                                "pending" ->
-                                    div [ class "flex items-center gap-2" ]
-                                        [ button
-                                            [ class "inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-yellow-600 hover:bg-yellow-700 text-white rounded-md"
-                                            , onClick (SubmitToCSG app.id "1")
-                                            ]
-                                            [ text "Resubmit" ]
-                                        , span [ class "text-sm text-gray-600" ]
-                                            [ text "Submission pending" ]
-                                        ]
-
-                                "verified" ->
-                                    div [ class "flex items-center gap-2" ]
-                                        [ button
-                                            [ class "inline-flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700"
-                                            , onClick (ViewScreenshot app.id)
-                                            ]
-                                            [ span [ class "text-green-600" ] [ text "✓" ]
-                                            , text "View Verification"
-                                            ]
-                                        , case csgApp.verificationScreenshot of
-                                            Just _ ->
-                                                a
-                                                    [ class "inline-flex items-center gap-1 px-3 py-1.5 text-sm bg-green-600 hover:bg-green-700 text-white rounded-md"
-                                                    , href ("https://eapp.csgactuarial.com/applications/" ++ csgApp.key ++ "/esign/consent")
-                                                    , target "_blank"
-                                                    ]
-                                                    [ text "E-Sign" ]
-
-                                            Nothing ->
-                                                text ""
-                                        ]
-
-                                "failed" ->
-                                    div [ class "flex items-center gap-2" ]
-                                        [ button
-                                            [ class "inline-flex items-center gap-1 px-3 py-1.5 text-sm text-blue-600 hover:text-blue-700"
-                                            , onClick (ViewScreenshot app.id)
-                                            ]
-                                            [ span [ class "text-red-600" ] [ text "✗" ]
-                                            , text "View Verification"
-                                            ]
-                                        , span [ class "text-sm text-red-600" ]
-                                            [ text (Maybe.withDefault "Verification failed" csgApp.verificationError) ]
-                                        ]
-
-                                _ ->
-                                    text ""
-                        ]
-
-                Nothing ->
-                    button
-                        [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
-                        , onClick (ViewApplication app.id)
-                        ]
-                        [ text "View" ]
+            button
+                [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
+                , onClick (ViewApplication app.id)
+                ]
+                [ text "View" ]
     in
     tr [ class "border-b hover:bg-gray-50" ]
         [ td [ class "py-3 px-4 w-8" ]

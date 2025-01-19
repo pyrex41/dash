@@ -1,8 +1,9 @@
 import { drizzle } from 'drizzle-orm/libsql'
 import { createClient } from '@libsql/client'
 import { desc, sql } from 'drizzle-orm'
-import { applications, bookings, user, csgApplications, producers } from './schema'
+import { applications, bookings, user, csgApplications, producers, onboarding } from './schema'
 import { eq } from 'drizzle-orm'
+import { getDb } from '.'
 
 const formatServer = process.env.FORMAT_SERVER_URL 
 console.log('formatServer', formatServer)
@@ -17,6 +18,49 @@ const format_application = async (applicationId: string) => {
   const response = await fetch(url)
   const data = await response.json()
   return data
+}
+
+const determineStatus = (
+  status: string,
+  hasCsgApp: boolean,
+  hasBooking: boolean,
+  csgApp?: { verificationStatus: string }
+): string => {
+  // If there's a CSG app, status depends on verification status
+  if (hasCsgApp && csgApp) {
+    switch (csgApp.verificationStatus) {
+      case 'verified':
+        return 'awaiting_signature';
+      case 'failed':
+        return 'submission_issue';
+      case 'pending':
+      case 'verifying':
+        return 'waiting_review';
+      default:
+        return 'partial';
+    }
+  }
+
+  // If there's a booking but no CSG app, it's waiting for review
+  if (hasBooking) return 'waiting_review';
+  
+  // Otherwise use the stored status or default to partial
+  switch (status.toLowerCase()) {
+    case 'completed':
+      return 'completed';
+    case 'review':
+      return 'waiting_review';
+    case 'submitted_to_csg':
+      return 'waiting_review';
+    case 'declined':
+      return 'declined';
+    case 'issued':
+      return 'issued';
+    case 'awaiting_signature':
+      return 'awaiting_signature';
+    default:
+      return 'partial';
+  }
 }
 
 // Database configuration
@@ -84,20 +128,23 @@ export const formatApplicationData = async (rawApplications: any[]) => {
   const applicationIds = rawApplications.map(app => app.id)
   const userIds = rawApplications.map(app => app.userId)
 
-  const [relatedBookings, relatedUsers, relatedCsgApps] = await Promise.all([
+  const [relatedBookings, relatedUsers, relatedCsgApps, relatedOnboarding] = await Promise.all([
     db.select().from(bookings).where(sql`application_id IN ${applicationIds}`),
     db.select().from(user).where(sql`id IN ${userIds}`),
-    db.select().from(csgApplications).where(sql`application_id IN ${applicationIds}`)
+    db.select().from(csgApplications).where(sql`application_id IN ${applicationIds}`),
+    db.select().from(onboarding).where(sql`user_id IN ${userIds}`)
   ])
 
   const bookingsByAppId = new Map(relatedBookings.map(booking => [booking.applicationId, booking]))
   const usersById = new Map(relatedUsers.map(user => [user.id, user]))
   const csgAppsByAppId = new Map(relatedCsgApps.map(csgApp => [csgApp.applicationId, csgApp]))
+  const onboardingByUserId = new Map(relatedOnboarding.map(onb => [onb.userId, onb]))
 
   return rawApplications.map(app => {
     const relatedBooking = bookingsByAppId.get(app.id)
     const relatedUser = usersById.get(app.userId)
     const relatedCsgApp = csgAppsByAppId.get(app.id)
+    const relatedOnboarding = onboardingByUserId.get(app.userId)
 
     const safeDate = (dateStr: string | number): string => {
       try {
@@ -108,6 +155,7 @@ export const formatApplicationData = async (rawApplications: any[]) => {
     }
 
     const appData = typeof app.data === 'string' ? JSON.parse(app.data) : app.data;
+    const onboardingData = relatedOnboarding ? (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) : {};
     const status = determineStatus(
       app.status, 
       !!relatedCsgApp, 
@@ -127,6 +175,7 @@ export const formatApplicationData = async (rawApplications: any[]) => {
       data: appData,
       name: app.name || 'Unknown',
       naic: app.naic,
+      onboarding_data: onboardingData,
       booking: relatedBooking ? {
         email: relatedBooking.email,
         phone: relatedBooking.phone,
@@ -145,52 +194,10 @@ export const formatApplicationData = async (rawApplications: any[]) => {
   })
 }
 
-const determineStatus = (
-  status: string,
-  hasCsgApp: boolean,
-  hasBooking: boolean,
-  csgApp?: { verificationStatus: string }
-): string => {
-  // If there's a CSG app, status depends on verification status
-  if (hasCsgApp && csgApp) {
-    switch (csgApp.verificationStatus) {
-      case 'verified':
-        return 'awaiting_signature';
-      case 'failed':
-        return 'submission_issue';
-      case 'pending':
-      case 'verifying':
-        return 'waiting_review';
-      default:
-        return 'partial';
-    }
-  }
-
-  // If there's a booking but no CSG app, it's waiting for review
-  if (hasBooking) return 'waiting_review';
-  
-  // Otherwise use the stored status or default to partial
-  switch (status.toLowerCase()) {
-    case 'completed':
-      return 'completed';
-    case 'review':
-      return 'waiting_review';
-    case 'submitted_to_csg':
-      return 'waiting_review';
-    case 'declined':
-      return 'declined';
-    case 'issued':
-      return 'issued';
-    case 'awaiting_signature':
-      return 'awaiting_signature';
-    default:
-      return 'partial';
-  }
-}
-
 // Add a new function to get a single application with schema
 export const getApplicationWithSchema = async (applicationId: string) => {
-  const results = await db
+  const db = getDb()
+  const [application] = await db
     .select({
       id: applications.id,
       userId: applications.userId,
@@ -198,31 +205,86 @@ export const getApplicationWithSchema = async (applicationId: string) => {
       createdAt: applications.createdAt,
       data: applications.data,
       formattedData: applications.formattedData,
-      rawMedications: applications.rawMedications,
-      schema: applications.originalSchema,
       name: applications.name,
       naic: applications.naic,
+      schema: applications.originalSchema,
+      rawMedications: applications.rawMedications
     })
     .from(applications)
-    .where(sql`${applications.id} = ${applicationId}`)
-    .all()
+    .where(eq(applications.id, applicationId))
 
-  const application = results[0]
   if (!application) {
     return null
   }
 
-  const formattedData = application.formattedData || (await format_application(application.id)).data
+  const [relatedUser] = await db
+    .select({
+      email: user.email
+    })
+    .from(user)
+    .where(eq(user.id, application.userId))
 
-  console.log('Raw application from database:', {
-    id: application.id,
-  })
+  const [relatedOnboarding] = await db
+    .select({
+      data: onboarding.data
+    })
+    .from(onboarding)
+    .where(eq(onboarding.userId, application.userId))
+
+  const onboardingData = relatedOnboarding ? (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) : {};
+
+  const [relatedCsgApp] = await db
+    .select({
+      key: csgApplications.key,
+      brokerEmail: csgApplications.brokerEmail,
+      verificationStatus: csgApplications.verificationStatus,
+      verificationScreenshot: csgApplications.verificationScreenshot,
+      verificationError: csgApplications.verificationError,
+      lastVerifiedAt: csgApplications.lastVerifiedAt
+    })
+    .from(csgApplications)
+    .where(eq(csgApplications.applicationId, applicationId))
+
+  const appData = typeof application.data === 'string' ? JSON.parse(application.data) : application.data;
+  const status = determineStatus(
+    application.status, 
+    !!relatedCsgApp, 
+    false,
+    relatedCsgApp
+  )
+
+  const safeDate = (timestamp: number | null): string => {
+    if (!timestamp) return new Date().toISOString()
+    try {
+      return new Date(timestamp * 1000).toISOString()
+    } catch {
+      return new Date().toISOString()
+    }
+  }
+
+  const createdAtStr = safeDate(application.createdAt);
 
   return {
-    ...application,
-    data: typeof application.data === 'string' ? JSON.parse(application.data) : application.data,
-    formattedData: formattedData ? (typeof formattedData === 'string' ? JSON.parse(formattedData) : formattedData) : null,
-    rawMedications: application.rawMedications ? (typeof application.rawMedications === 'string' ? JSON.parse(application.rawMedications) : application.rawMedications) : []
+    id: application.id,
+    userId: application.userId,
+    userEmail: relatedUser?.email || null,
+    status,
+    state: null,
+    data: appData,
+    formattedData: application.formattedData,
+    name: application.name || 'Unknown',
+    naic: application.naic,
+    schema: application.schema?.sections,
+    rawMedications: application.rawMedications,
+    onboarding_data: onboardingData,
+    csgApplication: relatedCsgApp ? {
+      key: relatedCsgApp.key,
+      brokerEmail: relatedCsgApp.brokerEmail,
+      verificationStatus: relatedCsgApp.verificationStatus,
+      verificationScreenshot: relatedCsgApp.verificationScreenshot,
+      verificationError: relatedCsgApp.verificationError,
+      lastVerifiedAt: relatedCsgApp.lastVerifiedAt ? safeDate(relatedCsgApp.lastVerifiedAt) : null
+    } : null
   }
 }
 

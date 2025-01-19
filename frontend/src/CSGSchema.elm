@@ -77,6 +77,14 @@ jsonValueDecoder =
         ]
 
 
+maybeJsonValueDecoder : Decoder (Maybe JsonValue)
+maybeJsonValueDecoder =
+    Decode.oneOf
+        [ Decode.null Nothing
+        , Decode.map Just jsonValueDecoder
+        ]
+
+
 encodeFormObject : JsonValue -> Encode.Value
 encodeFormObject jsonValue =
     case jsonValue of

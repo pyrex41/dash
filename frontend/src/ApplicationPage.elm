@@ -7,6 +7,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http
 import Json.Decode as Decode
+import Ports
 import Producer
 
 
@@ -14,6 +15,7 @@ type alias Model =
     { applicationViewModel : Maybe ApplicationView.Model
     , error : Maybe String
     , loading : Bool
+    , producerConfig : Decode.Value
     }
 
 
@@ -35,11 +37,9 @@ init applicationId producerConfig =
     ( { applicationViewModel = Nothing
       , error = Nothing
       , loading = True
+      , producerConfig = producerConfig
       }
-    , Http.get
-        { url = "/api/applications/" ++ applicationId
-        , expect = Http.expectJson (ApplicationReceived producerConfig) ApplicationView.applicationViewDecoder
-        }
+    , Ports.requestApplication { id = applicationId }
     )
 
 
@@ -58,6 +58,7 @@ update msg model =
                     in
                     ( { model
                         | applicationViewModel = Just viewModel
+                        , error = Nothing
                         , loading = False
                       }
                     , Cmd.map ApplicationViewMsg viewCmd
@@ -112,12 +113,23 @@ view model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model.applicationViewModel of
-        Just viewModel ->
-            Sub.map ApplicationViewMsg (ApplicationView.subscriptions viewModel)
+    Sub.batch
+        [ case model.applicationViewModel of
+            Just viewModel ->
+                Sub.map ApplicationViewMsg (ApplicationView.subscriptions viewModel)
 
-        Nothing ->
-            Sub.none
+            Nothing ->
+                Sub.none
+        , Ports.receiveApplication
+            (\value ->
+                case Decode.decodeValue ApplicationView.applicationViewDecoder value of
+                    Ok app ->
+                        ApplicationReceived model.producerConfig (Ok app)
+
+                    Err err ->
+                        ApplicationReceived model.producerConfig (Err (Http.BadBody (Decode.errorToString err)))
+            )
+        ]
 
 
 
