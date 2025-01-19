@@ -1,6 +1,6 @@
 module ApplicationView exposing (Application, Model, Msg(..), Status(..), applicationViewDecoder, init, subscriptions, update, view)
 
-import CSGSchema exposing (ApplicationSchema, Carrier(..), FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), carrierFromNaic, defaultAetnaMedicationSection, defaultMedicationSection, isFieldVisible, jsonValueDecoder, parseValue, unwrapJValue)
+import CSGSchema exposing (ApplicationSchema, Carrier(..), FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), carrierFromNaic, defaultAetnaMedicationSection, defaultMedicationSection, isFieldVisible, jsonValueDecoder, maybeJsonValueDecoder, parseValue, unwrapJValue)
 import DataEncoder exposing (unflattenData)
 import Date exposing (Date, Unit(..))
 import Debug
@@ -47,6 +47,7 @@ type alias Model =
     , producerConfigs : Dict Int Producer.ProducerConfig
     , submittingToCSG : Bool
     , csgSubmissionError : Maybe String
+    , status : Status
     }
 
 
@@ -91,10 +92,11 @@ type Status
 type alias Application =
     { id : String
     , naic : String
-    , data : Decode.Value
-    , formattedData : Decode.Value
+    , data : JsonValue
+    , formattedData : Maybe JsonValue
+    , rawMedications : List Medication
     , schema : ApplicationSchema
-    , rawMedications : Decode.Value
+    , onboardingData : JsonValue
     , status : Status
     }
 
@@ -104,131 +106,33 @@ type alias Application =
 
 
 init : Decode.Value -> Application -> ( Model, Cmd Msg )
-init producerConfigJson app =
+init producerConfig app =
     let
-        producerConfigs =
-            producerConfigJson
-                |> Decode.decodeValue Producer.producerConfigDecoder
-                |> Result.toMaybe
-                |> Maybe.withDefault Dict.empty
-
-        defaultProducer =
-            producerConfigs
-                |> Dict.toList
-                |> List.filter (\( _, config ) -> config.isDefault)
-                |> List.head
-                |> Maybe.map Tuple.first
-                |> Maybe.withDefault 1
-
-        initialFormValuesRaw =
-            app.data
-                |> extractFormValues
-
-        initialFormattedValues =
-            app.formattedData
-                |> extractFormValues
-
-        initialFormValues0 =
-            case initialFormattedValues of
-                JsonBase NullValue ->
-                    initialFormValuesRaw
-
-                _ ->
-                    initialFormattedValues
-
         carrierInit =
-            app.naic
-                |> carrierFromNaic
+            carrierFromNaic app.naic
 
-        producerConfig =
-            Dict.get defaultProducer producerConfigs
-
-        initialData =
-            case ( carrierInit, producerConfig ) of
-                ( Just carrier, Just config ) ->
-                    case getProducerSection carrier config of
-                        JsonObject dict ->
-                            setSection "producer" dict initialFormValues0
-
-                        _ ->
-                            initialFormValues0
-
-                _ ->
-                    initialFormValues0
-
-        initialMedicationsData : Maybe (List Medication)
-        initialMedicationsData =
-            let
-                _ =
-                    Debug.log "Raw medications from server" app.rawMedications
-
-                fromRawMedications =
-                    Decode.decodeValue (Decode.list medicationDecoder) app.rawMedications
-
-                _ =
-                    Debug.log "Decoded raw medications" fromRawMedications
-
-                fromMedInfo =
-                    Decode.decodeValue (Decode.at [ "medication_information", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data
-
-                _ =
-                    Debug.log "Medications from medication_information" fromMedInfo
-
-                fromHealthHistory =
-                    Decode.decodeValue (Decode.at [ "health_history", "prescription_drug_list" ] (Decode.list medicationDecoder)) app.data
-
-                _ =
-                    Debug.log "Medications from health_history" fromHealthHistory
-            in
-            case fromRawMedications of
-                Ok medications ->
-                    let
-                        _ =
-                            Debug.log "Using raw medications" medications
-                    in
-                    Just medications
-
-                Err _ ->
-                    case fromMedInfo of
-                        Ok medications ->
-                            let
-                                _ =
-                                    Debug.log "Using medications from medication_information" medications
-                            in
-                            Just medications
-
-                        Err _ ->
-                            case fromHealthHistory of
-                                Ok medications ->
-                                    let
-                                        _ =
-                                            Debug.log "Using medications from health_history" medications
-                                    in
-                                    Just medications
-
-                                Err _ ->
-                                    Nothing
+        finalData =
+            app.formattedData
+                |> Maybe.withDefault app.data
 
         initialMedications =
-            initialMedicationsData
-                |> Maybe.withDefault []
+            app.rawMedications
 
         schema =
             app.schema
-                |> List.map
-                    (\section ->
-                        if section.id == "medication_information" then
-                            defaultMedicationSection
 
-                        else if section.id == "health_history" then
-                            defaultAetnaMedicationSection
+        producerConfigs =
+            case Decode.decodeValue Producer.producerConfigDecoder producerConfig of
+                Ok configs ->
+                    configs
 
-                        else
-                            section
-                    )
+                Err _ ->
+                    Dict.empty
 
-        finalData =
-            updateModelDataWithMedications carrierInit initialMedications initialData
+        defaultProducer =
+            Dict.keys producerConfigs
+                |> List.head
+                |> Maybe.withDefault 2
     in
     ( { id = app.id
       , naic = app.naic
@@ -255,6 +159,7 @@ init producerConfigJson app =
       , producerConfigs = producerConfigs
       , submittingToCSG = False
       , csgSubmissionError = Nothing
+      , status = app.status
       }
     , Cmd.batch
         [ Task.perform GotCurrentTime Date.today
@@ -898,28 +803,207 @@ httpErrorToString error =
 
 view : Model -> Html Msg
 view model =
-    div [ class "container mx-auto px-4 py-8" ]
-        [ div [ class "flex justify-between items-center mb-6" ]
-            [ h1 [ class "text-2xl font-bold" ] [ text "Application" ]
+    let
+        planName =
+            case model.carrier of
+                Just Allstate ->
+                    "Allstate Medicare Core (HMO-POS) H2663-061"
+
+                Just Aetna ->
+                    "Aetna Medicare Elite (PPO) H5521-120"
+
+                Just ACE ->
+                    "ACE Medicare Advantage (PPO) H5521-120"
+
+                Just UHC ->
+                    "AARP Medicare Advantage Choice (PPO) H2228-029"
+
+                Nothing ->
+                    "Unknown Plan"
+
+        planRate =
+            case model.data of
+                JsonObject dict ->
+                    case Dict.get "onboarding_data" dict of
+                        Just (JsonObject onboardingData) ->
+                            case Dict.get "rate" onboardingData of
+                                Just (JsonBase (StringValue rate)) ->
+                                    if String.isEmpty rate then
+                                        ""
+
+                                    else
+                                        "$" ++ rate ++ " / month"
+
+                                _ ->
+                                    ""
+
+                        _ ->
+                            ""
+
+                _ ->
+                    ""
+
+        planType =
+            case model.data of
+                JsonObject dict ->
+                    case Dict.get "applicant_info" dict of
+                        Just (JsonObject applicantInfo) ->
+                            case Dict.get "plan" applicantInfo of
+                                Just (JsonBase (StringValue plan)) ->
+                                    "Plan " ++ plan
+
+                                _ ->
+                                    ""
+
+                        _ ->
+                            ""
+
+                _ ->
+                    ""
+
+        verificationStatus =
+            case model.data of
+                JsonObject dict ->
+                    case Dict.get "csgApplication" dict of
+                        Just (JsonObject csgDict) ->
+                            case Dict.get "verificationStatus" csgDict of
+                                Just (JsonBase (StringValue status)) ->
+                                    status
+
+                                _ ->
+                                    ""
+
+                        _ ->
+                            ""
+
+                _ ->
+                    ""
+
+        verificationScreenshot =
+            case model.data of
+                JsonObject dict ->
+                    case Dict.get "csgApplication" dict of
+                        Just (JsonObject csgDict) ->
+                            case Dict.get "verificationScreenshot" csgDict of
+                                Just (JsonBase (StringValue screenshot)) ->
+                                    Just screenshot
+
+                                _ ->
+                                    Nothing
+
+                        _ ->
+                            Nothing
+
+                _ ->
+                    Nothing
+    in
+    div [ class "min-h-screen flex flex-col" ]
+        [ div [ class "sticky top-0 z-10 bg-white shadow-md" ]
+            [ div [ class "max-w-4xl mx-auto p-6" ]
+                [ div [ class "flex items-start gap-6" ]
+                    [ div [ class "w-24 h-24 bg-blue-100 rounded-lg flex items-center justify-center" ]
+                        [ text "Logo" ]
+                    , div [ class "flex-1" ]
+                        [ h1 [ class "text-2xl font-bold" ] [ text planName ]
+                        , div [ class "flex items-center gap-4 mt-2" ]
+                            [ span [ class "text-green-600 font-medium" ] [ text planType ]
+                            , span [ class "text-xl font-semibold" ] [ text planRate ]
+                            ]
+                        ]
+                    , div [ class "flex flex-col items-end gap-2" ]
+                        [ viewStatus model
+                        , case verificationScreenshot of
+                            Just screenshot ->
+                                a
+                                    [ class "text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1"
+                                    , href screenshot
+                                    , target "_blank"
+                                    ]
+                                    [ text "View Verification"
+                                    , span [ class "text-xs" ] [ text "↗" ]
+                                    ]
+
+                            Nothing ->
+                                text ""
+                        ]
+                    ]
+                ]
             ]
-        , case model.error of
-            Just error ->
-                div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
-                    [ text error ]
+        , div [ class "flex-1 bg-gray-50" ]
+            [ div [ class "max-w-4xl mx-auto p-6" ]
+                [ case model.error of
+                    Just error ->
+                        div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
+                            [ text error ]
 
-            Nothing ->
-                text ""
-        , case model.csgSubmissionError of
-            Just error ->
-                div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
-                    [ text error ]
+                    Nothing ->
+                        text ""
+                , case model.csgSubmissionError of
+                    Just error ->
+                        div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
+                            [ text error ]
 
-            Nothing ->
-                text ""
-        , viewControls model
-        , viewForm model
-        , div [ class "flex justify-center mt-8" ]
-            [ viewSubmitButton model ]
+                    Nothing ->
+                        text ""
+                , viewControls model
+                , viewForm model
+                , div [ class "flex justify-center mt-8" ]
+                    [ viewVerifyButton model ]
+                ]
+            ]
+        ]
+
+
+viewStatus : Model -> Html Msg
+viewStatus model =
+    let
+        ( statusText, statusColor ) =
+            case model.status of
+                CompletedApp ->
+                    ( "Completed", "text-green-600 bg-green-50" )
+
+                WaitingReview ->
+                    ( "Waiting Review", "text-red-600 bg-red-50" )
+
+                PartialApplication ->
+                    ( "Started App", "text-blue-600 bg-blue-50" )
+
+                SubmissionIssue ->
+                    ( "Submission Issue", "text-purple-600 bg-purple-50" )
+
+                IssuedPolicy ->
+                    ( "Issued", "text-green-600 bg-green-50" )
+
+                DeclinedPolicy ->
+                    ( "Declined", "text-gray-600 bg-gray-50" )
+
+                AwaitingSignature ->
+                    ( "Awaiting Signature", "text-yellow-600 bg-yellow-50" )
+
+                Submitting ->
+                    ( "Submitting", "text-purple-600 bg-purple-50" )
+
+                Verifying ->
+                    ( "Verifying", "text-blue-600 bg-blue-50" )
+    in
+    div [ class ("flex items-center gap-2 " ++ statusColor ++ " px-3 py-1 rounded-full w-fit") ]
+        [ div [ class "w-2 h-2 rounded-full bg-current" ] []
+        , span [ class "text-sm" ] [ text statusText ]
+        ]
+
+
+viewVerifyButton : Model -> Html Msg
+viewVerifyButton model =
+    button
+        [ class "bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+        , onClick SubmitToCSG
+        , disabled model.submittingToCSG
+        ]
+        [ if model.submittingToCSG then
+            text "Verifying..."
+
+          else
+            text "Verify Application"
         ]
 
 
@@ -2800,23 +2884,20 @@ isJust maybe =
             False
 
 
-applicationViewDecoder : Decode.Decoder Application
+applicationViewDecoder : Decoder Application
 applicationViewDecoder =
-    let
-        rawMedicationsDecoder =
-            Decode.value
-    in
     Decode.succeed Application
         |> Pipeline.required "id" Decode.string
         |> Pipeline.required "naic" Decode.string
-        |> Pipeline.required "data" Decode.value
-        |> Pipeline.required "formattedData" Decode.value
-        |> Pipeline.required "schema" (Decode.field "sections" CSGSchema.formSchemaDecoder)
-        |> Pipeline.optional "rawMedications" rawMedicationsDecoder (Encode.list identity [])
+        |> Pipeline.required "data" jsonValueDecoder
+        |> Pipeline.optional "formattedData" maybeJsonValueDecoder Nothing
+        |> Pipeline.optional "raw_medications" (Decode.list medicationDecoder) []
+        |> Pipeline.required "schema" CSGSchema.formSchemaDecoder
+        |> Pipeline.required "onboarding_data" jsonValueDecoder
         |> Pipeline.required "status" statusDecoder
 
 
-statusDecoder : Decode.Decoder Status
+statusDecoder : Decoder Status
 statusDecoder =
     Decode.string
         |> Decode.andThen
@@ -2828,7 +2909,7 @@ statusDecoder =
                     "waiting_review" ->
                         Decode.succeed WaitingReview
 
-                    "partial" ->
+                    "partial_application" ->
                         Decode.succeed PartialApplication
 
                     "submission_issue" ->
@@ -2850,7 +2931,7 @@ statusDecoder =
                         Decode.succeed Verifying
 
                     _ ->
-                        Decode.succeed PartialApplication
+                        Decode.fail ("Unknown status: " ++ str)
             )
 
 

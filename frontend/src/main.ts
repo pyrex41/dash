@@ -273,29 +273,15 @@ function setupWebSocket(app: any) {
             console.log(`[${receivedAt}] WebSocket message received:`, message);
 
             if (message.type === 'verification_update') {
-                if (app.ports?.receiveApplication?.send) {
-                    console.log(`[${receivedAt}] Received verification update:`, {
-                        msgId: message.msgId,
-                        applicationId: message.applicationId,
-                        status: message.body.status,
-                        timeDiff: new Date(receivedAt).getTime() - new Date(message.timestamp).getTime()
-                    });
+                console.log(`[${receivedAt}] Received verification update:`, {
+                    msgId: message.msgId,
+                    applicationId: message.applicationId,
+                    status: message.body.status,
+                    timeDiff: new Date(receivedAt).getTime() - new Date(message.timestamp).getTime()
+                });
 
-                    // Update the application with the verification data directly
-                    const updatedApplication = {
-                        id: message.applicationId,
-                        status: message.body.applicationStatus,
-                        csgApplication: {
-                            key: message.body.csg_id,
-                            verificationStatus: message.body.status,
-                            verificationError: message.body.error,
-                            verificationScreenshot: message.body.screenshot,
-                            verifyUrl: message.body.verifyUrl,
-                            signatureUrl: message.body.signatureUrl
-                        }
-                    };
-
-                    // Send the updated application to Elm
+                // Send just the status update to Elm
+                if (app.ports?.statusUpdate?.send) {
                     app.ports.statusUpdate.send({
                         id: message.applicationId,
                         status: message.body.applicationStatus
@@ -326,7 +312,11 @@ function setupWebSocket(app: any) {
             if (message.type === 'application_data') {
                 if (app.ports?.receiveApplication?.send) {
                     console.log(`[${receivedAt}] Sending updated application to Elm:`, message.application);
-                    app.ports.receiveApplication.send(message.application);
+                    const applicationData = {
+                        ...message.application,
+                        onboarding_data: message.onboarding_data || {}
+                    };
+                    app.ports.receiveApplication.send(applicationData);
 
                     // Subscribe to the individual application
                     socket.send(JSON.stringify({
@@ -341,10 +331,17 @@ function setupWebSocket(app: any) {
             if (message.type === 'applications_data') {
                 if (app.ports?.receiveApplications?.send) {
                     console.log(`[${receivedAt}] Sending applications data to Elm:`, message.applications);
-                    app.ports.receiveApplications.send(message.applications);
+                    const applicationsData = {
+                        ...message.applications,
+                        applications: message.applications.applications.map((app: any) => ({
+                            ...app,
+                            onboarding_data: app.onboarding_data || {}
+                        }))
+                    };
+                    app.ports.receiveApplications.send(applicationsData);
 
                     // Subscribe to all applications in the current view
-                    const applicationIds = message.applications.applications.map((app: any) => app.id);
+                    const applicationIds = applicationsData.applications.map((app: any) => app.id);
                     if (applicationIds.length > 0) {
                         socket.send(JSON.stringify({
                             type: 'subscribe',
