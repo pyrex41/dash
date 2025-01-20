@@ -148,14 +148,13 @@ export const formatApplicationData = async (rawApplications: any[]) => {
 
     const safeDate = (dateStr: string | number): string => {
       try {
-        return new Date(dateStr).toISOString()
+        return new Date(Number(dateStr)).toISOString()
       } catch {
         return String(dateStr)
       }
     }
 
     const appData = typeof app.data === 'string' ? JSON.parse(app.data) : app.data;
-    const onboardingData = relatedOnboarding ? (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) : {};
     const status = determineStatus(
       app.status, 
       !!relatedCsgApp, 
@@ -163,33 +162,23 @@ export const formatApplicationData = async (rawApplications: any[]) => {
       relatedCsgApp
     )
 
+    // Extract contact info from application data
+    const applicantInfo = appData?.applicant_info || {};
+    const phone = applicantInfo.phone || relatedBooking?.phone || null;
+    const email = applicantInfo.email || relatedBooking?.email || relatedUser?.email || null;
+    const name = applicantInfo.f_name && applicantInfo.l_name 
+      ? `${applicantInfo.f_name} ${applicantInfo.l_name}`.trim()
+      : null;
+
     return {
       id: app.id,
-      userId: app.userId,
-      userEmail: relatedUser?.email || null,
-      createdAt: safeDate(app.createdAt),
-      dateStarted: safeDate(app.createdAt),
-      dateCompleted: null,
-      status,
-      state: null,
-      data: appData,
-      name: app.name || 'Unknown',
       naic: app.naic,
-      onboarding_data: onboardingData,
-      booking: relatedBooking ? {
-        email: relatedBooking.email,
-        phone: relatedBooking.phone,
-        url: relatedBooking.url,
-        status: relatedBooking.status
-      } : null,
-      csgApplication: relatedCsgApp ? {
-        key: relatedCsgApp.key,
-        brokerEmail: relatedCsgApp.brokerEmail,
-        verificationStatus: relatedCsgApp.verificationStatus,
-        verificationScreenshot: relatedCsgApp.verificationScreenshot,
-        verificationError: relatedCsgApp.verificationError,
-        lastVerifiedAt: relatedCsgApp.lastVerifiedAt ? safeDate(relatedCsgApp.lastVerifiedAt) : null
-      } : null
+      name,
+      status,
+      phone,
+      email,
+      effectiveDate: appData?.medicare_information?.effective_date || appData?.applicant_info?.effective_date || appData?.effective_date || null,
+      dateStarted: safeDate(app.createdAt)
     }
   })
 }
@@ -410,7 +399,7 @@ export const getApplications = async (page: number, pageSize: number, searchTerm
         status: applications.status,
         createdAt: applications.createdAt,
         data: applications.data,
-        name: applications.name,
+        naic: applications.naic,
       })
       .from(applications)
       .where(whereConditions.length > 0 ? sql.join(whereConditions, sql` AND `) : undefined)
