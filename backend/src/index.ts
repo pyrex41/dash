@@ -7,6 +7,7 @@ import { getApplications, exportApplications, getApplicationWithSchema, updateFo
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
+import { verifyCSGApplication } from './csg/verify'
 import axios from 'axios'
 import { getHeaders } from './csg/submit'
 import { eq } from 'drizzle-orm'
@@ -29,6 +30,20 @@ interface WSData {
 }
 
 const wsClients = new Map<string, WSData>();
+
+// Add type definition for application response
+interface ApplicationResponse {
+  id: any;
+  naic: any;
+  status: string;
+  phone: any;
+  email: any;
+  effectiveDate: any;
+  dateStarted: string;
+  csgApplication?: {
+    verificationStatus?: string;
+  };
+}
 
 // Helper function to broadcast verification updates only to subscribed clients
 export async function broadcastVerificationUpdate(applicationId: string, body: any) {
@@ -205,7 +220,7 @@ const app = new Elysia({
         getApplications(page, pageSize, searchTerm, hasContactFilter, naics).then(result => {
           ws.send(JSON.stringify({
             type: 'applications_data',
-            applications: result
+            ...result  // Spread result instead of nesting it
           }))
         }).catch(error => {
           ws.send(JSON.stringify({
@@ -219,31 +234,86 @@ const app = new Elysia({
       if (data.type === 'save_application') {
         const { id, formData, medications } = data
         updateFormattedData(id, formData, medications).then(() => {
-          // Reset verification status for any associated CSG application
-          const db = getDb()
-          return db.update(csgApplications)
-            .set({
-              verificationStatus: 'pending',
-              verificationScreenshot: null,
-              verificationError: null,
-              lastVerifiedAt: null,
-              updatedAt: new Date()
-            })
-            .where(eq(csgApplications.applicationId, id))
-            .then(() => {
-              ws.send(JSON.stringify({
-                type: 'save_application_response',
-                id,
-                success: true,
-                error: null
-              }))
-            })
+          ws.send(JSON.stringify({
+            type: 'save_application_response',
+            id,
+            success: true,
+            error: null
+          }))
         }).catch(error => {
           ws.send(JSON.stringify({
             type: 'save_application_response',
             id,
             success: false,
             error: error instanceof Error ? error.message : 'Failed to save application'
+          }))
+        })
+      }
+
+      // Handle CSG submission requests
+      if (data.type === 'submit_to_csg') {
+        const { applicationId, producerId } = data
+        submitToCSG(applicationId, producerId).then(result => {
+          ws.send(JSON.stringify({
+            type: 'submit_to_csg_response',
+            success: result.success || false,
+            error: result.error || null,
+            existingSubmission: result.existingSubmission || null,
+            key: result.key || null,
+            verificationStatus: result.verificationStatus || null
+          }))
+        }).catch(error => {
+          ws.send(JSON.stringify({
+            type: 'submit_to_csg_response',
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to submit to CSG',
+            existingSubmission: null,
+            key: null,
+            verificationStatus: null
+          }))
+        })
+      }
+
+      // Handle CSG verification requests
+      if (data.type === 'verify_csg_application') {
+        const { key } = data
+        verifyCSGApplication(key).then(result => {
+          ws.send(JSON.stringify({
+            type: 'verify_csg_application_response',
+            success: true,
+            result
+          }))
+        }).catch(error => {
+          ws.send(JSON.stringify({
+            type: 'verify_csg_application_response',
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to verify CSG application'
+          }))
+        })
+      }
+
+      // Handle LAPro token refresh requests
+      if (data.type === 'refresh_lapro_token') {
+        makeCSGRequest({
+          method: 'POST',
+          url: '/access_token',
+          data: {
+            username: process.env.LAPRO_USERNAME,
+            password: process.env.LAPRO_PASSWORD,
+            grant_type: process.env.LAPRO_GRANT_TYPE || 'password',
+            client_id: process.env.LAPRO_CLIENT_ID,
+            client_secret: process.env.LAPRO_CLIENT_SECRET,
+          }
+        }).then(token => {
+          ws.send(JSON.stringify({
+            type: 'refresh_lapro_token_response',
+            token
+          }))
+        }).catch(error => {
+          ws.send(JSON.stringify({
+            type: 'refresh_lapro_token_response',
+            token: null,
+            error: error instanceof Error ? error.message : 'Failed to refresh LAPro token'
           }))
         })
       }
@@ -284,7 +354,7 @@ const app = new Elysia({
       const result = await getApplications(page, pageSize, searchTerm, hasContactFilter, naics)
 
       // Log verification statuses for debugging
-      console.log('Verification statuses:', result.applications.map(app => ({
+      console.log('Verification statuses:', (result.applications as ApplicationResponse[]).map(app => ({
         id: app.id,
         verificationStatus: app.csgApplication?.verificationStatus
       })))
@@ -293,7 +363,7 @@ const app = new Elysia({
         total: result.pagination.total,
         totalPages: result.pagination.totalPages,
         applicationCount: result.applications.length,
-        pendingVerifications: result.applications.filter(
+        pendingVerifications: (result.applications as ApplicationResponse[]).filter(
           app => app.csgApplication?.verificationStatus === 'pending'
         ).length
       })

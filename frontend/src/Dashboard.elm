@@ -1,9 +1,10 @@
 module Dashboard exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import ApplicationView exposing (Status(..), applicationViewDecoder)
+import Basics
 import Browser
 import Browser.Events
-import CSGSchema exposing (Carrier(..))
+import CSGSchema exposing (Carrier(..), carrierFromNaic, carrierToString)
 import Date
 import Debounce exposing (Debounce)
 import Dict exposing (Dict)
@@ -30,8 +31,20 @@ type alias PaginationInfo =
     }
 
 
+type alias ApplicationRow =
+    { id : String
+    , naic : String
+    , name : Maybe String
+    , status : Status
+    , phone : Maybe String
+    , email : Maybe String
+    , effectiveDate : Maybe String
+    , dateStarted : String
+    }
+
+
 type alias ApplicationsResponse =
-    { applications : List Application
+    { applications : List ApplicationRow
     , pagination : PaginationInfo
     }
 
@@ -54,15 +67,9 @@ main =
 
 
 type alias Model =
-    { quoteSent : Int
-    , submissions : Int
-    , waitingReview : Int
-    , completedApps : Int
-    , applications : List Application
+    { applications : List ApplicationRow
     , searchTerm : String
     , hasContactFilter : Bool
-    , hasCSGFilter : Bool
-    , selectedCarrier : Maybe CSGSchema.Carrier
     , isLoading : Bool
     , error : Maybe String
     , searchDebouncer : Debounce String
@@ -75,65 +82,7 @@ type alias Model =
     , showApplicationModal : Bool
     , producerConfig : Decode.Value
     , selectedApplicationId : Maybe String
-    , verifying : Set String
-    , verificationResults : Dict String VerificationResult
-    , showScreenshotModal : Maybe String
-    , submitting : Set String
-    , submissionResults : Dict String SubmissionResult
-    , openActionMenu : Maybe String
     , naicsFilter : List String
-    }
-
-
-type alias Application =
-    { id : String
-    , userId : String
-    , userEmail : Maybe String
-    , createdAt : String
-    , dateStarted : String
-    , status : Status
-    , state : Maybe String
-    , data : Decode.Value
-    , carrier : String
-    , booking : Maybe Booking
-    , csgApplication : Maybe CsgApplication
-    }
-
-
-type alias CsgApplication =
-    { key : String
-    , brokerEmail : Maybe String
-    , verificationStatus : String
-    , verificationScreenshot : Maybe String
-    , verificationError : Maybe String
-    , lastVerifiedAt : Maybe String
-    }
-
-
-type alias Booking =
-    { email : String
-    , phone : Maybe String
-    , url : String
-    , status : String
-    }
-
-
-type alias SubmissionResult =
-    { success : Bool
-    , error : Maybe String
-    , existingSubmission : Maybe Bool
-    , key : Maybe String
-    , verificationStatus : Maybe String
-    }
-
-
-type alias VerificationResult =
-    { applicationId : String
-    , key : String
-    , verificationStatus : String
-    , verificationError : Maybe String
-    , verificationScreenshot : Maybe String
-    , lastVerifiedAt : Maybe String
     }
 
 
@@ -143,15 +92,9 @@ type alias VerificationResult =
 
 init : Decode.Value -> ( Model, Cmd Msg )
 init producerConfig =
-    ( { quoteSent = 0
-      , submissions = 0
-      , waitingReview = 0
-      , completedApps = 0
-      , applications = []
+    ( { applications = []
       , searchTerm = ""
       , hasContactFilter = False
-      , hasCSGFilter = False
-      , selectedCarrier = Nothing
       , isLoading = True
       , error = Nothing
       , searchDebouncer = Debounce.init
@@ -164,12 +107,6 @@ init producerConfig =
       , showApplicationModal = False
       , producerConfig = producerConfig
       , selectedApplicationId = Nothing
-      , verifying = Set.empty
-      , verificationResults = Dict.empty
-      , showScreenshotModal = Nothing
-      , submitting = Set.empty
-      , submissionResults = Dict.empty
-      , openActionMenu = Nothing
       , naicsFilter = []
       }
     , requestRefresh
@@ -190,29 +127,15 @@ type Msg
     = NoOp
     | ViewApplication String
     | ApplicationReceived Decode.Value (Result Decode.Error ApplicationView.Application)
-    | CompleteApplication String
     | SearchTermChanged String
     | ToggleContactFilter Bool
-    | ToggleCSGFilter Bool
-    | SetCarrierFilter (Maybe Carrier)
     | RefreshApplications
     | ApplicationsReceived (Result Decode.Error ApplicationsResponse)
-    | ExportToCsv
     | SearchDebouncerMsg Debounce.Msg
-    | PerformSearch String
     | ChangePage Int
     | ApplicationViewMsg ApplicationView.Msg
     | CloseApplicationModal
     | HandleKeyPress String
-    | VerifyApplication String
-    | VerificationReceived (Result Http.Error VerificationResult)
-    | ViewScreenshot String
-    | ToggleActionMenu String
-    | CloseActionMenu
-    | SubmitToCSG String String
-    | SubmissionReceived String (Result Http.Error SubmissionResult)
-    | GotApplications (Result Http.Error ApplicationsResponse)
-    | RequestRefresh
     | ApplicationUpdated Decode.Value
     | StatusUpdate { id : String, status : String }
 
@@ -254,9 +177,6 @@ update msg model =
                     , Cmd.none
                     )
 
-        CompleteApplication id ->
-            ( model, Cmd.none )
-
         SearchTermChanged term ->
             let
                 trimmedTerm =
@@ -279,7 +199,7 @@ update msg model =
                             , pageSize = 20
                             , searchTerm = ""
                             , hasContactFilter = False
-                            , naics = Maybe.map CSGSchema.naicsFromCarrier model.selectedCarrier |> Maybe.withDefault []
+                            , naics = model.naicsFilter
                             }
                         )
 
@@ -290,100 +210,84 @@ update msg model =
                 | searchTerm = term
                 , searchDebouncer = debouncer
                 , searchLoading = shouldSearch
-                , isLoading = shouldRefresh
               }
             , cmd
             )
 
-        SearchDebouncerMsg debouncerMsg ->
+        ToggleContactFilter value ->
+            ( { model | hasContactFilter = value }
+            , requestRefresh
+                { page = 0
+                , pageSize = 20
+                , searchTerm = model.searchTerm
+                , hasContactFilter = value
+                , naics = model.naicsFilter
+                }
+            )
+
+        RefreshApplications ->
+            ( { model | isLoading = True }
+            , requestRefresh
+                { page = model.currentPage
+                , pageSize = model.pageSize
+                , searchTerm = model.searchTerm
+                , hasContactFilter = model.hasContactFilter
+                , naics = model.naicsFilter
+                }
+            )
+
+        ApplicationsReceived result ->
+            case result of
+                Ok response ->
+                    let
+                        _ =
+                            Debug.log "Applications received" response
+                    in
+                    ( { model
+                        | applications = response.applications
+                        , total = response.pagination.total
+                        , currentPage = response.pagination.page
+                        , pageSize = response.pagination.pageSize
+                        , totalPages = response.pagination.totalPages
+                        , isLoading = False
+                        , error = Nothing
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    let
+                        _ =
+                            Debug.log "Applications decode error" error
+                    in
+                    ( { model
+                        | error = Just (Decode.errorToString error)
+                        , isLoading = False
+                      }
+                    , Cmd.none
+                    )
+
+        SearchDebouncerMsg debounceMsg ->
             let
                 ( debouncer, cmd ) =
                     Debounce.update
                         searchDebounceConfig
                         (Debounce.takeLast performSearch)
-                        debouncerMsg
+                        debounceMsg
                         model.searchDebouncer
             in
             ( { model | searchDebouncer = debouncer }
             , cmd
             )
 
-        ToggleContactFilter value ->
-            ( { model | hasContactFilter = value, isLoading = True }
-            , requestRefresh
-                { page = model.currentPage
-                , pageSize = model.pageSize
-                , searchTerm = model.searchTerm
-                , hasContactFilter = value
-                , naics = Maybe.map CSGSchema.naicsFromCarrier model.selectedCarrier |> Maybe.withDefault []
-                }
-            )
-
-        ToggleCSGFilter value ->
-            ( { model | hasCSGFilter = value }, Cmd.none )
-
-        SetCarrierFilter carrier ->
-            ( { model | selectedCarrier = carrier, isLoading = True }
-            , requestRefresh
-                { page = model.currentPage
-                , pageSize = model.pageSize
-                , searchTerm = model.searchTerm
-                , hasContactFilter = model.hasContactFilter
-                , naics = Maybe.map CSGSchema.naicsFromCarrier carrier |> Maybe.withDefault []
-                }
-            )
-
-        RefreshApplications ->
-            ( { model | isLoading = True }, requestRefresh { page = 0, pageSize = 20, searchTerm = "", hasContactFilter = False, naics = [] } )
-
-        ApplicationsReceived (Ok response) ->
-            ( { model
-                | applications = response.applications
-                , isLoading = False
-                , searchLoading = False
-                , quoteSent = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
-                , submissions = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
-                , waitingReview = List.length (List.filter (\a -> a.status == WaitingReview) response.applications)
-                , completedApps = List.length (List.filter (\a -> a.status == CompletedApp) response.applications)
-                , total = response.pagination.total
-                , totalPages = response.pagination.totalPages
-                , currentPage = response.pagination.page
-                , pageSize = response.pagination.pageSize
-              }
-            , Cmd.none
-            )
-
-        ApplicationsReceived (Err _) ->
-            ( { model | error = Just "Failed to load applications", isLoading = False, searchLoading = False }, Cmd.none )
-
-        ExportToCsv ->
-            ( model
-            , exportToCsv
-                { searchTerm = model.searchTerm
-                , hasContactFilter = model.hasContactFilter
-                , hasCSGFilter = model.hasCSGFilter
-                }
-            )
-
-        PerformSearch term ->
-            ( model
-            , requestRefresh
-                { page = 0
-                , pageSize = 20
-                , searchTerm = term
-                , hasContactFilter = False
-                , naics = []
-                }
-            )
-
         ChangePage page ->
-            ( { model | currentPage = page, isLoading = True }
+            ( { model | currentPage = page }
             , requestRefresh
                 { page = page
                 , pageSize = model.pageSize
                 , searchTerm = model.searchTerm
                 , hasContactFilter = model.hasContactFilter
-                , naics = Maybe.map CSGSchema.naicsFromCarrier model.selectedCarrier |> Maybe.withDefault []
+                , naics = model.naicsFilter
                 }
             )
 
@@ -403,209 +307,51 @@ update msg model =
 
         CloseApplicationModal ->
             ( { model
-                | applicationView = Nothing
-                , showApplicationModal = False
+                | showApplicationModal = False
+                , applicationView = Nothing
                 , selectedApplicationId = Nothing
-                , showScreenshotModal = Nothing
               }
             , Cmd.none
             )
 
         HandleKeyPress key ->
             if key == "Escape" then
-                ( { model
-                    | applicationView = Nothing
-                    , showApplicationModal = False
-                    , selectedApplicationId = Nothing
-                    , showScreenshotModal = Nothing
-                  }
-                , Cmd.none
-                )
+                update CloseApplicationModal model
 
             else
                 ( model, Cmd.none )
-
-        VerifyApplication id ->
-            case List.filter (\app -> app.id == id) model.applications |> List.head of
-                Just app ->
-                    case app.csgApplication of
-                        Just csgApp ->
-                            let
-                                _ =
-                                    Debug.log "VerifyApplication" ( id, csgApp.key )
-                            in
-                            ( { model | verifying = Set.insert id model.verifying }
-                            , submitToCSG ( id, 1 )
-                            )
-
-                        Nothing ->
-                            ( model, Cmd.none )
-
-                Nothing ->
-                    ( model, Cmd.none )
-
-        VerificationReceived result ->
-            case result of
-                Ok verificationResult ->
-                    let
-                        id =
-                            verificationResult.applicationId
-
-                        newVerificationResults =
-                            Dict.insert id verificationResult model.verificationResults
-
-                        newVerifying =
-                            Set.remove id model.verifying
-
-                        newApplications =
-                            List.map
-                                (\app ->
-                                    if app.id == id then
-                                        { app
-                                            | csgApplication =
-                                                Maybe.map
-                                                    (\csgApp ->
-                                                        { csgApp
-                                                            | verificationStatus = verificationResult.verificationStatus
-                                                            , verificationScreenshot = verificationResult.verificationScreenshot
-                                                            , verificationError = verificationResult.verificationError
-                                                        }
-                                                    )
-                                                    app.csgApplication
-                                        }
-
-                                    else
-                                        app
-                                )
-                                model.applications
-                    in
-                    ( { model
-                        | verificationResults = newVerificationResults
-                        , verifying = newVerifying
-                        , applications = newApplications
-                      }
-                    , Cmd.none
-                    )
-
-                Err error ->
-                    ( { model
-                        | error = Just (httpErrorToString error)
-
-                        --, verifying = Set.remove id model.verifying
-                      }
-                    , Cmd.none
-                    )
-
-        ViewScreenshot id ->
-            ( { model | showScreenshotModal = Just id }, Cmd.none )
-
-        ToggleActionMenu id ->
-            ( { model
-                | openActionMenu =
-                    if model.openActionMenu == Just id then
-                        Nothing
-
-                    else
-                        Just id
-              }
-            , Cmd.none
-            )
-
-        CloseActionMenu ->
-            ( { model | openActionMenu = Nothing }
-            , Cmd.none
-            )
-
-        SubmitToCSG id producerId ->
-            case String.toInt producerId of
-                Just pid ->
-                    ( { model | submitting = Set.insert id model.submitting }
-                    , submitToCSG ( id, pid )
-                    )
-
-                Nothing ->
-                    ( { model | error = Just "Invalid producer ID" }
-                    , Cmd.none
-                    )
-
-        SubmissionReceived id result ->
-            case result of
-                Ok submissionResult ->
-                    let
-                        newSubmissionResults =
-                            Dict.insert id submissionResult model.submissionResults
-
-                        newSubmitting =
-                            Set.remove id model.submitting
-                    in
-                    ( { model
-                        | submissionResults = newSubmissionResults
-                        , submitting = newSubmitting
-                      }
-                    , Cmd.none
-                    )
-
-                Err error ->
-                    ( { model
-                        | error = Just (httpErrorToString error)
-                        , submitting = Set.remove id model.submitting
-                      }
-                    , Cmd.none
-                    )
-
-        GotApplications result ->
-            case result of
-                Ok response ->
-                    ( { model
-                        | applications = response.applications
-                        , isLoading = False
-                        , searchLoading = False
-                        , quoteSent = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
-                        , submissions = List.length (List.filter (\a -> a.status == PartialApplication) response.applications)
-                        , waitingReview = List.length (List.filter (\a -> a.status == WaitingReview) response.applications)
-                        , completedApps = List.length (List.filter (\a -> a.status == CompletedApp) response.applications)
-                        , total = response.pagination.total
-                        , totalPages = response.pagination.totalPages
-                        , currentPage = response.pagination.page
-                        , pageSize = response.pagination.pageSize
-                      }
-                    , Cmd.none
-                    )
-
-                Err error ->
-                    ( { model | error = Just (httpErrorToString error), isLoading = False }, Cmd.none )
-
-        RequestRefresh ->
-            ( model
-            , requestRefresh
-                { page = model.currentPage
-                , pageSize = model.pageSize
-                , searchTerm = model.searchTerm
-                , hasContactFilter = model.hasContactFilter
-                , naics = model.naicsFilter
-                }
-            )
 
         ApplicationUpdated value ->
             let
                 _ =
                     Debug.log "Application updated" value
+
+                maybeNewStatus =
+                    Decode.decodeValue (Decode.field "status" statusDecoder) value
+
+                maybeId =
+                    Decode.decodeValue (Decode.field "id" Decode.string) value
+
+                newApplications =
+                    case ( maybeId, maybeNewStatus ) of
+                        ( Ok id, Ok newStatus ) ->
+                            model.applications
+                                |> List.map
+                                    (\app ->
+                                        if app.id == id then
+                                            { app | status = newStatus }
+
+                                        else
+                                            app
+                                    )
+
+                        _ ->
+                            model.applications
             in
-            ( model
-            , requestRefresh
-                { page = model.currentPage
-                , pageSize = model.pageSize
-                , searchTerm = model.searchTerm
-                , hasContactFilter = model.hasContactFilter
-                , naics = model.naicsFilter
-                }
-            )
+            ( { model | applications = newApplications }, Cmd.none )
 
         StatusUpdate { id, status } ->
             let
-                _ =
-                    Debug.log "StatusUpdate" ( id, status )
-
                 maybeNewStatus =
                     case status of
                         "submitting" ->
@@ -657,8 +403,7 @@ view model =
     div [ class "min-h-screen bg-white relative" ]
         [ viewHeader
         , div [ class "max-w-7xl mx-auto" ]
-            [ viewMetrics model
-            , viewApplications model
+            [ viewApplications model
             ]
         , if model.showApplicationModal then
             div
@@ -692,343 +437,158 @@ view model =
 
           else
             text ""
-        , case model.showScreenshotModal of
-            Just id ->
-                case List.filter (\app -> app.id == id) model.applications |> List.head of
-                    Just app ->
-                        case app.csgApplication of
-                            Just csgApp ->
-                                case csgApp.verificationScreenshot of
-                                    Just screenshot ->
-                                        div
-                                            [ class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-                                            , onClick CloseApplicationModal
-                                            ]
-                                            [ div
-                                                [ class "bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-y-auto"
-                                                , stopPropagation "click"
-                                                ]
-                                                [ div [ class "flex justify-between items-center p-4 border-b" ]
-                                                    [ div [ class "flex items-center gap-2" ]
-                                                        [ if csgApp.verificationStatus == "verified" then
-                                                            div [ class "text-green-600 font-semibold" ]
-                                                                [ text "✓ Verification successful" ]
-
-                                                          else
-                                                            div [ class "text-red-600 font-semibold" ]
-                                                                [ text "✗ Verification failed" ]
-                                                        , case csgApp.verificationError of
-                                                            Just error ->
-                                                                div [ class "text-red-600" ]
-                                                                    [ text error ]
-
-                                                            Nothing ->
-                                                                text ""
-                                                        ]
-                                                    , button
-                                                        [ class "text-gray-500 hover:text-gray-700"
-                                                        , onClick CloseApplicationModal
-                                                        ]
-                                                        [ text "×" ]
-                                                    ]
-                                                , div [ class "p-4" ]
-                                                    [ img
-                                                        [ src ("data:image/png;base64," ++ screenshot)
-                                                        , class "w-full border rounded-lg shadow-lg"
-                                                        ]
-                                                        []
-                                                    ]
-                                                ]
-                                            ]
-
-                                    Nothing ->
-                                        text ""
-
-                            Nothing ->
-                                text ""
-
-                    Nothing ->
-                        text ""
-
-            Nothing ->
-                text ""
         ]
 
 
 viewHeader : Html Msg
 viewHeader =
-    header [ class "border-b" ]
-        [ div [ class "max-w-7xl mx-auto flex justify-between items-center p-4" ]
-            [ div [ class "flex items-center gap-4" ]
-                [ h1 [ class "text-xl font-bold" ] [ text "White Labeled Logo" ]
-                , nav [ class "flex gap-4" ]
-                    [ a [ href "#" ] [ text "Medigap Applications" ]
-                    , a [ href "#" ] [ text "Contacts" ]
-                    ]
-                ]
-            , div [ class "flex items-center gap-4" ]
-                [ button [ class "bg-black text-white px-4 py-2 rounded" ]
-                    [ text "Send Something" ]
-                , div [ class "flex items-center gap-2" ]
-                    [ span [ class "w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center" ]
-                        [ text "J" ]
-                    , text "John Doe"
+    div [ class "bg-white shadow" ]
+        [ div [ class "max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8" ]
+            [ div [ class "flex justify-between items-center" ]
+                [ h1 [ class "text-2xl font-semibold text-gray-900" ]
+                    [ text "Applications" ]
+                , div [ class "flex items-center gap-4" ]
+                    [ button
+                        [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
+                        , onClick RefreshApplications
+                        ]
+                        [ text "Refresh" ]
                     ]
                 ]
             ]
-        ]
-
-
-viewMetrics : Model -> Html Msg
-viewMetrics model =
-    div [ class "grid grid-cols-4 gap-4 p-4" ]
-        [ viewMetricCard "Quote Sent" model.quoteSent "80" "up"
-        , viewMetricCard "Submissions" model.submissions "20" "up"
-        , viewMetricCard "Waiting Review" model.waitingReview "10" "down"
-        , viewMetricCard "Completed Apps" model.completedApps "" ""
-        ]
-
-
-viewMetricCard : String -> Int -> String -> String -> Html Msg
-viewMetricCard title value percentage direction =
-    div [ class "p-4 rounded-lg border" ]
-        [ div [ class "text-sm text-gray-600" ] [ text title ]
-        , div [ class "text-3xl font-bold" ] [ text (String.fromInt value) ]
-        , if percentage /= "" then
-            div
-                [ class
-                    ("text-sm "
-                        ++ (if direction == "up" then
-                                "text-green-500"
-
-                            else
-                                "text-red-500"
-                           )
-                    )
-                ]
-                [ text (percentage ++ "% vs last month") ]
-
-          else
-            text ""
         ]
 
 
 viewApplications : Model -> Html Msg
 viewApplications model =
-    div [ class "p-4" ]
-        [ div [ class "flex justify-between items-center mb-4" ]
-            [ h2 [ class "text-xl" ] [ text "Applications" ]
-            , div [ class "flex gap-4 items-center" ]
-                [ label [ class "flex items-center gap-2 text-sm text-gray-600" ]
-                    [ input
-                        [ type_ "checkbox"
-                        , class "rounded border-gray-300"
-                        , checked model.hasContactFilter
-                        , onCheck ToggleContactFilter
-                        ]
-                        []
-                    , text "Has contact info"
-                    ]
-                , select
-                    [ class "px-3 py-1 border rounded text-sm text-gray-600"
-                    , on "change"
-                        (Decode.map
-                            (\value ->
-                                case value of
-                                    "ACE" ->
-                                        SetCarrierFilter (Just CSGSchema.ACE)
-
-                                    "Aetna" ->
-                                        SetCarrierFilter (Just CSGSchema.Aetna)
-
-                                    "Allstate" ->
-                                        SetCarrierFilter (Just CSGSchema.Allstate)
-
-                                    "UHC" ->
-                                        SetCarrierFilter (Just CSGSchema.UHC)
-
-                                    _ ->
-                                        SetCarrierFilter Nothing
-                            )
-                            targetValue
-                        )
-                    , value
-                        (case model.selectedCarrier of
-                            Just CSGSchema.ACE ->
-                                "ACE"
-
-                            Just CSGSchema.Aetna ->
-                                "Aetna"
-
-                            Just CSGSchema.Allstate ->
-                                "Allstate"
-
-                            Just CSGSchema.UHC ->
-                                "UHC"
-
-                            Nothing ->
-                                ""
-                        )
-                    ]
-                    [ option [ value "" ] [ text "All Carriers" ]
-                    , option [ value "ACE" ] [ text "ACE" ]
-                    , option [ value "Aetna" ] [ text "Aetna" ]
-                    , option [ value "Allstate" ] [ text "Allstate" ]
-                    , option [ value "UHC" ] [ text "United Healthcare" ]
-                    ]
-                , div [ class "relative" ]
-                    [ input
-                        [ class "px-3 py-1 border rounded"
-                        , placeholder "Search"
-                        , type_ "search"
-                        , value model.searchTerm
-                        , onInput SearchTermChanged
-                        ]
-                        []
-                    , if model.searchLoading && String.length model.searchTerm >= 3 then
-                        div
-                            [ class "absolute right-2 top-1/2 transform -translate-y-1/2" ]
-                            [ div
-                                [ class "animate-spin h-4 w-4 border-2 border-gray-300 border-t-purple-600 rounded-full" ]
-                                []
+    div [ class "mt-8" ]
+        [ div [ class "flex flex-col gap-4" ]
+            [ div [ class "flex justify-between items-center" ]
+                [ div [ class "flex items-center gap-4" ]
+                    [ div [ class "relative" ]
+                        [ input
+                            [ type_ "text"
+                            , class "w-96 px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-600 focus:border-transparent"
+                            , placeholder "Search applications..."
+                            , value model.searchTerm
+                            , onInput SearchTermChanged
                             ]
+                            []
+                        , if model.searchLoading then
+                            div [ class "absolute right-3 top-2.5" ]
+                                [ div [ class "animate-spin h-5 w-5 border-2 border-purple-600 border-t-transparent rounded-full" ] [] ]
 
-                      else
-                        text ""
+                          else
+                            text ""
+                        ]
+                    , label [ class "flex items-center gap-2" ]
+                        [ input
+                            [ type_ "checkbox"
+                            , class "rounded border-gray-300 text-purple-600 focus:ring-purple-600"
+                            , checked model.hasContactFilter
+                            , onCheck ToggleContactFilter
+                            ]
+                            []
+                        , span [ class "text-sm text-gray-700" ] [ text "Has Contact Info" ]
+                        ]
                     ]
                 ]
+            , div [ class "bg-white shadow rounded-lg overflow-hidden" ]
+                [ if model.isLoading then
+                    div [ class "p-4 flex justify-center items-center" ]
+                        [ div [ class "animate-spin h-8 w-8 border-4 border-purple-600 border-t-transparent rounded-full" ] [] ]
+
+                  else if List.isEmpty model.applications then
+                    div [ class "p-4 text-center text-gray-500" ]
+                        [ text "No applications found" ]
+
+                  else
+                    table [ class "min-w-full divide-y divide-gray-200" ]
+                        [ thead [ class "bg-gray-50" ]
+                            [ tr []
+                                [ th [ class "py-3 px-4 w-8" ] []
+                                , th [ class "py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48" ]
+                                    [ text "Name" ]
+                                , th [ class "py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32" ]
+                                    [ text "Carrier" ]
+                                , th [ class "py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-32" ]
+                                    [ text "Status" ]
+                                , th [ class "py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-36" ]
+                                    [ text "Phone" ]
+                                , th [ class "py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-48" ]
+                                    [ text "Email" ]
+                                , th [ class "py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28" ]
+                                    [ text "Effective Date" ]
+                                , th [ class "py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-28" ]
+                                    [ text "Date Started" ]
+                                , th [ class "py-3 px-4 w-24" ] []
+                                ]
+                            ]
+                        , tbody [ class "bg-white divide-y divide-gray-200" ]
+                            (List.map (viewApplicationRow model) model.applications)
+                        ]
+                ]
+            , viewPagination model
             ]
-        , if model.isLoading then
-            div [ class "flex justify-center items-center py-8" ]
-                [ div [ class "animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600" ] []
-                , span [ class "sr-only" ] [ text "Loading..." ]
-                ]
-
-          else
-            div []
-                [ table [ class "w-full border-collapse" ]
-                    [ thead []
-                        [ tr [ class "border-b text-left" ]
-                            [ th [ class "w-8 py-3 px-4" ]
-                                [ input [ type_ "checkbox", class "rounded border-gray-300" ] [] ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-48" ] [ text "Name" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-32" ] [ text "Carrier" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-32" ] [ text "Status" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-36" ] [ text "Phone Number" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-48" ] [ text "Email address" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-28" ] [ text "Effective Date" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-28" ] [ text "Date Started" ]
-                            , th [ class "py-3 px-4 font-medium text-sm text-gray-600 w-24" ] [ text "" ]
-                            ]
-                        ]
-                    , tbody []
-                        (List.map (viewApplicationRow model) model.applications)
-                    ]
-                , viewPagination model
-                ]
         ]
 
 
-viewApplicationRow : Model -> Application -> Html Msg
+viewApplicationRow : Model -> ApplicationRow -> Html Msg
 viewApplicationRow model app =
-    let
-        getName =
-            let
-                firstName =
-                    app.data
-                        |> Decode.decodeValue (Decode.at [ "applicant_info", "f_name" ] Decode.string)
-                        |> Result.toMaybe
-                        |> Maybe.withDefault ""
-
-                lastName =
-                    app.data
-                        |> Decode.decodeValue (Decode.at [ "applicant_info", "l_name" ] Decode.string)
-                        |> Result.toMaybe
-                        |> Maybe.withDefault ""
-            in
-            String.trim (firstName ++ " " ++ lastName)
-
-        getApplicantInfo field =
-            app.data
-                |> Decode.decodeValue (Decode.at [ "applicant_info", field ] Decode.string)
-                |> Result.toMaybe
-
-        getEmail =
-            [ app.userEmail -- From user
-            , getApplicantInfo "email" -- From application data
-            , Maybe.map .email app.booking -- From booking
-            ]
-                |> List.filterMap identity
-                |> List.head
-                |> Maybe.withDefault ""
-
-        getPhone =
-            [ getApplicantInfo "phone" -- From application data
-            , Maybe.andThen .phone app.booking -- From booking
-            ]
-                |> List.filterMap identity
-                |> List.head
-                |> Maybe.withDefault ""
-
-        getEffectiveDate =
-            app.data
-                |> Decode.decodeValue (Decode.at [ "applicant_info", "effective_date" ] Decode.string)
-                |> Result.toMaybe
-
-        formatDate dateString =
-            dateString
-                |> String.split "T"
-                |> List.head
-                |> Maybe.withDefault dateString
-
-        viewActionButtons =
-            button
-                [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
-                , onClick (ViewApplication app.id)
-                ]
-                [ text "View" ]
-    in
     tr [ class "border-b hover:bg-gray-50" ]
         [ td [ class "py-3 px-4 w-8" ]
             [ input [ type_ "checkbox", class "rounded border-gray-300" ] [] ]
-        , td [ class "py-3 px-4 w-48" ] [ text getName ]
-        , td [ class "py-3 px-4 w-32" ] [ text app.carrier ]
+        , td [ class "py-3 px-4 w-48" ] [ text (app.name |> Maybe.withDefault "") ]
+        , td [ class "py-3 px-4 w-32" ] [ text (app.naic |> carrierFromNaic |> Maybe.map carrierToString |> Maybe.withDefault app.naic) ]
         , td [ class "py-3 px-4 w-32" ] [ viewStatus app.status ]
-        , td [ class "py-3 px-4 text-gray-600 w-36 whitespace-nowrap" ] [ text getPhone ]
-        , td [ class "py-3 px-4 text-gray-600 w-48 truncate" ] [ text getEmail ]
+        , td [ class "py-3 px-4 text-gray-600 w-36 whitespace-nowrap" ]
+            [ text (app.phone |> Maybe.withDefault "") ]
+        , td [ class "py-3 px-4 text-gray-600 w-48 truncate" ]
+            [ text (app.email |> Maybe.withDefault "") ]
         , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ]
-            [ text (getEffectiveDate |> Maybe.map formatDate |> Maybe.withDefault "") ]
-        , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ] [ text (formatDate app.dateStarted) ]
-        , td [ class "py-3 px-4 w-24" ]
-            [ viewActionButtons ]
+            [ text (app.effectiveDate |> Maybe.withDefault "") ]
+        , td [ class "py-3 px-4 text-gray-600 w-28 whitespace-nowrap" ]
+            [ text (app.dateStarted |> String.slice 0 10) ]
+        , td [ class "py-3 px-4 w-24 text-right" ]
+            [ button
+                [ class "text-purple-600 hover:text-purple-700 px-3 py-1 rounded-md text-sm hover:bg-purple-50"
+                , onClick (ViewApplication app.id)
+                ]
+                [ text "View" ]
+            ]
         ]
 
 
-viewStatus : Status -> Html Msg
+viewName : String -> String
+viewName naic =
+    naic |> carrierFromNaic |> Maybe.map carrierToString |> Maybe.withDefault naic
+
+
+viewStatus : Status -> Html msg
 viewStatus status =
     let
         ( statusText, statusColor ) =
             case status of
                 CompletedApp ->
-                    ( "Completed App", "text-green-600 bg-green-50" )
+                    ( "Completed", "text-green-600 bg-green-50" )
 
                 WaitingReview ->
-                    ( "Waiting Review", "text-red-600 bg-red-50" )
+                    ( "Waiting Review", "text-yellow-600 bg-yellow-50" )
 
                 PartialApplication ->
-                    ( "Started App", "text-blue-600 bg-blue-50" )
+                    ( "Partial", "text-gray-600 bg-gray-50" )
 
                 SubmissionIssue ->
-                    ( "Submission Issue", "text-purple-600 bg-purple-50" )
+                    ( "Submission Issue", "text-red-600 bg-red-50" )
 
                 IssuedPolicy ->
                     ( "Issued", "text-green-600 bg-green-50" )
 
                 DeclinedPolicy ->
-                    ( "Declined", "text-gray-600 bg-gray-50" )
+                    ( "Declined", "text-red-600 bg-red-50" )
 
                 AwaitingSignature ->
-                    ( "Awaiting Signature", "text-yellow-600 bg-yellow-50" )
+                    ( "Awaiting Signature", "text-orange-600 bg-orange-50" )
 
                 Submitting ->
                     ( "Submitting", "text-purple-600 bg-purple-50" )
@@ -1049,7 +609,14 @@ viewStatus status =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ receiveApplications (Decode.decodeValue applicationListDecoder >> ApplicationsReceived)
+        [ receiveApplications
+            (\value ->
+                let
+                    _ =
+                        Debug.log "Received applications" value
+                in
+                ApplicationsReceived (Decode.decodeValue applicationListDecoder value)
+            )
         , statusUpdate StatusUpdate
         , receiveApplication
             (\value ->
@@ -1062,13 +629,8 @@ subscriptions model =
                         -- Otherwise treat it as a general application update
                         ApplicationUpdated value
             )
-        , if model.showApplicationModal || model.showScreenshotModal /= Nothing then
+        , if model.showApplicationModal then
             Browser.Events.onKeyDown (Decode.map HandleKeyPress (Decode.field "key" Decode.string))
-
-          else
-            Sub.none
-        , if model.openActionMenu /= Nothing then
-            Browser.Events.onClick (Decode.succeed CloseActionMenu)
 
           else
             Sub.none
@@ -1085,55 +647,31 @@ subscriptions model =
 -- DECODERS
 
 
-jdebug : String -> Decode.Decoder a -> Decode.Decoder a
-jdebug message decoder =
-    Decode.value
-        |> Decode.andThen (debugHelper message decoder)
-
-
-debugHelper : String -> Decode.Decoder a -> Decode.Value -> Decode.Decoder a
-debugHelper message decoder value =
-    let
-        _ =
-            Debug.log message (Decode.decodeValue decoder value)
-    in
-    decoder
-
-
-applicationDecoder : Decode.Decoder Application
+applicationDecoder : Decode.Decoder ApplicationRow
 applicationDecoder =
-    Decode.succeed Application
+    Decode.succeed ApplicationRow
         |> Pipeline.required "id" Decode.string
-        |> Pipeline.required "userId" Decode.string
-        |> Pipeline.optional "userEmail" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.required "createdAt" Decode.string
-        |> Pipeline.required "dateStarted" Decode.string
+        |> Pipeline.required "naic" Decode.string
+        |> Pipeline.required "name" (Decode.nullable Decode.string)
         |> Pipeline.required "status" statusDecoder
-        |> Pipeline.optional "state" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.required "data" Decode.value
-        |> Pipeline.required "name" (Decode.map cleanCarrierName Decode.string)
-        |> Pipeline.optional "booking" (Decode.nullable bookingDecoder) Nothing
-        |> Pipeline.optional "csgApplication" (Decode.nullable csgApplicationDecoder) Nothing
-
-
-
---|> jdebug "Application Decoder"
+        |> Pipeline.optional "phone" (Decode.nullable Decode.string) Nothing
+        |> Pipeline.optional "email" (Decode.nullable Decode.string) Nothing
+        |> Pipeline.optional "effectiveDate" (Decode.nullable Decode.string) Nothing
+        |> Pipeline.required "dateStarted" Decode.string
 
 
 applicationListDecoder : Decode.Decoder ApplicationsResponse
 applicationListDecoder =
     Decode.map2 ApplicationsResponse
         (Decode.field "applications" (Decode.list applicationDecoder))
-        (Decode.field "pagination" paginationDecoder)
-
-
-paginationDecoder : Decode.Decoder PaginationInfo
-paginationDecoder =
-    Decode.map4 PaginationInfo
-        (Decode.field "total" Decode.int)
-        (Decode.field "page" Decode.int)
-        (Decode.field "pageSize" Decode.int)
-        (Decode.field "totalPages" Decode.int)
+        (Decode.field "pagination"
+            (Decode.map4 PaginationInfo
+                (Decode.field "total" Decode.int)
+                (Decode.field "page" Decode.int)
+                (Decode.field "pageSize" Decode.int)
+                (Decode.field "totalPages" Decode.int)
+            )
+        )
 
 
 statusDecoder : Decode.Decoder Status
@@ -1163,29 +701,19 @@ statusDecoder =
                     "awaiting_signature" ->
                         Decode.succeed AwaitingSignature
 
+                    "submitting" ->
+                        Decode.succeed Submitting
+
+                    "verifying" ->
+                        Decode.succeed Verifying
+
                     _ ->
+                        let
+                            _ =
+                                Debug.log "Unknown status" str
+                        in
                         Decode.succeed PartialApplication
             )
-
-
-bookingDecoder : Decode.Decoder Booking
-bookingDecoder =
-    Decode.succeed Booking
-        |> Pipeline.required "email" Decode.string
-        |> Pipeline.optional "phone" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.required "url" Decode.string
-        |> Pipeline.required "status" Decode.string
-
-
-csgApplicationDecoder : Decode.Decoder CsgApplication
-csgApplicationDecoder =
-    Decode.succeed CsgApplication
-        |> Pipeline.required "key" Decode.string
-        |> Pipeline.optional "brokerEmail" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.required "verificationStatus" Decode.string
-        |> Pipeline.optional "verificationScreenshot" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.optional "verificationError" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.optional "lastVerifiedAt" (Decode.nullable Decode.string) Nothing
 
 
 cleanCarrierName : String -> String
@@ -1222,73 +750,35 @@ performSearch term =
 
 viewPagination : Model -> Html Msg
 viewPagination model =
-    div [ class "mt-4 flex items-center justify-between border-t border-gray-200 px-4 py-3 sm:px-6" ]
-        [ div [ class "flex flex-1 justify-between sm:hidden" ]
-            [ button
-                [ class "relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                , onClick (ChangePage (model.currentPage - 1))
-                , disabled (model.currentPage <= 0)
-                ]
-                [ text "Previous" ]
-            , button
-                [ class "relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                , onClick (ChangePage (model.currentPage + 1))
-                , disabled (model.currentPage >= model.totalPages - 1)
-                ]
-                [ text "Next" ]
-            ]
-        , div [ class "hidden sm:flex sm:flex-1 sm:items-center sm:justify-between" ]
+    if model.totalPages <= 1 then
+        text ""
+
+    else
+        div [ class "flex justify-between items-center mt-4" ]
             [ div [ class "text-sm text-gray-700" ]
-                [ span [] [ text "Showing " ]
-                , span [ class "font-medium" ]
-                    [ text (String.fromInt (model.currentPage * model.pageSize + 1))
-                    , text " to "
-                    , text (String.fromInt (Basics.min ((model.currentPage + 1) * model.pageSize) model.total))
-                    ]
-                , span [] [ text " of " ]
-                , span [ class "font-medium" ] [ text (String.fromInt model.total) ]
-                , span [] [ text " results" ]
+                [ text
+                    (String.fromInt (model.currentPage * model.pageSize + 1)
+                        ++ "-"
+                        ++ String.fromInt (Basics.min ((model.currentPage + 1) * model.pageSize) model.total)
+                        ++ " of "
+                        ++ String.fromInt model.total
+                    )
                 ]
             , div [ class "flex items-center gap-2" ]
-                [ viewPageButtons model ]
+                [ button
+                    [ class "px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50"
+                    , disabled (model.currentPage == 0)
+                    , onClick (ChangePage (model.currentPage - 1))
+                    ]
+                    [ text "Previous" ]
+                , button
+                    [ class "px-3 py-1 border border-gray-300 rounded-md text-sm disabled:opacity-50"
+                    , disabled (model.currentPage >= model.totalPages - 1)
+                    , onClick (ChangePage (model.currentPage + 1))
+                    ]
+                    [ text "Next" ]
+                ]
             ]
-        ]
-
-
-viewPageButtons : Model -> Html Msg
-viewPageButtons model =
-    let
-        pageNumbers =
-            List.range 0 (model.totalPages - 1)
-                |> List.filter
-                    (\page ->
-                        page
-                            == 0
-                            || page
-                            == model.totalPages
-                            - 1
-                            || abs (page - model.currentPage)
-                            <= 1
-                    )
-                |> List.sort
-    in
-    div [ class "flex gap-1" ]
-        (List.map (viewPageButton model.currentPage) pageNumbers)
-
-
-viewPageButton : Int -> Int -> Html Msg
-viewPageButton currentPage page =
-    button
-        [ class
-            (if page == currentPage then
-                "relative inline-flex items-center px-4 py-2 text-sm font-semibold text-white bg-purple-600 focus:z-20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-600"
-
-             else
-                "relative inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-900 ring-1 ring-inset ring-gray-300 hover:bg-gray-50 focus:z-20 focus:outline-offset-0"
-            )
-        , onClick (ChangePage page)
-        ]
-        [ text (String.fromInt (page + 1)) ]
 
 
 stopPropagation : String -> Attribute Msg
@@ -1313,14 +803,3 @@ httpErrorToString error =
 
         Http.BadBody message ->
             "Failed to decode response: " ++ message
-
-
-verificationResultDecoder : Decode.Decoder VerificationResult
-verificationResultDecoder =
-    Decode.succeed VerificationResult
-        |> Pipeline.required "applicationId" Decode.string
-        |> Pipeline.required "key" Decode.string
-        |> Pipeline.required "verificationStatus" Decode.string
-        |> Pipeline.optional "verificationError" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.optional "verificationScreenshot" (Decode.nullable Decode.string) Nothing
-        |> Pipeline.optional "lastVerifiedAt" (Decode.nullable Decode.string) Nothing

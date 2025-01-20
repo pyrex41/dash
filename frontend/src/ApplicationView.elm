@@ -963,22 +963,22 @@ viewStatus model =
                     ( "Completed", "text-green-600 bg-green-50" )
 
                 WaitingReview ->
-                    ( "Waiting Review", "text-red-600 bg-red-50" )
+                    ( "Waiting Review", "text-yellow-600 bg-yellow-50" )
 
                 PartialApplication ->
-                    ( "Started App", "text-blue-600 bg-blue-50" )
+                    ( "Partial", "text-gray-600 bg-gray-50" )
 
                 SubmissionIssue ->
-                    ( "Submission Issue", "text-purple-600 bg-purple-50" )
+                    ( "Submission Issue", "text-red-600 bg-red-50" )
 
                 IssuedPolicy ->
                     ( "Issued", "text-green-600 bg-green-50" )
 
                 DeclinedPolicy ->
-                    ( "Declined", "text-gray-600 bg-gray-50" )
+                    ( "Declined", "text-red-600 bg-red-50" )
 
                 AwaitingSignature ->
-                    ( "Awaiting Signature", "text-yellow-600 bg-yellow-50" )
+                    ( "Awaiting Signature", "text-orange-600 bg-orange-50" )
 
                 Submitting ->
                     ( "Submitting", "text-purple-600 bg-purple-50" )

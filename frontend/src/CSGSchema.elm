@@ -1005,6 +1005,22 @@ type Carrier
     | UHC
 
 
+carrierToString : Carrier -> String
+carrierToString carrier =
+    case carrier of
+        ACE ->
+            "Ace / Chubb"
+
+        Aetna ->
+            "Aetna"
+
+        Allstate ->
+            "Allstate"
+
+        UHC ->
+            "UHC"
+
+
 carrierFromNaic : String -> Maybe Carrier
 carrierFromNaic naic =
     case naic of
