@@ -440,7 +440,7 @@ view model =
     in
     div [ class "min-h-screen bg-white relative" ]
         [ viewHeader
-        , div [ class "max-w-7xl mx-auto" ]
+        , div [ class "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" ]
             [ viewApplications model
             ]
         , if model.showApplicationModal then
