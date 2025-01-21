@@ -25,7 +25,7 @@ const determineStatus = (
   hasCsgApp: boolean,
   hasBooking: boolean,
   csgApp?: { verificationStatus: string }
-): string => {
+): string | null => {
   // If there's a CSG app, status depends on verification status
   if (hasCsgApp && csgApp) {
     switch (csgApp.verificationStatus) {
@@ -37,14 +37,16 @@ const determineStatus = (
       case 'verifying':
         return 'waiting_review';
       default:
-        return 'partial';
+        // If there's a booking, keep it in waiting_review even if CSG status is unknown
+        if (hasBooking) return 'waiting_review';
+        return null;
     }
   }
 
   // If there's a booking but no CSG app, it's waiting for review
   if (hasBooking) return 'waiting_review';
   
-  // Otherwise use the stored status or default to partial
+  // Otherwise use the stored status or return null
   switch (status.toLowerCase()) {
     case 'completed':
       return 'completed';
@@ -58,8 +60,10 @@ const determineStatus = (
       return 'issued';
     case 'awaiting_signature':
       return 'awaiting_signature';
-    default:
+    case 'partial':
       return 'partial';
+    default:
+      return null;
   }
 }
 

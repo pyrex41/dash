@@ -717,44 +717,46 @@ applicationListDecoder =
 
 statusDecoder : Decode.Decoder Status
 statusDecoder =
-    Decode.string
-        |> Decode.andThen
-            (\str ->
-                case str of
-                    "completed" ->
-                        Decode.succeed CompletedApp
+    Decode.oneOf
+        [ Decode.null PartialApplication
+        , Decode.string
+            |> Decode.andThen
+                (\str ->
+                    case str of
+                        "completed" ->
+                            Decode.succeed CompletedApp
 
-                    "waiting_review" ->
-                        Decode.succeed WaitingReview
+                        "waiting_review" ->
+                            Decode.succeed WaitingReview
 
-                    "partial" ->
-                        Decode.succeed PartialApplication
+                        "partial" ->
+                            Decode.succeed PartialApplication
 
-                    "submission_issue" ->
-                        Decode.succeed SubmissionIssue
+                        "partial_application" ->
+                            Decode.succeed PartialApplication
 
-                    "issued" ->
-                        Decode.succeed IssuedPolicy
+                        "submission_issue" ->
+                            Decode.succeed SubmissionIssue
 
-                    "declined" ->
-                        Decode.succeed DeclinedPolicy
+                        "issued" ->
+                            Decode.succeed IssuedPolicy
 
-                    "awaiting_signature" ->
-                        Decode.succeed AwaitingSignature
+                        "declined" ->
+                            Decode.succeed DeclinedPolicy
 
-                    "submitting" ->
-                        Decode.succeed Submitting
+                        "awaiting_signature" ->
+                            Decode.succeed AwaitingSignature
 
-                    "verifying" ->
-                        Decode.succeed Verifying
+                        "submitting" ->
+                            Decode.succeed Submitting
 
-                    _ ->
-                        let
-                            _ =
-                                Debug.log "Unknown status" str
-                        in
-                        Decode.succeed PartialApplication
-            )
+                        "verifying" ->
+                            Decode.succeed Verifying
+
+                        _ ->
+                            Decode.fail ("Unknown status: " ++ str)
+                )
+        ]
 
 
 cleanCarrierName : String -> String
