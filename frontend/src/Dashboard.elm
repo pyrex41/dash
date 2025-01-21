@@ -17,6 +17,7 @@ import Json.Decode.Pipeline as Pipeline
 import Ports exposing (..)
 import Producer
 import Set exposing (Set)
+import Task
 
 
 
@@ -68,6 +69,7 @@ main =
 
 type alias Model =
     { applications : List ApplicationRow
+    , applicationCache : Dict String ApplicationView.Application
     , searchTerm : String
     , hasContactFilter : Bool
     , isLoading : Bool
@@ -93,6 +95,7 @@ type alias Model =
 init : Decode.Value -> ( Model, Cmd Msg )
 init producerConfig =
     ( { applications = []
+      , applicationCache = Dict.empty
       , searchTerm = ""
       , hasContactFilter = False
       , isLoading = True
@@ -147,12 +150,26 @@ update msg model =
             ( model, Cmd.none )
 
         ViewApplication id ->
+            let
+                -- Check if application is in cache
+                cmd =
+                    case Dict.get id model.applicationCache of
+                        Just application ->
+                            -- If in cache, simulate the received message
+                            ApplicationReceived model.producerConfig (Ok application)
+                                |> Task.succeed
+                                |> Task.perform identity
+
+                        Nothing ->
+                            -- If not in cache, request it
+                            requestApplication { id = id }
+            in
             ( { model
                 | showApplicationModal = True
                 , applicationView = Nothing
                 , selectedApplicationId = Just id
               }
-            , requestApplication { id = id }
+            , cmd
             )
 
         ApplicationReceived producerConfig result ->
@@ -161,10 +178,15 @@ update msg model =
                     let
                         ( viewModel, viewCmd ) =
                             ApplicationView.init producerConfig application
+
+                        -- Store in cache
+                        newCache =
+                            Dict.insert application.id application model.applicationCache
                     in
                     ( { model
                         | applicationView = Just viewModel
                         , isLoading = False
+                        , applicationCache = newCache
                       }
                     , Cmd.map ApplicationViewMsg viewCmd
                     )
@@ -242,6 +264,19 @@ update msg model =
                     let
                         _ =
                             Debug.log "Applications received" response
+
+                        -- If we're filtering, fetch full applications
+                        shouldFetchFull =
+                            not (String.isEmpty model.searchTerm) || model.hasContactFilter || not (List.isEmpty model.naicsFilter)
+
+                        fetchFullCmd =
+                            if shouldFetchFull then
+                                response.applications
+                                    |> List.map (\app -> requestApplication { id = app.id })
+                                    |> Cmd.batch
+
+                            else
+                                Cmd.none
                     in
                     ( { model
                         | applications = response.applications
@@ -252,7 +287,7 @@ update msg model =
                         , isLoading = False
                         , error = Nothing
                       }
-                    , Cmd.none
+                    , fetchFullCmd
                     )
 
                 Err error ->

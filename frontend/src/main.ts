@@ -273,14 +273,15 @@ function setupWebSocket(app: any) {
         isConnected = true;
         reconnectAttempts = 0;
         
-        // Resubscribe to previous subscriptions if any
-        if (currentSubscriptions.size > 0) {
-            console.log('Resubscribing to:', Array.from(currentSubscriptions));
-            socket.send(JSON.stringify({
-                type: 'subscribe',
-                applicationIds: Array.from(currentSubscriptions)
-            }));
-        }
+        // Make initial request for applications
+        socket.send(JSON.stringify({
+            type: 'request_applications',
+            page: 0,
+            pageSize: 20,
+            searchTerm: '',
+            hasContactFilter: false,
+            naics: []
+        }));
     };
     
     socket.onmessage = async (event) => {
@@ -308,45 +309,42 @@ function setupWebSocket(app: any) {
                 return;
             }
 
+            // Handle applications data
+            if (message.type === 'applications_data') {
+                console.log('Received applications data:', message);
+                
+                if (app.ports?.receiveApplications?.send) {
+                    app.ports.receiveApplications.send({
+                        applications: message.applications,
+                        pagination: message.pagination,
+                        receivedAt
+                    });
+                } else {
+                    console.error('receiveApplications port not available');
+                }
+                return;
+            }
+
             // Handle application data responses
             if (message.type === 'application_data') {
                 if (app.ports?.receiveApplication?.send) {
-                    console.log(`[${receivedAt}] Sending updated application to Elm:`, message.application);
+                    console.log(`[${receivedAt}] Application data received:`, {
+                        id: message.applicationId,
+                        hasApplication: !!message.application,
+                        applicationFields: message.application ? Object.keys(message.application) : [],
+                        hasOnboardingData: !!message.onboarding_data,
+                        onboardingFields: message.onboarding_data ? Object.keys(message.onboarding_data) : []
+                    });
+                    
                     const applicationData = {
                         ...message.application,
                         onboarding_data: message.onboarding_data || {}
                     };
                     app.ports.receiveApplication.send(applicationData);
-
-                    // Subscribe to the individual application
-                    socket.send(JSON.stringify({
-                        type: 'subscribe',
-                        applicationIds: [message.applicationId]
-                    }));
+                } else {
+                    console.error(`[${receivedAt}] receiveApplication port not available`);
                 }
                 return;
-            }
-
-            // Handle applications data
-            if (message.type === 'applications_data') {
-                const receivedAt = new Date().toISOString();
-                console.log('Received applications data:', message);
-                
-                // Send applications to Elm
-                app.ports.receiveApplications.send({
-                    applications: message.applications,
-                    pagination: message.pagination,
-                    receivedAt
-                });
-
-                // Subscribe to all applications in the current view
-                const applicationIds = message.applications.map((app: any) => app.id);
-                if (applicationIds.length > 0) {
-                    socket.send(JSON.stringify({
-                        type: 'subscribe',
-                        applicationIds
-                    }));
-                }
             }
 
             // Handle save application responses
@@ -387,9 +385,26 @@ function setupWebSocket(app: any) {
 
             // Handle LAPro token refresh responses
             if (message.type === 'refresh_lapro_token_response') {
-                if (app.ports?.getLAProTokenResponse?.send) {
-                    console.log(`[${receivedAt}] Sending LAPro token response to Elm:`, message);
-                    app.ports.getLAProTokenResponse.send(message.token || '');
+                console.log('Processing LAPro token refresh response:', {
+                    success: message.success,
+                    error: message.error,
+                    token: message.token ? 'present' : 'missing'
+                });
+                if (message.success && message.token) {
+                    // Set cookie with a reasonable expiry (e.g., 1 hour)
+                    const expiryDate = new Date();
+                    expiryDate.setTime(expiryDate.getTime() + (60 * 60 * 1000));
+                    document.cookie = `lapro_token=${message.token}; expires=${expiryDate.toUTCString()}; path=/`;
+                    
+                    app.ports.getLAProTokenResponse.send(message.token);
+                    
+                    // Request a refresh of applications to get latest data
+                    socket.send(JSON.stringify({
+                        type: 'request_applications',
+                        ...currentViewState
+                    }));
+                } else {
+                    console.error('Failed to refresh LAPro token:', message.error);
                 }
                 return;
             }
@@ -432,13 +447,32 @@ function setupWebSocket(app: any) {
     // Replace HTTP requests with WebSocket messages
     if (app.ports?.requestApplication?.subscribe) {
         app.ports.requestApplication.subscribe(({ id }) => {
+            console.log(`[${new Date().toISOString()}] Requesting application:`, {
+                id,
+                socketState: socket.readyState,
+                isOpen: socket.readyState === WebSocket.OPEN
+            });
+            
             if (socket.readyState === WebSocket.OPEN) {
+                // First subscribe to the application if not already subscribed
+                if (!currentSubscriptions.has(id)) {
+                    socket.send(JSON.stringify({
+                        type: 'subscribe',
+                        applicationIds: [id]
+                    }));
+                }
+                
+                // Then request its data
                 socket.send(JSON.stringify({
                     type: 'request_application',
                     applicationId: id
                 }));
+            } else {
+                console.error(`WebSocket not open (state: ${socket.readyState}) when requesting application:`, id);
             }
         });
+    } else {
+        console.error('requestApplication port not available');
     }
 
     function requestApplications(params: { page: number; pageSize: number; searchTerm: string; hasContactFilter: boolean; naics: string[] }) {
@@ -485,6 +519,23 @@ function setupWebSocket(app: any) {
     return socket;
 }
 
+// Add automatic token refresh every 45 minutes
+function setupTokenRefresh(socket: WebSocket) {
+    // Initial token refresh
+    socket.send(JSON.stringify({
+        type: 'refresh_lapro_token'
+    }));
+
+    // Set up periodic refresh (45 minutes)
+    setInterval(() => {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({
+                type: 'refresh_lapro_token'
+            }));
+        }
+    }, 45 * 60 * 1000);
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('DOM loaded, initializing Elm...');
     const target = document.getElementById('app');
@@ -508,42 +559,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Set up WebSocket connection
         const socket = setupWebSocket(app);
 
-        // Make initial request for applications once WebSocket is connected
-        if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({
-                type: 'request_applications',
-                page: 0,
-                pageSize: 20,
-                searchTerm: '',
-                hasContactFilter: false,
-                naics: []
-            }));
-        } else {
-            socket.addEventListener('open', () => {
-                socket.send(JSON.stringify({
-                    type: 'request_applications',
-                    page: 0,
-                    pageSize: 20,
-                    searchTerm: '',
-                    hasContactFilter: false,
-                    naics: []
-                }));
-            });
-        }
+        // Set up automatic token refresh
+        setupTokenRefresh(socket);
 
         // Handle file exports (keep as HTTP since it's a file download)
         app.ports.exportToCsv?.subscribe(({ searchTerm, hasContactFilter, hasCSGFilter }) => {
             window.location.href = `/api/applications/export?searchTerm=${searchTerm}&hasContactFilter=${hasContactFilter}&hasCSGFilter=${hasCSGFilter}`;
-        });
-
-        // Handle individual application requests
-        app.ports.requestApplication?.subscribe(({ id }) => {
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'request_application',
-                    applicationId: id
-                }));
-            }
         });
 
         // Handle application list refresh requests
@@ -602,17 +623,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
-        // Add debug logging for port availability
-        console.log('Available ports:', {
-            forceRefreshLAProToken: !!app.ports.forceRefreshLAProToken,
-            getLAProTokenResponse: !!app.ports.getLAProTokenResponse,
-        });
-
-        // Also verify the port is properly set up
-        console.log('Port setup check:', {
-            forceRefreshLAProToken: typeof app.ports.forceRefreshLAProToken,
-            getLAProTokenResponse: typeof app.ports.getLAProTokenResponse,
-        });
     } catch (error) {
         console.error('Error initializing Elm app:', error);
     }

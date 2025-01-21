@@ -732,11 +732,21 @@ update msg model =
                 validToken =
                     not (String.isEmpty token)
 
-                nextCmd =
-                    if not validToken then
-                        forceRefreshLAProToken ()
+                _ =
+                    Debug.log "Got LAPro token"
+                        { token =
+                            if validToken then
+                                "valid"
 
-                    else if model.isSearching then
+                            else
+                                "invalid"
+                        , isSearching = model.isSearching
+                        , loadingDrugData = model.loadingDrugData
+                        , selectedDrug = model.selectedDrug
+                        }
+
+                nextCmd =
+                    if validToken && model.isSearching then
                         case Dict.get "drugName" model.medicationForm of
                             Just query ->
                                 if String.length query > 2 then
@@ -748,7 +758,7 @@ update msg model =
                             Nothing ->
                                 Cmd.none
 
-                    else if model.loadingDrugData then
+                    else if validToken && model.loadingDrugData then
                         case model.selectedDrug of
                             Just drugName ->
                                 getDrugDosages token drugName
@@ -2908,6 +2918,9 @@ statusDecoder =
 
                     "waiting_review" ->
                         Decode.succeed WaitingReview
+
+                    "partial" ->
+                        Decode.succeed PartialApplication
 
                     "partial_application" ->
                         Decode.succeed PartialApplication
