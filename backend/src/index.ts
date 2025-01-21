@@ -137,35 +137,41 @@ const app = new Elysia({
     wsClients.set(ws.id, wsData)
   },
   
-  message(ws, message) {
+  message: async (ws, message) => {
     try {
-      const data = typeof message === 'string' ? JSON.parse(message) : message
-      const wsData = wsClients.get(ws.id)
+      const data = typeof message === 'string' ? JSON.parse(message) : message;
+      const wsData = wsClients.get(ws.id);
       
       if (!wsData) {
-        console.error('No WebSocket data found for client:', ws.id)
-        return
+        console.error('No WebSocket data found for client:', ws.id);
+        return;
       }
       
       if (data.type === 'pong') {
-        return
+        return;
       }
       
       // Handle subscription messages
       if (data.type === 'subscribe') {
         const applicationIds = data.applicationIds as string[]
         if (Array.isArray(applicationIds)) {
-          // Add new subscriptions without clearing existing ones
-          applicationIds.forEach(id => wsData.subscriptions.add(id))
+          // Filter out already subscribed IDs
+          const newSubscriptions = applicationIds.filter(id => !wsData.subscriptions.has(id));
           
-          // Send confirmation
-          ws.send(JSON.stringify({
-            type: 'subscribed',
-            applicationIds: Array.from(wsData.subscriptions)
-          }))
-          
-          console.log('Client subscribed to applications:', applicationIds)
-          console.log('Total subscriptions:', Array.from(wsData.subscriptions))
+          // Only process if there are new subscriptions
+          if (newSubscriptions.length > 0) {
+            // Add new subscriptions
+            newSubscriptions.forEach(id => wsData.subscriptions.add(id));
+            
+            // Send confirmation only for new subscriptions
+            ws.send(JSON.stringify({
+              type: 'subscribed',
+              applicationIds: newSubscriptions
+            }));
+            
+            console.log('Client subscribed to new applications:', newSubscriptions);
+            console.log('Total subscriptions:', Array.from(wsData.subscriptions));
+          }
         }
       }
       
@@ -294,28 +300,55 @@ const app = new Elysia({
 
       // Handle LAPro token refresh requests
       if (data.type === 'refresh_lapro_token') {
-        makeCSGRequest({
-          method: 'POST',
-          url: '/access_token',
-          data: {
+        try {
+          const body = {
             username: process.env.LAPRO_USERNAME,
             password: process.env.LAPRO_PASSWORD,
             grant_type: process.env.LAPRO_GRANT_TYPE || 'password',
             client_id: process.env.LAPRO_CLIENT_ID,
             client_secret: process.env.LAPRO_CLIENT_SECRET,
+          };
+
+          console.log('Attempting to get LAPRO token with credentials:', {
+            username: process.env.LAPRO_USERNAME,
+            client_id: process.env.LAPRO_CLIENT_ID
+          });
+
+          const response = await fetch('https://authorize.leadadvantagepro.com/access_token', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(body)
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            console.error('LAPRO API error:', {
+              status: response.status,
+              statusText: response.statusText,
+              body: errorText
+            });
+            throw new Error(`HTTP error! status: ${response.status}`);
           }
-        }).then(token => {
+
+          const auth = await response.json();
+          console.log('Successfully refreshed LAPro token');
           ws.send(JSON.stringify({
             type: 'refresh_lapro_token_response',
-            token
-          }))
-        }).catch(error => {
+            success: true,
+            token: auth.access_token,
+            error: null
+          }));
+        } catch (error) {
+          console.error('Failed to refresh LAPro token:', error);
           ws.send(JSON.stringify({
             type: 'refresh_lapro_token_response',
+            success: false,
             token: null,
             error: error instanceof Error ? error.message : 'Failed to refresh LAPro token'
-          }))
-        })
+          }));
+        }
       }
       
     } catch (error) {
