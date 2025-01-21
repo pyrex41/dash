@@ -448,32 +448,38 @@ function setupWebSocket(app: any) {
     // Replace HTTP requests with WebSocket messages
     if (app.ports?.requestApplication?.subscribe) {
         app.ports.requestApplication.subscribe(({ id }) => {
-            console.log(`[${new Date().toISOString()}] Requesting application:`, {
-                id,
-                socketState: socket.readyState,
-                isOpen: socket.readyState === WebSocket.OPEN
-            });
-            
             if (socket.readyState === WebSocket.OPEN) {
-                // First subscribe to the application if not already subscribed
-                if (!currentSubscriptions.has(id)) {
-                    socket.send(JSON.stringify({
-                        type: 'subscribe',
-                        applicationIds: [id]
-                    }));
-                }
-                
-                // Then request its data
                 socket.send(JSON.stringify({
                     type: 'request_application',
                     applicationId: id
                 }));
-            } else {
-                console.error(`WebSocket not open (state: ${socket.readyState}) when requesting application:`, id);
             }
         });
-    } else {
-        console.error('requestApplication port not available');
+    }
+
+    // Add submitToCSG port subscription
+    if (app.ports?.submitToCSG?.subscribe) {
+        app.ports.submitToCSG.subscribe(([applicationId, producerId]) => {
+            if (socket.readyState === WebSocket.OPEN) {
+                console.log('Sending submit to CSG request:', { applicationId, producerId });
+                socket.send(JSON.stringify({
+                    type: 'submit_to_csg',
+                    applicationId,
+                    producerId
+                }));
+            } else {
+                console.error('WebSocket not connected, cannot submit to CSG');
+                if (app.ports?.submitToCSGResponse?.send) {
+                    app.ports.submitToCSGResponse.send({
+                        success: false,
+                        error: 'WebSocket connection not available',
+                        existingSubmission: null,
+                        key: null,
+                        verificationStatus: null
+                    });
+                }
+            }
+        });
     }
 
     function requestApplications(params: { page: number; pageSize: number; searchTerm: string; hasContactFilter: boolean; naics: string[] }) {
@@ -590,17 +596,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                     id,
                     formData: data,
                     medications
-                }));
-            }
-        });
-
-        // Handle CSG submissions
-        app.ports.submitToCSG?.subscribe(([applicationId, producerId]: [string, number]) => {
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'submit_to_csg',
-                    applicationId,
-                    producerId
                 }));
             }
         });

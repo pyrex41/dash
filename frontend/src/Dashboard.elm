@@ -266,7 +266,6 @@ update msg model =
                         _ =
                             Debug.log "Applications received" response
 
-                        -- If we're filtering, fetch full applications
                         shouldFetchFull =
                             not (String.isEmpty model.searchTerm) || model.hasContactFilter || not (List.isEmpty model.naicsFilter)
 
@@ -278,19 +277,20 @@ update msg model =
 
                             else
                                 Cmd.none
+
+                        newModel =
+                            { model
+                                | applications = response.applications
+                                , total = response.pagination.total
+                                , currentPage = response.pagination.page
+                                , pageSize = response.pagination.pageSize
+                                , totalPages = response.pagination.totalPages
+                                , isLoading = False
+                                , searchLoading = False
+                                , error = Nothing
+                            }
                     in
-                    ( { model
-                        | applications = response.applications
-                        , total = response.pagination.total
-                        , currentPage = response.pagination.page
-                        , pageSize = response.pagination.pageSize
-                        , totalPages = response.pagination.totalPages
-                        , isLoading = False
-                        , searchLoading = False
-                        , error = Nothing
-                      }
-                    , fetchFullCmd
-                    )
+                    ( newModel, fetchFullCmd )
 
                 Err error ->
                     let
