@@ -47,6 +47,7 @@ type alias ApplicationRow =
 type alias ApplicationsResponse =
     { applications : List ApplicationRow
     , pagination : PaginationInfo
+    , isLoading : Bool
     }
 
 
@@ -285,6 +286,7 @@ update msg model =
                         , pageSize = response.pagination.pageSize
                         , totalPages = response.pagination.totalPages
                         , isLoading = False
+                        , searchLoading = False
                         , error = Nothing
                       }
                     , fetchFullCmd
@@ -298,6 +300,7 @@ update msg model =
                     ( { model
                         | error = Just (Decode.errorToString error)
                         , isLoading = False
+                        , searchLoading = False
                       }
                     , Cmd.none
                     )
@@ -695,18 +698,21 @@ applicationDecoder =
         |> Pipeline.required "dateStarted" Decode.string
 
 
+paginationDecoder : Decode.Decoder PaginationInfo
+paginationDecoder =
+    Decode.succeed PaginationInfo
+        |> Pipeline.required "total" Decode.int
+        |> Pipeline.required "page" Decode.int
+        |> Pipeline.required "pageSize" Decode.int
+        |> Pipeline.required "totalPages" Decode.int
+
+
 applicationListDecoder : Decode.Decoder ApplicationsResponse
 applicationListDecoder =
-    Decode.map2 ApplicationsResponse
-        (Decode.field "applications" (Decode.list applicationDecoder))
-        (Decode.field "pagination"
-            (Decode.map4 PaginationInfo
-                (Decode.field "total" Decode.int)
-                (Decode.field "page" Decode.int)
-                (Decode.field "pageSize" Decode.int)
-                (Decode.field "totalPages" Decode.int)
-            )
-        )
+    Decode.succeed ApplicationsResponse
+        |> Pipeline.required "applications" (Decode.list applicationDecoder)
+        |> Pipeline.required "pagination" paginationDecoder
+        |> Pipeline.optional "isLoading" Decode.bool False
 
 
 statusDecoder : Decode.Decoder Status

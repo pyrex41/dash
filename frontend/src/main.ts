@@ -317,7 +317,8 @@ function setupWebSocket(app: any) {
                     app.ports.receiveApplications.send({
                         applications: message.applications,
                         pagination: message.pagination,
-                        receivedAt
+                        receivedAt,
+                        isLoading: false  // Add explicit loading state
                     });
                 } else {
                     console.error('receiveApplications port not available');
