@@ -266,18 +266,7 @@ update msg model =
                         _ =
                             Debug.log "Applications received" response
 
-                        shouldFetchFull =
-                            not (String.isEmpty model.searchTerm) || model.hasContactFilter || not (List.isEmpty model.naicsFilter)
-
-                        fetchFullCmd =
-                            if shouldFetchFull then
-                                response.applications
-                                    |> List.map (\app -> requestApplication { id = app.id })
-                                    |> Cmd.batch
-
-                            else
-                                Cmd.none
-
+                        -- No need to fetch full applications unless opening a modal
                         newModel =
                             { model
                                 | applications = response.applications
@@ -290,7 +279,7 @@ update msg model =
                                 , error = Nothing
                             }
                     in
-                    ( newModel, fetchFullCmd )
+                    ( newModel, Cmd.none )
 
                 Err error ->
                     let
