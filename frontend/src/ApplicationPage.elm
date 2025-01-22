@@ -7,18 +7,20 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http
 import Json.Decode as Decode
+import Ports exposing (requestApplication)
 import Producer
 
 
 type alias Model =
     { applicationViewModel : Maybe ApplicationView.Model
+    , selectedProducer : Maybe Producer.ProducerConfig
     , error : Maybe String
     , loading : Bool
     }
 
 
 type Msg
-    = ApplicationReceived Decode.Value (Result Http.Error ApplicationView.Application)
+    = ApplicationReceived (Result Decode.Error ApplicationView.Application)
     | ApplicationViewMsg ApplicationView.Msg
 
 
@@ -31,22 +33,25 @@ init applicationId producerConfig =
         _ =
             Decode.decodeValue Producer.producerConfigDecoder producerConfig
                 |> Debug.log "PRODUCER CONFIG"
+
+        producerConfigDict =
+            Decode.decodeValue Producer.producerConfigDecoder producerConfig
+                |> Result.toMaybe
+                |> Maybe.withDefault Dict.empty
     in
     ( { applicationViewModel = Nothing
+      , selectedProducer = Dict.get 1 producerConfigDict
       , error = Nothing
       , loading = True
       }
-    , Http.get
-        { url = "/api/applications/" ++ applicationId
-        , expect = Http.expectJson (ApplicationReceived producerConfig) ApplicationView.applicationViewDecoder
-        }
+    , requestApplication { id = applicationId }
     )
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        ApplicationReceived producerConfig result ->
+        ApplicationReceived result ->
             case result of
                 Ok application ->
                     let
@@ -54,7 +59,7 @@ update msg model =
                             Debug.log "Application received from server" application.rawMedications
 
                         ( viewModel, viewCmd ) =
-                            ApplicationView.init producerConfig application
+                            ApplicationView.init model.selectedProducer application
                     in
                     ( { model
                         | applicationViewModel = Just viewModel
@@ -65,7 +70,7 @@ update msg model =
 
                 Err error ->
                     ( { model
-                        | error = Just (httpErrorToString error)
+                        | error = Just (Decode.errorToString error)
                         , loading = False
                       }
                     , Cmd.none
@@ -112,16 +117,18 @@ view model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model.applicationViewModel of
-        Just viewModel ->
-            Sub.map ApplicationViewMsg (ApplicationView.subscriptions viewModel)
+    Sub.batch
+        [ Ports.receiveApplication
+            (\value ->
+                ApplicationReceived (Decode.decodeValue ApplicationView.applicationViewDecoder value)
+            )
+        , case model.applicationViewModel of
+            Just viewModel ->
+                Sub.map ApplicationViewMsg (ApplicationView.subscriptions viewModel)
 
-        Nothing ->
-            Sub.none
-
-
-
--- Helper functions
+            Nothing ->
+                Sub.none
+        ]
 
 
 httpErrorToString : Http.Error -> String

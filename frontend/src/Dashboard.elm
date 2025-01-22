@@ -70,7 +70,6 @@ main =
 
 type alias Model =
     { applications : List ApplicationRow
-    , applicationCache : Dict String ApplicationView.Application
     , searchTerm : String
     , hasContactFilter : Bool
     , isLoading : Bool
@@ -83,7 +82,9 @@ type alias Model =
     , totalPages : Int
     , applicationView : Maybe ApplicationView.Model
     , showApplicationModal : Bool
-    , producerConfig : Decode.Value
+    , producerConfigJSON : Decode.Value
+    , producerConfig : Dict Int Producer.ProducerConfig
+    , selectedProducer : Maybe Producer.ProducerConfig
     , selectedApplicationId : Maybe String
     , naicsFilter : List String
     }
@@ -95,8 +96,13 @@ type alias Model =
 
 init : Decode.Value -> ( Model, Cmd Msg )
 init producerConfig =
+    let
+        producerConfigDict =
+            Decode.decodeValue Producer.producerConfigDecoder producerConfig
+                |> Result.toMaybe
+                |> Maybe.withDefault Dict.empty
+    in
     ( { applications = []
-      , applicationCache = Dict.empty
       , searchTerm = ""
       , hasContactFilter = False
       , isLoading = True
@@ -109,7 +115,9 @@ init producerConfig =
       , totalPages = 0
       , applicationView = Nothing
       , showApplicationModal = False
-      , producerConfig = producerConfig
+      , producerConfigJSON = producerConfig
+      , producerConfig = producerConfigDict
+      , selectedProducer = Dict.get 1 producerConfigDict
       , selectedApplicationId = Nothing
       , naicsFilter = []
       }
@@ -130,7 +138,7 @@ init producerConfig =
 type Msg
     = NoOp
     | ViewApplication String
-    | ApplicationReceived Decode.Value (Result Decode.Error ApplicationView.Application)
+    | ApplicationReceived (Maybe Producer.ProducerConfig) (Result Decode.Error ApplicationView.Application)
     | SearchTermChanged String
     | ToggleContactFilter Bool
     | RefreshApplications
@@ -151,43 +159,24 @@ update msg model =
             ( model, Cmd.none )
 
         ViewApplication id ->
-            let
-                -- Check if application is in cache
-                cmd =
-                    case Dict.get id model.applicationCache of
-                        Just application ->
-                            -- If in cache, simulate the received message
-                            ApplicationReceived model.producerConfig (Ok application)
-                                |> Task.succeed
-                                |> Task.perform identity
-
-                        Nothing ->
-                            -- If not in cache, request it
-                            requestApplication { id = id }
-            in
             ( { model
                 | showApplicationModal = True
                 , applicationView = Nothing
                 , selectedApplicationId = Just id
               }
-            , cmd
+            , requestApplication { id = id }
             )
 
-        ApplicationReceived producerConfig result ->
+        ApplicationReceived selectedProducer result ->
             case result of
                 Ok application ->
                     let
                         ( viewModel, viewCmd ) =
-                            ApplicationView.init producerConfig application
-
-                        -- Store in cache
-                        newCache =
-                            Dict.insert application.id application model.applicationCache
+                            ApplicationView.init selectedProducer application
                     in
                     ( { model
                         | applicationView = Just viewModel
                         , isLoading = False
-                        , applicationCache = newCache
                       }
                     , Cmd.map ApplicationViewMsg viewCmd
                     )
@@ -661,7 +650,7 @@ subscriptions model =
                 case model.selectedApplicationId of
                     Just id ->
                         -- If we have a selected application ID, treat it as a modal view response
-                        ApplicationReceived model.producerConfig (Decode.decodeValue applicationViewDecoder value)
+                        ApplicationReceived model.selectedProducer (Decode.decodeValue applicationViewDecoder value)
 
                     Nothing ->
                         -- Otherwise treat it as a general application update
