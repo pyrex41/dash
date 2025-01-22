@@ -3,7 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
-import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
@@ -12,7 +12,7 @@ import axios from 'axios'
 import { getHeaders } from './csg/submit'
 import { eq } from 'drizzle-orm'
 import { getDb } from './db'
-import { csgApplications, applications } from './db/schema'
+import { csgApplications, applications, bookings } from './db/schema'
 import type { ServerWebSocket } from 'bun';
 
 // Resolve __dirname for ESM environments
@@ -59,12 +59,26 @@ export async function broadcastVerificationUpdate(applicationId: string, body: a
     .select()
     .from(applications)
     .leftJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
+    .leftJoin(bookings, eq(applications.id, bookings.applicationId))
     .where(eq(applications.id, applicationId));
 
   if (!application) {
     console.error(`[${timestamp}] Application not found for verification update:`, applicationId);
     return;
   }
+
+  const csgApp = application.csg_applications ? { verificationStatus: application.csg_applications.verificationStatus } : undefined;
+
+  // Use the same determineStatus function as the applications query
+  const status = determineStatus(
+    application.applications.status,
+    !!application.csg_applications,
+    !!application.bookings,
+    csgApp
+  );
+  
+  console.log(`[${timestamp}] Determined status:`, status);
+  console.log(`[${timestamp}] Application data:`, application);
   
   const message = JSON.stringify({
     type: 'verification_update',
@@ -72,9 +86,9 @@ export async function broadcastVerificationUpdate(applicationId: string, body: a
     timestamp,
     applicationId,
     body: {
-      status: application.csg_applications?.verificationStatus || body.status,
+      status,
       csg_id: application.csg_applications?.key || body.key,
-      applicationStatus: application.applications.status || body.applicationStatus,
+      applicationStatus: status,
       error: application.csg_applications?.verificationError || body.error,
       screenshot: application.csg_applications?.verificationScreenshot || body.screenshot,
       verifyUrl: body.verifyUrl,
@@ -82,6 +96,7 @@ export async function broadcastVerificationUpdate(applicationId: string, body: a
     }
   });
   
+  console.log(`[${timestamp}] Message to be sent:`, message);
   console.log(`[${timestamp}] Total connected clients:`, wsClients.size);
   
   // Only send to clients subscribed to this application
@@ -223,17 +238,24 @@ const app = new Elysia({
       // Handle applications list requests
       if (data.type === 'request_applications') {
         const { page = 0, pageSize = 20, searchTerm = '', hasContactFilter = false, naics = [] } = data
+        console.log('Fetching applications with params:', { page, pageSize, searchTerm, hasContactFilter, naics })
         getApplications(page, pageSize, searchTerm, hasContactFilter, naics).then(result => {
-          ws.send(JSON.stringify({
+          // Directly send the result as it is already formatted
+          const response = {
             type: 'applications_data',
-            ...result  // Spread result instead of nesting it
-          }))
+            applications: result.applications,
+            pagination: result.pagination
+          }
+          console.log('Sending applications response:', response)
+          ws.send(JSON.stringify(response));
         }).catch(error => {
-          ws.send(JSON.stringify({
+          const errorResponse = {
             type: 'applications_error',
             error: error instanceof Error ? error.message : 'Failed to load applications'
-          }))
-        })
+          }
+          console.log('Sending applications error:', errorResponse)
+          ws.send(JSON.stringify(errorResponse));
+        });
       }
 
       // Handle save application requests

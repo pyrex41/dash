@@ -17,38 +17,9 @@ console.log('Main script loading...');
 
 import './style.css';
 import { Elm } from './Main.elm';
-import producerConfigJson from '../producer_config.json';
-
 console.log('Imports completed');
 
-// Convert producer config to the format expected by Elm
-const producerConfig = producerConfigJson;
 
-// Add token acquisition function
-async function getLAProToken() {
-    try {
-        const response = await fetch('/api/lapro/token', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const auth = await response.json();
-        // Set cookie with a reasonable expiry (e.g., 1 hour)
-        const expiryDate = new Date();
-        expiryDate.setTime(expiryDate.getTime() + (60 * 60 * 1000));
-        document.cookie = `lapro_token=${auth.access_token}; expires=${expiryDate.toUTCString()}; path=/`;
-        return auth.access_token;
-    } catch (error) {
-        console.error('Error getting LAPRO token:', error);
-        return '';
-    }
-}
 
 async function getProducerConfig(retries = 3, delay = 1000): Promise<any> {
     try {
@@ -66,108 +37,6 @@ async function getProducerConfig(retries = 3, delay = 1000): Promise<any> {
         }
         throw error;
     }
-}
-
-// Add polling functionality for verification status
-async function pollVerificationStatus(applicationId: string, key: string, app: any) {
-    let attempts = 0;
-    const maxAttempts = 24; // 2 minutes (5s * 24)
-    const pollInterval = 5000; // 5 seconds
-
-    const poll = async () => {
-        if (attempts >= maxAttempts) {
-            app.ports.verificationReceived.send([applicationId, {
-                success: false,
-                error: 'Verification timed out',
-                screenshot: null,
-                verifyUrl: null,
-                verificationStatus: 'failed'
-            }]);
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/csg-application/${key}/verify`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const result = await response.json();
-
-            // If verification is complete or failed, send the result
-            if (result.success || result.error) {
-                app.ports.verificationReceived.send([applicationId, {
-                    success: result.success,
-                    error: result.error || null,
-                    screenshot: result.screenshot,
-                    verifyUrl: result.verifyUrl,
-                    verificationStatus: result.success ? 'verified' : 'failed'
-                }]);
-                return;
-            }
-
-            // Otherwise, continue polling
-            attempts++;
-            setTimeout(poll, pollInterval);
-        } catch (error) {
-            app.ports.verificationReceived.send([applicationId, {
-                success: false,
-                error: error instanceof Error ? error.message : 'Failed to verify application',
-                screenshot: null,
-                verifyUrl: null,
-                verificationStatus: 'failed'
-            }]);
-        }
-    };
-
-    // Start polling
-    poll();
-}
-
-// Add polling for CSG application status
-async function pollCSGStatus(key: string, app: any) {
-    const pollInterval = 30000; // 30 seconds
-    const maxAttempts = 120; // 1 hour total
-    let attempts = 0;
-
-    const poll = async () => {
-        if (attempts >= maxAttempts) {
-            console.log('Stopping CSG status polling after max attempts');
-            return;
-        }
-
-        try {
-            const response = await fetch(`/api/csg-application/${key}`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-
-            const data = await response.json();
-            console.log('CSG application status:', data);
-
-            // Refresh applications list to get updated status
-            if (app.ports?.receiveApplications?.send) {
-                const applicationsResponse = await fetch('/api/applications');
-                if (applicationsResponse.ok) {
-                    const applicationsData = await applicationsResponse.json();
-                    app.ports.receiveApplications.send(applicationsData);
-                }
-            }
-
-            // Continue polling if not in a final state
-            if (data.status !== 'approved' && data.status !== 'declined') {
-                attempts++;
-                setTimeout(poll, pollInterval);
-            }
-        } catch (error) {
-            console.error('Error polling CSG status:', error);
-            attempts++;
-            setTimeout(poll, pollInterval);
-        }
-    };
-
-    // Start polling
-    poll();
 }
 
 // Add type for verification update message

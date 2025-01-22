@@ -20,7 +20,7 @@ const format_application = async (applicationId: string) => {
   return data
 }
 
-const determineStatus = (
+export const determineStatus = (
   status: string,
   hasCsgApp: boolean,
   hasBooking: boolean,
@@ -63,7 +63,7 @@ const determineStatus = (
     case 'partial':
       return 'partial';
     default:
-      return null;
+      return 'partial';
   }
 }
 
@@ -210,40 +210,28 @@ export const getApplicationWithSchema = async (applicationId: string) => {
     return null
   }
 
-  const [relatedUser] = await db
-    .select({
-      email: user.email
-    })
-    .from(user)
-    .where(eq(user.id, application.userId))
-
-  const [relatedOnboarding] = await db
-    .select({
-      data: onboarding.data
-    })
-    .from(onboarding)
-    .where(eq(onboarding.userId, application.userId))
-
-  const onboardingData = relatedOnboarding ? (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) : {};
-
-  const [relatedCsgApp] = await db
-    .select({
+  const [relatedUser, relatedOnboarding, relatedCsgApp, relatedBooking] = await Promise.all([
+    db.select({ email: user.email }).from(user).where(eq(user.id, application.userId)),
+    db.select({ data: onboarding.data }).from(onboarding).where(eq(onboarding.userId, application.userId)),
+    db.select({
       key: csgApplications.key,
       brokerEmail: csgApplications.brokerEmail,
       verificationStatus: csgApplications.verificationStatus,
       verificationScreenshot: csgApplications.verificationScreenshot,
       verificationError: csgApplications.verificationError,
       lastVerifiedAt: csgApplications.lastVerifiedAt
-    })
-    .from(csgApplications)
-    .where(eq(csgApplications.applicationId, applicationId))
+    }).from(csgApplications).where(eq(csgApplications.applicationId, applicationId)),
+    db.select().from(bookings).where(eq(bookings.applicationId, applicationId))
+  ])
+
+  const onboardingData = relatedOnboarding ? (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) : {};
 
   const appData = typeof application.data === 'string' ? JSON.parse(application.data) : application.data;
   const status = determineStatus(
     application.status, 
     !!relatedCsgApp, 
-    false,
-    relatedCsgApp
+    !!relatedBooking?.[0],
+    relatedCsgApp?.[0]
   )
 
   const safeDate = (timestamp: number | null): string => {
@@ -416,7 +404,47 @@ export const getApplications = async (page: number, pageSize: number, searchTerm
       .where(whereConditions.length > 0 ? sql.join(whereConditions, sql` AND `) : undefined)
   ])
 
-  const formattedApplications = await formatApplicationData(results)
+  // Fetch related data for status determination
+  const applicationIds = results.map(app => app.id)
+  const [relatedBookings, relatedCsgApps] = await Promise.all([
+    db.select().from(bookings).where(sql`application_id IN ${applicationIds}`),
+    db.select().from(csgApplications).where(sql`application_id IN ${applicationIds}`)
+  ])
+
+  const bookingsByAppId = new Map(relatedBookings.map(booking => [booking.applicationId, booking]))
+  const csgAppsByAppId = new Map(relatedCsgApps.map(csgApp => [csgApp.applicationId, csgApp]))
+
+  const formattedApplications = results.map(app => {
+    const relatedBooking = bookingsByAppId.get(app.id)
+    const relatedCsgApp = csgAppsByAppId.get(app.id)
+
+    const appData = typeof app.data === 'string' ? JSON.parse(app.data) : app.data;
+    const status = determineStatus(
+      app.status, 
+      !!relatedCsgApp, 
+      !!relatedBooking,
+      relatedCsgApp
+    )
+
+    // Extract contact info from application data
+    const applicantInfo = appData?.applicant_info || {};
+    const phone = applicantInfo.phone || relatedBooking?.phone || null;
+    const email = applicantInfo.email || relatedBooking?.email || null;
+    const name = applicantInfo.f_name && applicantInfo.l_name 
+      ? `${applicantInfo.f_name} ${applicantInfo.l_name}`.trim()
+      : null;
+
+    return {
+      id: app.id,
+      naic: app.naic,
+      name,
+      status,
+      phone,
+      email,
+      effectiveDate: appData?.medicare_information?.effective_date || appData?.applicant_info?.effective_date || appData?.effective_date || null,
+      dateStarted: new Date(app.createdAt).toISOString()
+    }
+  })
 
   return {
     applications: formattedApplications,
