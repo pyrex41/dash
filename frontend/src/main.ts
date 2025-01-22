@@ -120,6 +120,27 @@ function setupWebSocket(app: any) {
     console.log('Connecting to WebSocket:', wsUrl);
     
     const socket = new WebSocket(wsUrl, ['json']);
+
+    // Add message queue for requests before connection is ready
+    let messageQueue: any[] = [];
+    
+    // Helper to send or queue message
+    const sendOrQueueMessage = (message: any) => {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(message));
+            console.log('Sent message:', message);
+        } else {
+            console.log('Queueing message for when socket is ready:', message);
+            messageQueue.push(message);
+        }
+    };
+
+    // Wrap socket.send to log all requests
+    const originalSend = socket.send;
+    socket.send = function(data: string) {
+        console.log(`[${new Date().toISOString()}] WebSocket request:`, JSON.parse(data));
+        return originalSend.call(this, data);
+    };
     
     // Add connection state tracking
     let isConnected = false;
@@ -128,29 +149,24 @@ function setupWebSocket(app: any) {
     const baseReconnectDelay = 1000; // Start with 1 second
     let currentSubscriptions = new Set<string>();
 
-    // Track current view state
-    let currentViewState = {
-        page: 0,
-        pageSize: 20,
-        searchTerm: '',
-        hasContactFilter: false,
-        naics: [] as string[]
-    };
     
     socket.onopen = () => {
         console.log('WebSocket connected');
         isConnected = true;
         reconnectAttempts = 0;
         
-        // Make initial request for applications
-        socket.send(JSON.stringify({
-            type: 'request_applications',
-            page: 0,
-            pageSize: 20,
-            searchTerm: '',
-            hasContactFilter: false,
-            naics: []
-        }));
+        // Process any queued messages
+        while (messageQueue.length > 0) {
+            const message = messageQueue.shift();
+            console.log('Processing queued message:', message);
+            socket.send(JSON.stringify(message));
+        }
+        
+        // Send initial ping
+        socket.send(JSON.stringify({ type: 'ping' }));
+        
+        // Set up token refresh after connection is established
+        setupTokenRefresh(socket);
     };
     
     socket.onmessage = async (event) => {
@@ -162,6 +178,10 @@ function setupWebSocket(app: any) {
             // Handle ping/pong
             if (message.type === 'ping') {
                 socket.send(JSON.stringify({ type: 'pong' }));
+                return;
+            }
+
+            if (message.type === 'heartbeat' || message.type === 'pong') {
                 return;
             }
 
@@ -268,11 +288,7 @@ function setupWebSocket(app: any) {
                     
                     app.ports.getLAProTokenResponse.send(message.token);
                     
-                    // Request a refresh of applications to get latest data
-                    socket.send(JSON.stringify({
-                        type: 'request_applications',
-                        ...currentViewState
-                    }));
+                    // Remove unnecessary applications refresh
                 } else {
                     console.error('Failed to refresh LAPro token:', message.error);
                 }
@@ -317,12 +333,11 @@ function setupWebSocket(app: any) {
     // Replace HTTP requests with WebSocket messages
     if (app.ports?.requestApplication?.subscribe) {
         app.ports.requestApplication.subscribe(({ id }) => {
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'request_application',
-                    applicationId: id
-                }));
-            }
+            console.log('Request for application received:', id);
+            sendOrQueueMessage({
+                type: 'request_application',
+                applicationId: id
+            });
         });
     }
 
@@ -351,31 +366,17 @@ function setupWebSocket(app: any) {
         });
     }
 
-    function requestApplications(params: { page: number; pageSize: number; searchTerm: string; hasContactFilter: boolean; naics: string[] }) {
-        socket.send(JSON.stringify({
-            type: "request_applications",
-            page: params.page,
-            pageSize: params.pageSize,
-            searchTerm: params.searchTerm,
-            hasContactFilter: params.hasContactFilter,
-            naics: params.naics
-        }));
-    }
-
     if (app.ports?.requestRefresh?.subscribe) {
         app.ports.requestRefresh.subscribe(({ page, pageSize, searchTerm, hasContactFilter, naics }) => {
-            if (socket.readyState === WebSocket.OPEN) {
-                // Update current view state
-                currentViewState = {
-                    page,
-                    pageSize,
-                    searchTerm,
-                    hasContactFilter,
-                    naics
-                };
-                
-                requestApplications({ page, pageSize, searchTerm, hasContactFilter, naics });
-            }
+            console.log('Requesting applications refresh:', { page, pageSize, searchTerm, hasContactFilter, naics });
+            sendOrQueueMessage({
+                type: 'request_applications',
+                page,
+                pageSize,
+                searchTerm,
+                hasContactFilter,
+                naics
+            });
         });
     }
 
@@ -397,6 +398,11 @@ function setupWebSocket(app: any) {
 
 // Add automatic token refresh every 45 minutes
 function setupTokenRefresh(socket: WebSocket) {
+    if (socket.readyState !== WebSocket.OPEN) {
+        console.warn('WebSocket not ready for token refresh');
+        return;
+    }
+
     // Initial token refresh
     socket.send(JSON.stringify({
         type: 'refresh_lapro_token'
@@ -435,26 +441,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Set up WebSocket connection
         const socket = setupWebSocket(app);
 
-        // Set up automatic token refresh
-        setupTokenRefresh(socket);
-
         // Handle file exports (keep as HTTP since it's a file download)
         app.ports.exportToCsv?.subscribe(({ searchTerm, hasContactFilter, hasCSGFilter }) => {
             window.location.href = `/api/applications/export?searchTerm=${searchTerm}&hasContactFilter=${hasContactFilter}&hasCSGFilter=${hasCSGFilter}`;
-        });
-
-        // Handle application list refresh requests
-        app.ports.requestRefresh?.subscribe(({ page, pageSize, searchTerm, hasContactFilter, naics }) => {
-            if (socket.readyState === WebSocket.OPEN) {
-                socket.send(JSON.stringify({
-                    type: 'request_applications',
-                    page,
-                    pageSize,
-                    searchTerm,
-                    hasContactFilter,
-                    naics
-                }));
-            }
         });
 
         // Handle application saves

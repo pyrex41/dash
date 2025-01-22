@@ -140,7 +140,7 @@ const app = new Elysia({
     // Start heartbeat for this connection
     wsData.heartbeatInterval = setInterval(() => {
       try {
-        ws.send(JSON.stringify({ type: 'ping' }))
+        ws.send(JSON.stringify({ type: 'heartbeat' }))
       } catch (error) {
         console.error('Heartbeat failed, cleaning up:', error)
         const heartbeat = wsData.heartbeatInterval
@@ -159,6 +159,11 @@ const app = new Elysia({
       
       if (!wsData) {
         console.error('No WebSocket data found for client:', ws.id);
+        return;
+      }
+      
+      if (data.type === 'ping') {
+        ws.send(JSON.stringify({ type: 'pong' }));
         return;
       }
       

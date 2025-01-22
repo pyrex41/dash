@@ -43,8 +43,7 @@ type alias Model =
     , searchError : Maybe String
     , isSearching : Bool
     , hasUnsavedChanges : Bool
-    , producerId : Int
-    , producerConfigs : Dict Int Producer.ProducerConfig
+    , producerConfig : Maybe Producer.ProducerConfig
     , submittingToCSG : Bool
     , csgSubmissionError : Maybe String
     , status : Status
@@ -59,7 +58,6 @@ type Msg
     | SaveForm
     | SaveFormResponse { success : Bool, error : Maybe String }
     | SetUnderwritingType Int
-    | SetProducer Int
     | GotCurrentTime Date
     | SubmitToCSG
     | CSGSubmissionResponse { success : Bool, error : Maybe String, existingSubmission : Maybe Bool, key : Maybe String, verificationStatus : Maybe String }
@@ -105,8 +103,8 @@ type alias Application =
 -- INIT
 
 
-init : Decode.Value -> Application -> ( Model, Cmd Msg )
-init producerConfig app =
+init : Maybe Producer.ProducerConfig -> Application -> ( Model, Cmd Msg )
+init selectedProducer app =
     let
         carrierInit =
             carrierFromNaic app.naic
@@ -120,19 +118,6 @@ init producerConfig app =
 
         schema =
             app.schema
-
-        producerConfigs =
-            case Decode.decodeValue Producer.producerConfigDecoder producerConfig of
-                Ok configs ->
-                    configs
-
-                Err _ ->
-                    Dict.empty
-
-        defaultProducer =
-            Dict.keys producerConfigs
-                |> List.head
-                |> Maybe.withDefault 2
     in
     ( { id = app.id
       , naic = app.naic
@@ -155,8 +140,7 @@ init producerConfig app =
       , searchError = Nothing
       , isSearching = False
       , hasUnsavedChanges = False
-      , producerId = defaultProducer
-      , producerConfigs = producerConfigs
+      , producerConfig = selectedProducer
       , submittingToCSG = False
       , csgSubmissionError = Nothing
       , status = app.status
@@ -434,32 +418,6 @@ update msg model =
             , Cmd.none
             )
 
-        SetProducer producer ->
-            let
-                producerConfig =
-                    Dict.get producer model.producerConfigs
-
-                newData =
-                    case ( model.carrier, producerConfig ) of
-                        ( Just carrier, Just config ) ->
-                            case getProducerSection carrier config of
-                                JsonObject dict ->
-                                    setSection "producer" dict model.data
-
-                                _ ->
-                                    model.data
-
-                        _ ->
-                            model.data
-            in
-            ( { model
-                | producerId = producer
-                , data = newData
-                , hasUnsavedChanges = newData /= model.data
-              }
-            , Cmd.none
-            )
-
         SetUnderwritingType underwritingInt ->
             let
                 newData =
@@ -468,6 +426,7 @@ update msg model =
             ( { model
                 | data = newData
                 , hasUnsavedChanges = newData /= model.data
+                , underwritingType = Just underwritingInt
               }
             , Cmd.none
             )
@@ -606,8 +565,20 @@ update msg model =
             )
 
         SubmitToCSG ->
-            ( { model | submittingToCSG = True, csgSubmissionError = Nothing }
-            , submitToCSG ( model.id, model.producerId )
+            let
+                id =
+                    case model.producerConfig of
+                        Just config ->
+                            config.id
+
+                        Nothing ->
+                            1
+            in
+            ( { model
+                | submittingToCSG = True
+                , csgSubmissionError = Nothing
+              }
+            , submitToCSG ( model.id, id )
             )
 
         CSGSubmissionResponse response ->
@@ -908,26 +879,37 @@ view model =
                     Nothing
     in
     div [ class "min-h-screen flex flex-col space-y-8" ]
-        [ div [ class "sticky top-0 z-10 bg-white" ]
+        [ div [ class "bg-white" ]
             [ div [ class "max-w-3xl mx-auto p-6 rounded-lg shadow-lg" ]
                 [ div [ class "bg-white rounded-lg shadow-sm" ]
                     [ div [ class "flex items-start justify-between" ]
                         [ div [ class "flex flex-col gap-4" ]
                             [ div [ class "w-24 h-24 bg-blue-100 rounded-lg flex items-center justify-center" ]
-                                [ text "Logo" ]
-                            , div [ class "flex flex-col gap-2" ]
-                                [ h1 [ class "text-2xl font-bold" ] [ text planName ]
-                                , div [ class "flex items-center gap-4" ]
-                                    [ span [ class "text-green-600 font-medium" ] [ text planType ]
-                                    , span [ class "text-xl font-semibold" ] [ text planRate ]
-                                    ]
+                                [ text
+                                    (planName
+                                        ++ " Logo"
+                                    )
                                 ]
                             ]
                         , div [ class "flex items-start gap-4" ]
-                            [ viewStatus model
+                            [ div [ class "flex-1" ]
+                                [ div [ class "relative h-[34px]" ]
+                                    [ select
+                                        [ class "w-full appearance-none border border-purple-200 rounded px-4 h-[34px] pr-8 text-sm bg-white hover:border-purple-300 focus:outline-none focus:border-purple-500"
+                                        , value (Maybe.map String.fromInt model.underwritingType |> Maybe.withDefault "")
+                                        , onInput (\str -> SetUnderwritingType (String.toInt str |> Maybe.withDefault 0))
+                                        ]
+                                        [ option [ value "0" ] [ text "Underwritten" ]
+                                        , option [ value "1" ] [ text "Open Enrollment" ]
+                                        , option [ value "2" ] [ text "Guaranteed Issue" ]
+                                        ]
+                                    , div [ class "pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700" ]
+                                        [ text "▼" ]
+                                    ]
+                                ]
                             , div [ class "flex flex-col gap-2" ]
                                 [ button
-                                    [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm"
+                                    [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm h-[34px]"
                                     , onClick SubmitToCSG
                                     , disabled model.submittingToCSG
                                     ]
@@ -938,42 +920,18 @@ view model =
                                         text "Verify Application"
                                     ]
                                 , button
-                                    [ class "border border-purple-600 text-purple-600 px-4 py-1.5 rounded text-sm"
+                                    [ class "border border-purple-600 text-purple-600 px-4 py-1.5 rounded text-sm h-[34px]"
                                     , onClick NoOp
                                     ]
                                     [ text "Change Plans" ]
                                 ]
                             ]
                         ]
-                    , div [ class "flex items-center gap-4 mt-4" ]
-                        [ div [ class "flex-1" ]
-                            [ div [ class "relative" ]
-                                [ select
-                                    [ class "w-full appearance-none border border-purple-200 rounded px-4 py-2 pr-8 text-sm bg-white hover:border-purple-300 focus:outline-none focus:border-purple-500"
-                                    , value (String.fromInt model.producerId)
-                                    , onInput (\str -> SetProducer (String.toInt str |> Maybe.withDefault 2))
-                                    ]
-                                    (List.map (viewProducerOption model.producerConfigs)
-                                        (model.producerId :: (Dict.keys model.producerConfigs |> List.filter (\id -> id /= model.producerId)))
-                                    )
-                                , div [ class "pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700" ]
-                                    [ text "▼" ]
-                                ]
-                            ]
-                        , div [ class "flex-1" ]
-                            [ div [ class "relative" ]
-                                [ select
-                                    [ class "w-full appearance-none border border-purple-200 rounded px-4 py-2 pr-8 text-sm bg-white hover:border-purple-300 focus:outline-none focus:border-purple-500"
-                                    , value (Maybe.map String.fromInt model.underwritingType |> Maybe.withDefault "")
-                                    , onInput (\str -> SetUnderwritingType (String.toInt str |> Maybe.withDefault 0))
-                                    ]
-                                    [ option [ value "0" ] [ text "Underwritten" ]
-                                    , option [ value "1" ] [ text "Open Enrollment" ]
-                                    , option [ value "2" ] [ text "Guaranteed Issue" ]
-                                    ]
-                                , div [ class "pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700" ]
-                                    [ text "▼" ]
-                                ]
+                    , div
+                        [ class "mt-4" ]
+                        [ div [ class "flex flex-row gap-8" ]
+                            [ viewStatus model
+                            , text "link here"
                             ]
                         ]
                     , case verificationScreenshot of
