@@ -817,16 +817,16 @@ view model =
         planName =
             case model.carrier of
                 Just Allstate ->
-                    "Allstate Medicare Core (HMO-POS) H2663-061"
+                    "Allstate"
 
                 Just Aetna ->
-                    "Aetna Medicare Elite (PPO) H5521-120"
+                    "Aetna"
 
                 Just ACE ->
-                    "ACE Medicare Advantage (PPO) H5521-120"
+                    "Ace / Chubb"
 
                 Just UHC ->
-                    "AARP Medicare Advantage Choice (PPO) H2228-029"
+                    "AARP Medicare "
 
                 Nothing ->
                     "Unknown Plan"
@@ -907,59 +907,107 @@ view model =
                 _ ->
                     Nothing
     in
-    div [ class "min-h-screen flex flex-col" ]
-        [ div [ class "sticky top-0 z-10 bg-white shadow-md" ]
-            [ div [ class "max-w-4xl mx-auto p-6" ]
-                [ div [ class "flex items-start gap-6" ]
-                    [ div [ class "w-24 h-24 bg-blue-100 rounded-lg flex items-center justify-center" ]
-                        [ text "Logo" ]
-                    , div [ class "flex-1" ]
-                        [ h1 [ class "text-2xl font-bold" ] [ text planName ]
-                        , div [ class "flex items-center gap-4 mt-2" ]
-                            [ span [ class "text-green-600 font-medium" ] [ text planType ]
-                            , span [ class "text-xl font-semibold" ] [ text planRate ]
+    div [ class "min-h-screen flex flex-col space-y-8" ]
+        [ div [ class "sticky top-0 z-10 bg-white" ]
+            [ div [ class "max-w-3xl mx-auto p-6 rounded-lg shadow-lg" ]
+                [ div [ class "bg-white rounded-lg shadow-sm" ]
+                    [ div [ class "flex items-start justify-between" ]
+                        [ div [ class "flex flex-col gap-4" ]
+                            [ div [ class "w-24 h-24 bg-blue-100 rounded-lg flex items-center justify-center" ]
+                                [ text "Logo" ]
+                            , div [ class "flex flex-col gap-2" ]
+                                [ h1 [ class "text-2xl font-bold" ] [ text planName ]
+                                , div [ class "flex items-center gap-4" ]
+                                    [ span [ class "text-green-600 font-medium" ] [ text planType ]
+                                    , span [ class "text-xl font-semibold" ] [ text planRate ]
+                                    ]
+                                ]
+                            ]
+                        , div [ class "flex items-start gap-4" ]
+                            [ viewStatus model
+                            , div [ class "flex flex-col gap-2" ]
+                                [ button
+                                    [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm"
+                                    , onClick SubmitToCSG
+                                    , disabled model.submittingToCSG
+                                    ]
+                                    [ if model.submittingToCSG then
+                                        text "Verifying..."
+
+                                      else
+                                        text "Verify Application"
+                                    ]
+                                , button
+                                    [ class "border border-purple-600 text-purple-600 px-4 py-1.5 rounded text-sm"
+                                    , onClick NoOp
+                                    ]
+                                    [ text "Change Plans" ]
+                                ]
                             ]
                         ]
-                    , div [ class "flex flex-col items-end gap-2" ]
-                        [ viewStatus model
-                        , case verificationScreenshot of
-                            Just screenshot ->
-                                a
-                                    [ class "text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1"
-                                    , href screenshot
-                                    , target "_blank"
+                    , div [ class "flex items-center gap-4 mt-4" ]
+                        [ div [ class "flex-1" ]
+                            [ div [ class "relative" ]
+                                [ select
+                                    [ class "w-full appearance-none border border-purple-200 rounded px-4 py-2 pr-8 text-sm bg-white hover:border-purple-300 focus:outline-none focus:border-purple-500"
+                                    , value (String.fromInt model.producerId)
+                                    , onInput (\str -> SetProducer (String.toInt str |> Maybe.withDefault 2))
                                     ]
-                                    [ text "View Verification"
-                                    , span [ class "text-xs" ] [ text "↗" ]
+                                    (List.map (viewProducerOption model.producerConfigs)
+                                        (model.producerId :: (Dict.keys model.producerConfigs |> List.filter (\id -> id /= model.producerId)))
+                                    )
+                                , div [ class "pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700" ]
+                                    [ text "▼" ]
+                                ]
+                            ]
+                        , div [ class "flex-1" ]
+                            [ div [ class "relative" ]
+                                [ select
+                                    [ class "w-full appearance-none border border-purple-200 rounded px-4 py-2 pr-8 text-sm bg-white hover:border-purple-300 focus:outline-none focus:border-purple-500"
+                                    , value (Maybe.map String.fromInt model.underwritingType |> Maybe.withDefault "")
+                                    , onInput (\str -> SetUnderwritingType (String.toInt str |> Maybe.withDefault 0))
                                     ]
-
-                            Nothing ->
-                                text ""
+                                    [ option [ value "0" ] [ text "Underwritten" ]
+                                    , option [ value "1" ] [ text "Open Enrollment" ]
+                                    , option [ value "2" ] [ text "Guaranteed Issue" ]
+                                    ]
+                                , div [ class "pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700" ]
+                                    [ text "▼" ]
+                                ]
+                            ]
                         ]
+                    , case verificationScreenshot of
+                        Just screenshot ->
+                            a
+                                [ class "text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1 mt-2"
+                                , href screenshot
+                                , target "_blank"
+                                ]
+                                [ text "View Verification"
+                                , span [ class "text-xs" ] [ text "↗" ]
+                                ]
+
+                        Nothing ->
+                            text ""
                     ]
                 ]
             ]
         , div [ class "flex-1 bg-gray-50" ]
-            [ div [ class "max-w-4xl mx-auto p-6" ]
-                [ case model.error of
-                    Just error ->
-                        div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
-                            [ text error ]
+            [ case model.error of
+                Just error ->
+                    div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
+                        [ text error ]
 
-                    Nothing ->
-                        text ""
-                , case model.csgSubmissionError of
-                    Just error ->
-                        div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
-                            [ text error ]
+                Nothing ->
+                    text ""
+            , case model.csgSubmissionError of
+                Just error ->
+                    div [ class "bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" ]
+                        [ text error ]
 
-                    Nothing ->
-                        text ""
-                , viewControls model
-                , viewForm model
-                , div [ class "flex justify-center mt-8" ]
-                    [ viewVerifyButton model ]
-                ]
+                Nothing ->
+                    text ""
+            , viewForm model
             ]
         ]
 
@@ -1017,46 +1065,6 @@ viewVerifyButton model =
         ]
 
 
-viewControls : Model -> Html Msg
-viewControls model =
-    let
-        order : List Int
-        order =
-            model.producerId
-                :: (Dict.keys model.producerConfigs
-                        |> List.filter
-                            (\id -> id /= model.producerId)
-                   )
-    in
-    div [ class "producer-section max-w-3xl mx-auto px-6 mb-8" ]
-        [ div [ class "producer-controls" ]
-            [ div [ class "producer-group" ]
-                [ label [ class "producer-label" ]
-                    [ text "Producer" ]
-                , select
-                    [ class "underwriting-select"
-                    , value (String.fromInt model.producerId)
-                    , onInput (\str -> SetProducer (String.toInt str |> Maybe.withDefault 2))
-                    ]
-                    (List.map (viewProducerOption model.producerConfigs) order)
-                ]
-            , div [ class "underwriting-group" ]
-                [ label [ class "producer-label" ]
-                    [ text "Underwriting Type" ]
-                , select
-                    [ class "underwriting-select"
-                    , value (Maybe.map String.fromInt model.underwritingType |> Maybe.withDefault "")
-                    , onInput (\str -> SetUnderwritingType (String.toInt str |> Maybe.withDefault 0))
-                    ]
-                    [ option [ value "0" ] [ text "Underwritten" ]
-                    , option [ value "1" ] [ text "Open Enrollment" ]
-                    , option [ value "2" ] [ text "Guaranteed Issue" ]
-                    ]
-                ]
-            ]
-        ]
-
-
 viewProducerOption : Dict.Dict Int Producer.ProducerConfig -> Int -> Html Msg
 viewProducerOption producerConfigs producerId =
     case Dict.get producerId producerConfigs of
@@ -1095,7 +1103,7 @@ viewSubmitButton model =
 
 viewForm : Model -> Html Msg
 viewForm model =
-    div [ class "max-w-3xl mx-auto space-y-8 px-6" ]
+    div [ class "max-w-3xl mx-auto space-y-8" ]
         (List.sortBy .order model.schema
             |> List.map (renderFormSection model)
         )
