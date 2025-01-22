@@ -469,17 +469,22 @@ view model =
 
 viewHeader : Html Msg
 viewHeader =
-    div [ class "bg-white shadow" ]
-        [ div [ class "max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8" ]
-            [ div [ class "flex justify-between items-center" ]
-                [ h1 [ class "text-2xl font-semibold text-gray-900" ]
-                    [ text "Applications" ]
-                , div [ class "flex items-center gap-4" ]
-                    [ button
-                        [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
-                        , onClick RefreshApplications
+    div [ class "bg-white border-b" ]
+        [ div [ class "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" ]
+            [ div [ class "flex items-center justify-between h-16" ]
+                [ div [ class "flex items-center gap-8" ]
+                    [ div [ class "w-10 h-10 bg-gray-100 rounded flex items-center justify-center" ]
+                        [ text "Logo" ]
+                    , div [ class "flex items-center gap-6" ]
+                        [ a [ class "text-gray-900 font-medium" ] [ text "Medicare Applications" ]
+                        , a [ class "text-gray-500" ] [ text "Contacts" ]
                         ]
-                        [ text "Refresh" ]
+                    ]
+                , div [ class "flex items-center gap-4" ]
+                    [ div [ class "flex items-center gap-2" ]
+                        [ div [ class "w-8 h-8 bg-gray-100 rounded-full" ] []
+                        , span [ class "text-sm text-gray-700" ] [ text "John Doe" ]
+                        ]
                     ]
                 ]
             ]
@@ -489,7 +494,8 @@ viewHeader =
 viewApplications : Model -> Html Msg
 viewApplications model =
     div [ class "mt-8" ]
-        [ div [ class "flex flex-col gap-4" ]
+        [ viewStatistics model
+        , div [ class "flex flex-col gap-4 mt-8" ]
             [ div [ class "flex justify-between items-center" ]
                 [ div [ class "flex items-center gap-4" ]
                     [ div [ class "relative" ]
@@ -519,6 +525,11 @@ viewApplications model =
                         , span [ class "text-sm text-gray-700" ] [ text "Has Contact Info" ]
                         ]
                     ]
+                , button
+                    [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md text-sm"
+                    , onClick RefreshApplications
+                    ]
+                    [ text "Refresh" ]
                 ]
             , div [ class "bg-white shadow rounded-lg overflow-hidden" ]
                 [ if model.isLoading then
@@ -835,3 +846,35 @@ httpErrorToString error =
 
         Http.BadBody message ->
             "Failed to decode response: " ++ message
+
+
+viewStatistics : Model -> Html Msg
+viewStatistics model =
+    div [ class "grid grid-cols-4 gap-6" ]
+        [ viewStatCard "Partial Applications" "185" "80%" "text-green-600" "vs previous 30 days"
+        , viewStatCard "Application Submissions" "125" "20%" "text-green-600" "vs previous 30 days"
+        , viewStatCard "Waiting Review" "25" "-10%" "text-red-600" "vs previous 30 days"
+        , viewStatCard "Completed Apps" "100" "" "" ""
+        ]
+
+
+viewStatCard : String -> String -> String -> String -> String -> Html Msg
+viewStatCard title value changeValue changeColor comparisonText =
+    div [ class "bg-white rounded-lg p-6 shadow-sm" ]
+        [ div [ class "text-gray-600 text-sm" ] [ text title ]
+        , div [ class "mt-2 flex items-baseline gap-2" ]
+            [ div [ class "text-3xl font-semibold" ] [ text value ]
+            , if not (String.isEmpty changeValue) then
+                div [ class ("text-sm font-medium " ++ changeColor) ]
+                    [ text ("↑ " ++ changeValue) ]
+
+              else
+                text ""
+            ]
+        , if not (String.isEmpty comparisonText) then
+            div [ class "text-gray-500 text-sm mt-1" ]
+                [ text comparisonText ]
+
+          else
+            text ""
+        ]
