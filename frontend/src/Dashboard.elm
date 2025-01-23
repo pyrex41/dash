@@ -88,6 +88,17 @@ type alias Model =
     , selectedApplicationId : Maybe String
     , naicsFilter : List String
     , showProducerModal : Bool
+    , stats : Maybe ApplicationStats
+    , statusFilter : Maybe String
+    , selectedStatsFilter : String
+    }
+
+
+type alias ApplicationStats =
+    { total : Int
+    , submitted : Int
+    , waitingReview : Int
+    , completed : Int
     }
 
 
@@ -122,14 +133,21 @@ init producerConfig =
       , selectedApplicationId = Nothing
       , naicsFilter = []
       , showProducerModal = False
+      , stats = Nothing
+      , statusFilter = Nothing
+      , selectedStatsFilter = "total"
       }
-    , requestRefresh
-        { page = 0
-        , pageSize = 20
-        , searchTerm = ""
-        , hasContactFilter = False
-        , naics = []
-        }
+    , Cmd.batch
+        [ requestRefresh
+            { page = 0
+            , pageSize = 20
+            , searchTerm = ""
+            , hasContactFilter = False
+            , naics = []
+            , status = Nothing
+            }
+        , requestApplicationStats ()
+        ]
     )
 
 
@@ -155,6 +173,9 @@ type Msg
     | ToggleProducerModal
     | SelectProducer Int
     | CloseProducerModal
+    | GotApplicationStats (Result Decode.Error ApplicationStats)
+    | FilterByStatus String
+    | ClearStatusFilter
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -217,6 +238,7 @@ update msg model =
                             , searchTerm = ""
                             , hasContactFilter = False
                             , naics = model.naicsFilter
+                            , status = model.statusFilter
                             }
                         )
 
@@ -239,6 +261,7 @@ update msg model =
                 , searchTerm = model.searchTerm
                 , hasContactFilter = value
                 , naics = model.naicsFilter
+                , status = model.statusFilter
                 }
             )
 
@@ -250,6 +273,7 @@ update msg model =
                 , searchTerm = model.searchTerm
                 , hasContactFilter = model.hasContactFilter
                 , naics = model.naicsFilter
+                , status = model.statusFilter
                 }
             )
 
@@ -309,6 +333,7 @@ update msg model =
                 , searchTerm = model.searchTerm
                 , hasContactFilter = model.hasContactFilter
                 , naics = model.naicsFilter
+                , status = model.statusFilter
                 }
             )
 
@@ -417,6 +442,45 @@ update msg model =
 
         CloseProducerModal ->
             ( { model | showProducerModal = False }, Cmd.none )
+
+        GotApplicationStats result ->
+            case result |> Debug.log "GotApplicationStats" of
+                Ok stats ->
+                    ( { model | stats = Just stats }, Cmd.none )
+
+                Err _ ->
+                    ( { model | stats = Nothing }, Cmd.none )
+
+        FilterByStatus status ->
+            ( { model
+                | statusFilter = Just status
+                , currentPage = 0
+                , selectedStatsFilter = status
+              }
+            , requestRefresh
+                { page = 0
+                , pageSize = model.pageSize
+                , searchTerm = model.searchTerm
+                , hasContactFilter = model.hasContactFilter
+                , naics = model.naicsFilter
+                , status = Just status
+                }
+            )
+
+        ClearStatusFilter ->
+            ( { model
+                | statusFilter = Nothing
+                , selectedStatsFilter = "total"
+              }
+            , requestRefresh
+                { page = 0
+                , pageSize = model.pageSize
+                , searchTerm = model.searchTerm
+                , hasContactFilter = model.hasContactFilter
+                , naics = model.naicsFilter
+                , status = Nothing
+                }
+            )
 
 
 
@@ -751,6 +815,10 @@ subscriptions model =
 
             Nothing ->
                 Sub.none
+        , receiveApplicationStats
+            (\value ->
+                GotApplicationStats (Decode.decodeValue applicationStatsDecoder value)
+            )
         ]
 
 
@@ -861,6 +929,7 @@ performSearch term =
         , searchTerm = term
         , hasContactFilter = False
         , naics = []
+        , status = Nothing
         }
 
 
@@ -924,17 +993,59 @@ httpErrorToString error =
 viewStatistics : Model -> Html Msg
 viewStatistics model =
     div [ class "grid grid-cols-4 gap-6" ]
-        [ viewStatCard "Partial Applications" "185" "80%" "text-green-600" "vs previous 30 days"
-        , viewStatCard "Application Submissions" "125" "20%" "text-green-600" "vs previous 30 days"
-        , viewStatCard "Waiting Review" "25" "-10%" "text-red-600" "vs previous 30 days"
-        , viewStatCard "Completed Apps" "100" "" "" ""
+        [ viewStatCard "Total Applications"
+            (model.stats |> Maybe.map (.total >> String.fromInt) |> Maybe.withDefault "-")
+            ""
+            ""
+            ""
+            (onClick ClearStatusFilter)
+            (model.selectedStatsFilter == "total")
+        , viewStatCard "Application Submissions"
+            (model.stats |> Maybe.map (.submitted >> String.fromInt) |> Maybe.withDefault "-")
+            ""
+            ""
+            ""
+            (onClick (FilterByStatus "awaiting_signature"))
+            (model.selectedStatsFilter == "awaiting_signature")
+        , viewStatCard "Waiting Review"
+            (model.stats |> Maybe.map (.waitingReview >> String.fromInt) |> Maybe.withDefault "-")
+            ""
+            ""
+            ""
+            (onClick (FilterByStatus "waiting_review"))
+            (model.selectedStatsFilter == "waiting_review")
+        , viewStatCard "Completed Apps"
+            (model.stats |> Maybe.map (.completed >> String.fromInt) |> Maybe.withDefault "-")
+            ""
+            ""
+            ""
+            (onClick (FilterByStatus "completed"))
+            (model.selectedStatsFilter == "completed")
         ]
 
 
-viewStatCard : String -> String -> String -> String -> String -> Html Msg
-viewStatCard title value changeValue changeColor comparisonText =
-    div [ class "bg-white rounded-lg p-6 shadow-sm" ]
-        [ div [ class "text-gray-600 text-sm" ] [ text title ]
+viewStatCard : String -> String -> String -> String -> String -> Attribute Msg -> Bool -> Html Msg
+viewStatCard title value changeValue changeColor comparisonText clickHandler isSelected =
+    div
+        [ class
+            (if isSelected then
+                "bg-gray-900 text-white rounded-lg p-6 shadow-sm hover:shadow-md cursor-pointer transition-all duration-200"
+
+             else
+                "bg-white text-gray-900 rounded-lg p-6 shadow-sm hover:shadow-md cursor-pointer transition-all duration-200"
+            )
+        , clickHandler
+        ]
+        [ div
+            [ class
+                (if isSelected then
+                    "text-gray-300"
+
+                 else
+                    "text-gray-600"
+                )
+            ]
+            [ text title ]
         , div [ class "mt-2 flex items-baseline gap-2" ]
             [ div [ class "text-3xl font-semibold" ] [ text value ]
             , if not (String.isEmpty changeValue) then
@@ -945,9 +1056,26 @@ viewStatCard title value changeValue changeColor comparisonText =
                 text ""
             ]
         , if not (String.isEmpty comparisonText) then
-            div [ class "text-gray-500 text-sm mt-1" ]
+            div
+                [ class
+                    (if isSelected then
+                        "text-gray-300"
+
+                     else
+                        "text-gray-500"
+                    )
+                ]
                 [ text comparisonText ]
 
           else
             text ""
         ]
+
+
+applicationStatsDecoder : Decode.Decoder ApplicationStats
+applicationStatsDecoder =
+    Decode.map4 ApplicationStats
+        (Decode.field "total" Decode.int)
+        (Decode.field "submitted" Decode.int)
+        (Decode.field "waitingReview" Decode.int)
+        (Decode.field "completed" Decode.int)

@@ -3,7 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
-import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
@@ -242,9 +242,9 @@ const app = new Elysia({
 
       // Handle applications list requests
       if (data.type === 'request_applications') {
-        const { page = 0, pageSize = 20, searchTerm = '', hasContactFilter = false, naics = [] } = data
-        console.log('Fetching applications with params:', { page, pageSize, searchTerm, hasContactFilter, naics })
-        getApplications(page, pageSize, searchTerm, hasContactFilter, naics).then(result => {
+        const { page = 0, pageSize = 20, searchTerm = '', hasContactFilter = false, naics = [], status = undefined } = data
+        console.log('Fetching applications with params:', { page, pageSize, searchTerm, hasContactFilter, naics, status })
+        getApplications(page, pageSize, searchTerm, hasContactFilter, naics, status).then(result => {
           // Directly send the result as it is already formatted
           const response = {
             type: 'applications_data',
@@ -259,6 +259,26 @@ const app = new Elysia({
             error: error instanceof Error ? error.message : 'Failed to load applications'
           }
           console.log('Sending applications error:', errorResponse)
+          ws.send(JSON.stringify(errorResponse));
+        });
+      }
+
+      // Handle application stats requests
+      if (data.type === 'request_application_stats') {
+        console.log('Fetching application stats');
+        getApplicationStats().then(stats => {
+          const response = {
+            type: 'application_stats',
+            stats
+          }
+          console.log('Sending application stats response:', response);
+          ws.send(JSON.stringify(response));
+        }).catch(error => {
+          const errorResponse = {
+            type: 'application_stats_error',
+            error: error instanceof Error ? error.message : 'Failed to load application stats'
+          }
+          console.log('Sending application stats error:', errorResponse);
           ws.send(JSON.stringify(errorResponse));
         });
       }
@@ -876,6 +896,17 @@ const app = new Elysia({
         }), 
         { status: 500 }
       )
+    }
+  })
+
+  .post('/api/applications', async (req, res) => {
+    const { page, pageSize, searchTerm, hasContactFilter, naics, status } = req.body
+    try {
+      const result = await getApplications(page, pageSize, searchTerm, hasContactFilter, naics, status)
+      res.json(result)
+    } catch (error) {
+      console.error('Error fetching applications:', error)
+      res.status(500).json({ error: 'Internal server error' })
     }
   })
 )

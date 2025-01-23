@@ -11,7 +11,17 @@ import Json.Encode as Encode
 port receiveApplications : (Decode.Value -> msg) -> Sub msg
 
 
-port requestRefresh : { page : Int, pageSize : Int, searchTerm : String, hasContactFilter : Bool, naics : List String } -> Cmd msg
+type alias RefreshRequest =
+    { page : Int
+    , pageSize : Int
+    , searchTerm : String
+    , hasContactFilter : Bool
+    , naics : List String
+    , status : Maybe String
+    }
+
+
+port requestRefresh : RefreshRequest -> Cmd msg
 
 
 
@@ -77,3 +87,13 @@ port getLAProTokenResponse : (String -> msg) -> Sub msg
 
 
 port exportToCsv : { searchTerm : String, hasContactFilter : Bool, hasCSGFilter : Bool } -> Cmd msg
+
+
+
+-- Application Stats Ports
+
+
+port requestApplicationStats : () -> Cmd msg
+
+
+port receiveApplicationStats : (Decode.Value -> msg) -> Sub msg
