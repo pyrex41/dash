@@ -84,9 +84,10 @@ type alias Model =
     , showApplicationModal : Bool
     , producerConfigJSON : Decode.Value
     , producerConfig : Dict Int Producer.ProducerConfig
-    , selectedProducer : Maybe Producer.ProducerConfig
+    , selectedProducerId : Int
     , selectedApplicationId : Maybe String
     , naicsFilter : List String
+    , showProducerModal : Bool
     }
 
 
@@ -117,9 +118,10 @@ init producerConfig =
       , showApplicationModal = False
       , producerConfigJSON = producerConfig
       , producerConfig = producerConfigDict
-      , selectedProducer = Dict.get 1 producerConfigDict
+      , selectedProducerId = 1
       , selectedApplicationId = Nothing
       , naicsFilter = []
+      , showProducerModal = False
       }
     , requestRefresh
         { page = 0
@@ -150,6 +152,9 @@ type Msg
     | HandleKeyPress String
     | ApplicationUpdated Decode.Value
     | StatusUpdate { id : String, status : String }
+    | ToggleProducerModal
+    | SelectProducer Int
+    | CloseProducerModal
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -404,6 +409,15 @@ update msg model =
             in
             ( { model | applications = newApplications }, Cmd.none )
 
+        ToggleProducerModal ->
+            ( { model | showProducerModal = True }, Cmd.none )
+
+        SelectProducer id ->
+            ( { model | selectedProducerId = id }, Cmd.none )
+
+        CloseProducerModal ->
+            ( { model | showProducerModal = False }, Cmd.none )
+
 
 
 -- Add completion logic here
@@ -417,7 +431,7 @@ view model =
             model.selectedApplicationId |> Maybe.withDefault ""
     in
     div [ class "min-h-screen bg-white relative" ]
-        [ viewHeader
+        [ viewHeader model
         , div [ class "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" ]
             [ viewApplications model
             ]
@@ -456,8 +470,14 @@ view model =
         ]
 
 
-viewHeader : Html Msg
-viewHeader =
+viewHeader : Model -> Html Msg
+viewHeader model =
+    let
+        selectedProducer =
+            Dict.get model.selectedProducerId model.producerConfig
+                |> Maybe.map (\p -> p.firstName ++ " " ++ p.lastName)
+                |> Maybe.withDefault "Select Producer"
+    in
     div [ class "bg-white border-b" ]
         [ div [ class "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" ]
             [ div [ class "flex items-center justify-between h-16" ]
@@ -470,13 +490,75 @@ viewHeader =
                         ]
                     ]
                 , div [ class "flex items-center gap-4" ]
-                    [ div [ class "flex items-center gap-2" ]
-                        [ div [ class "w-8 h-8 bg-gray-100 rounded-full" ] []
-                        , span [ class "text-sm text-gray-700" ] [ text "John Doe" ]
+                    [ button
+                        [ class "flex items-center gap-2 px-3 py-2 rounded-md hover:bg-gray-50"
+                        , onClick ToggleProducerModal
+                        ]
+                        [ div [ class "w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center text-sm" ]
+                            [ text (String.left 1 selectedProducer) ]
+                        , span [ class "text-sm text-gray-700" ] [ text selectedProducer ]
+                        , span [ class "text-gray-400" ] [ text "▼" ]
                         ]
                     ]
                 ]
             ]
+        , if model.showProducerModal then
+            div
+                [ class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+                , onClick CloseProducerModal
+                ]
+                [ div
+                    [ class "bg-white rounded-lg shadow-xl w-96 max-h-[90vh] overflow-y-auto"
+                    , stopPropagation "click"
+                    ]
+                    [ div [ class "p-4 border-b" ]
+                        [ h3 [ class "text-lg font-medium" ] [ text "Select Producer" ]
+                        ]
+                    , div [ class "p-2" ]
+                        [ div [ class "space-y-1" ]
+                            (model.producerConfig
+                                |> Dict.toList
+                                |> List.map
+                                    (\( id, producer ) ->
+                                        button
+                                            [ class
+                                                ("w-full flex items-center gap-3 px-3 py-2 rounded-md text-left "
+                                                    ++ (if id == model.selectedProducerId then
+                                                            "bg-purple-50 text-purple-700"
+
+                                                        else
+                                                            "hover:bg-gray-50"
+                                                       )
+                                                )
+                                            , onClick (SelectProducer id)
+                                            ]
+                                            [ div
+                                                [ class
+                                                    ("w-8 h-8 rounded-full flex items-center justify-center text-sm "
+                                                        ++ (if id == model.selectedProducerId then
+                                                                "bg-purple-100"
+
+                                                            else
+                                                                "bg-gray-100"
+                                                           )
+                                                    )
+                                                ]
+                                                [ text (String.left 1 (producer.firstName ++ " " ++ producer.lastName)) ]
+                                            , div [ class "flex-1" ]
+                                                [ div [ class "font-medium" ]
+                                                    [ text (producer.firstName ++ " " ++ producer.lastName) ]
+                                                , div [ class "text-sm text-gray-500" ]
+                                                    [ text producer.email ]
+                                                ]
+                                            ]
+                                    )
+                            )
+                        ]
+                    ]
+                ]
+
+          else
+            text ""
         ]
 
 
@@ -650,7 +732,9 @@ subscriptions model =
                 case model.selectedApplicationId of
                     Just id ->
                         -- If we have a selected application ID, treat it as a modal view response
-                        ApplicationReceived model.selectedProducer (Decode.decodeValue applicationViewDecoder value)
+                        ApplicationReceived
+                            (Dict.get model.selectedProducerId model.producerConfig)
+                            (Decode.decodeValue applicationViewDecoder value)
 
                     Nothing ->
                         -- Otherwise treat it as a general application update

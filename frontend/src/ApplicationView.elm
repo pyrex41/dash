@@ -109,9 +109,23 @@ init selectedProducer app =
         carrierInit =
             carrierFromNaic app.naic
 
-        finalData =
+        -- First get the base data
+        baseData =
             app.formattedData
                 |> Maybe.withDefault app.data
+
+        -- If we have a producer config and carrier, update the data with producer section
+        finalData =
+            case ( selectedProducer, carrierInit ) of
+                ( Just producerConfig, Just carrier ) ->
+                    let
+                        producerSection =
+                            Producer.getProducerSection carrier producerConfig
+                    in
+                    overwriteSection "producer" producerSection baseData
+
+                _ ->
+                    baseData
 
         initialMedications =
             app.rawMedications
