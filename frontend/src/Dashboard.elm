@@ -160,6 +160,7 @@ type Msg
     | ViewApplication String
     | ApplicationReceived (Maybe Producer.ProducerConfig) (Result Decode.Error ApplicationView.Application)
     | SearchTermChanged String
+    | ClearSearch
     | ToggleContactFilter Bool
     | RefreshApplications
     | ApplicationsReceived (Result Decode.Error ApplicationsResponse)
@@ -456,11 +457,13 @@ update msg model =
                 | statusFilter = Just status
                 , currentPage = 0
                 , selectedStatsFilter = status
+                , searchTerm = ""
+                , searchLoading = False
               }
             , requestRefresh
                 { page = 0
                 , pageSize = model.pageSize
-                , searchTerm = model.searchTerm
+                , searchTerm = ""
                 , hasContactFilter = model.hasContactFilter
                 , naics = model.naicsFilter
                 , status = Just status
@@ -471,11 +474,30 @@ update msg model =
             ( { model
                 | statusFilter = Nothing
                 , selectedStatsFilter = "total"
+                , searchTerm = ""
+                , searchLoading = False
               }
             , requestRefresh
                 { page = 0
                 , pageSize = model.pageSize
-                , searchTerm = model.searchTerm
+                , searchTerm = ""
+                , hasContactFilter = model.hasContactFilter
+                , naics = model.naicsFilter
+                , status = Nothing
+                }
+            )
+
+        ClearSearch ->
+            ( { model
+                | searchTerm = ""
+                , searchLoading = False
+                , selectedStatsFilter = "total"
+                , statusFilter = Nothing
+              }
+            , requestRefresh
+                { page = 0
+                , pageSize = model.pageSize
+                , searchTerm = ""
                 , hasContactFilter = model.hasContactFilter
                 , naics = model.naicsFilter
                 , status = Nothing
@@ -645,6 +667,13 @@ viewApplications model =
                         , if model.searchLoading then
                             div [ class "absolute right-3 top-2.5" ]
                                 [ div [ class "animate-spin h-5 w-5 border-2 border-purple-600 border-t-transparent rounded-full" ] [] ]
+
+                          else if not (String.isEmpty model.searchTerm) then
+                            button
+                                [ class "absolute right-3 top-2.5 text-gray-400 hover:text-gray-600"
+                                , onClick ClearSearch
+                                ]
+                                [ text "×" ]
 
                           else
                             text ""
@@ -992,6 +1021,11 @@ httpErrorToString error =
 
 viewStatistics : Model -> Html Msg
 viewStatistics model =
+    let
+        -- Don't show any card as selected if there's a search term
+        isSelected status =
+            String.isEmpty model.searchTerm && model.selectedStatsFilter == status
+    in
     div [ class "grid grid-cols-4 gap-6" ]
         [ viewStatCard "Total Applications"
             (model.stats |> Maybe.map (.total >> String.fromInt) |> Maybe.withDefault "-")
@@ -999,28 +1033,28 @@ viewStatistics model =
             ""
             ""
             (onClick ClearStatusFilter)
-            (model.selectedStatsFilter == "total")
+            (isSelected "total")
         , viewStatCard "Application Submissions"
             (model.stats |> Maybe.map (.submitted >> String.fromInt) |> Maybe.withDefault "-")
             ""
             ""
             ""
             (onClick (FilterByStatus "awaiting_signature"))
-            (model.selectedStatsFilter == "awaiting_signature")
+            (isSelected "awaiting_signature")
         , viewStatCard "Waiting Review"
             (model.stats |> Maybe.map (.waitingReview >> String.fromInt) |> Maybe.withDefault "-")
             ""
             ""
             ""
             (onClick (FilterByStatus "waiting_review"))
-            (model.selectedStatsFilter == "waiting_review")
+            (isSelected "waiting_review")
         , viewStatCard "Completed Apps"
             (model.stats |> Maybe.map (.completed >> String.fromInt) |> Maybe.withDefault "-")
             ""
             ""
             ""
             (onClick (FilterByStatus "completed"))
-            (model.selectedStatsFilter == "completed")
+            (isSelected "completed")
         ]
 
 
