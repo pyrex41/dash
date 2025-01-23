@@ -1264,6 +1264,17 @@ validateFieldValue model section field =
                 ( DrugLookupField _, _ ) ->
                     List.length model.medications > 0
 
+                ( _, "applicant_age" ) ->
+                    -- calculated from DOB
+                    True
+
+                ( _, "type" ) ->
+                    True
+
+                ( _, "document" ) ->
+                    -- not implemented
+                    True
+
                 _ ->
                     getValue section.id field.id model.data
                         |> isJust
@@ -1272,12 +1283,6 @@ validateFieldValue model section field =
             isFieldVisible field section model.data
                 && isRequired
                 && not fieldValueValid
-                && field.id
-                /= "applicant_age"
-                && field.id
-                /= "type"
-                && field.id
-                /= "document"
     in
     isInvalid
 
