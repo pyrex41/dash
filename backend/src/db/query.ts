@@ -269,12 +269,19 @@ export const getApplicationWithSchema = async (applicationId: string) => {
   }
 }
 
-export const getFromattedApplicationWithSchema = async (applicationId: string) => {
+export const getFormattedApplicationWithSchema = async (applicationId: string) => {
   const application = await getApplicationWithSchema(applicationId)
   if (!application) {
     return null
   }
 
+  if (application.formattedData) {
+    return {
+      ...application,
+      formattedData: application.formattedData,
+      rawMedications: application.rawMedications || []
+    }
+  }
   const newData = await format_application(applicationId)
   // Compare old and new data structures
   const oldData = typeof application.data === 'string' ? JSON.parse(application.data) : application.data
@@ -320,7 +327,7 @@ export const getFromattedApplicationWithSchema = async (applicationId: string) =
 
   return {
     ...application,
-    data: newData,
+    formattedData: newData.data,
     rawMedications: application.rawMedications || []
   }
 }

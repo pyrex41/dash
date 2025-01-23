@@ -224,14 +224,8 @@ function setupWebSocket(app: any) {
             // Handle application data responses
             if (message.type === 'application_data') {
                 if (app.ports?.receiveApplication?.send) {
-                    console.log(`[${receivedAt}] Application data received:`, {
-                        id: message.applicationId,
-                        hasApplication: !!message.application,
-                        applicationFields: message.application ? Object.keys(message.application) : [],
-                        hasOnboardingData: !!message.onboarding_data,
-                        onboardingFields: message.onboarding_data ? Object.keys(message.onboarding_data) : []
-                    });
-                    
+                    console.log(`[${receivedAt}] Application data received:`);
+                    console.log(message);
                     const applicationData = {
                         ...message.application,
                         onboarding_data: message.onboarding_data || {}

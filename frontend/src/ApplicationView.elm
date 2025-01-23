@@ -106,13 +106,36 @@ type alias Application =
 init : Maybe Producer.ProducerConfig -> Application -> ( Model, Cmd Msg )
 init selectedProducer app =
     let
+        _ =
+            Debug.log "app rawMedications" app.rawMedications
+
         carrierInit =
             carrierFromNaic app.naic
+                |> Debug.log "carrierInit"
 
         -- First get the base data
         baseData =
             app.formattedData
                 |> Maybe.withDefault app.data
+
+        keepFields =
+            [ "brain_surgery", "outpatient_surgery", "taken_prescription_drugs" ]
+
+        partialOverwrite : JsonValue -> JsonValue
+        partialOverwrite jsonValue =
+            case carrierInit of
+                Just Aetna ->
+                    let
+                        out =
+                            partiallyOverwriteSection "health_history" keepFields jsonValue
+
+                        _ =
+                            Debug.log "partialOverwrite Aetna" (getSection "health_history" out)
+                    in
+                    out
+
+                _ ->
+                    overwriteSection "medication_information" emptyMedicationSection jsonValue
 
         -- If we have a producer config and carrier, update the data with producer section
         finalData =
@@ -122,13 +145,16 @@ init selectedProducer app =
                         producerSection =
                             Producer.getProducerSection carrier producerConfig
                     in
-                    overwriteSection "producer" producerSection baseData
+                    baseData
+                        |> overwriteSection "producer" producerSection
+                        |> partialOverwrite
+                        |> updateModelDataWithMedications carrierInit app.rawMedications
+                        |> Debug.log "finalData"
 
                 _ ->
                     baseData
-
-        initialMedications =
-            app.rawMedications
+                        |> partialOverwrite
+                        |> updateModelDataWithMedications carrierInit app.rawMedications
 
         schema =
             app.schema
@@ -137,7 +163,7 @@ init selectedProducer app =
       , naic = app.naic
       , carrier = carrierInit
       , data = finalData
-      , medications = initialMedications
+      , medications = app.rawMedications
       , medicationForm = Dict.empty
       , schema = schema
       , error = Nothing
@@ -288,6 +314,17 @@ getSection sectionId jsonValue =
             Dict.empty
 
 
+getSectionRaw : String -> JsonValue -> JsonValue
+getSectionRaw sectionId jsonValue =
+    case jsonValue of
+        JsonObject dict ->
+            Dict.get sectionId dict
+                |> Maybe.withDefault (JsonObject Dict.empty)
+
+        _ ->
+            JsonObject Dict.empty
+
+
 setSection : String -> Dict String JsonValue -> JsonValue -> JsonValue
 setSection sectionId newSection jsonValue =
     case jsonValue of
@@ -299,6 +336,16 @@ setSection sectionId newSection jsonValue =
             JsonObject Dict.empty
 
 
+emptyMedicationSection : JsonValue
+emptyMedicationSection =
+    JsonObject
+        (Dict.fromList
+            [ ( "prescription_drug_list", JsonArray [] )
+            , ( "taken_prescription_drugs", JsonBase (BoolValue True) )
+            ]
+        )
+
+
 overwriteSection : String -> JsonValue -> JsonValue -> JsonValue
 overwriteSection sectionId newSection jsonValue =
     case jsonValue of
@@ -308,6 +355,27 @@ overwriteSection sectionId newSection jsonValue =
 
         _ ->
             JsonObject Dict.empty
+
+
+partiallyOverwriteSection : String -> List String -> JsonValue -> JsonValue
+partiallyOverwriteSection sectionId fieldIds jsonValue =
+    let
+        section : Dict String JsonValue
+        section =
+            getSection sectionId jsonValue
+    in
+    fieldIds
+        |> List.filterMap
+            (\fieldId ->
+                case Dict.get fieldId section of
+                    Just v ->
+                        Just ( fieldId, v )
+
+                    Nothing ->
+                        Nothing
+            )
+        |> Dict.fromList
+        |> (\sec -> setSection sectionId sec jsonValue)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -473,7 +541,11 @@ update msg model =
                     encodeMedicationList model.medications
 
                 newModel =
-                    { model | error = Nothing, hasUnsavedChanges = False }
+                    { model
+                        | error = Nothing
+                        , hasUnsavedChanges = False
+                        , isValid = validateData model
+                    }
             in
             ( newModel
             , if model.hasUnsavedChanges then
@@ -1077,7 +1149,17 @@ viewForm : Model -> Html Msg
 viewForm model =
     div [ class "max-w-3xl mx-auto space-y-8" ]
         (List.sortBy .order model.schema
-            |> List.map (renderFormSection model)
+            |> List.map
+                (\section ->
+                    if section.id == "medication_information" then
+                        renderFormSection model CSGSchema.defaultMedicationSection
+
+                    else if section.id == "health_history" then
+                        renderFormSection model CSGSchema.defaultAetnaMedicationSection
+
+                    else
+                        renderFormSection model section
+                )
         )
 
 
@@ -1179,6 +1261,9 @@ validateFieldValue model section field =
                 ( SSNField _, _ ) ->
                     isValidSSN (getValueString section.id field.id model.data)
 
+                ( DrugLookupField _, _ ) ->
+                    List.length model.medications > 0
+
                 _ ->
                     getValue section.id field.id model.data
                         |> isJust
@@ -1223,7 +1308,25 @@ renderFormSection model section =
                 |> Maybe.withDefault False
 
         hasEmptyRequiredFields =
-            validateSection model section
+            case section.id of
+                "medication_information" ->
+                    not (validMedications model)
+
+                "health_history" ->
+                    let
+                        modifiedSection =
+                            { section
+                                | body =
+                                    List.filter
+                                        (\field -> not (List.member field.id [ "prescription_drug_list", "taken_prescription_drugs" ]))
+                                        section.body
+                            }
+                    in
+                    not (validMedications model)
+                        && validateSection model modifiedSection
+
+                _ ->
+                    validateSection model section
 
         sectionClasses =
             "form-section mb-8 "
@@ -1859,11 +1962,35 @@ renderFormField model section field =
 
 validateData : Model -> Bool
 validateData model =
-    let
-        invalidSections =
-            List.filter (\section -> validateSection model section) model.schema
-    in
     List.all (\section -> not (validateSection model section)) model.schema
+        && validMedications model
+
+
+validMedications : Model -> Bool
+validMedications model =
+    let
+        ( sectionString, drugArrayString ) =
+            case model.carrier of
+                Just Aetna ->
+                    ( "health_history", "prescribed_medications" )
+
+                _ ->
+                    ( "medication_information", "prescription_drug_list" )
+
+        hasPrescriptionDrugs =
+            getValue sectionString "taken_prescription_drugs" model.data
+                |> Maybe.withDefault (BoolValue False)
+                |> unwrapBoolValue
+
+        prescriptionDrugListHasItems =
+            case getValueFull sectionString drugArrayString model.data of
+                JsonArray list ->
+                    List.length list > 0
+
+                _ ->
+                    False
+    in
+    hasPrescriptionDrugs && prescriptionDrugListHasItems
 
 
 determineUnderwritingType : JsonValue -> Maybe Date -> Maybe Int
@@ -2767,11 +2894,11 @@ insertIfNotNull key value dict =
             Dict.insert key value dict
 
 
-transformAetnaMedications : Dict String JsonValue -> Dict String JsonValue
-transformAetnaMedications healthHistory =
+transformAetnaMedications : Dict String JsonValue -> Dict String JsonValue -> Dict String JsonValue
+transformAetnaMedications medicationSection healthHistorySection =
     let
         prescriptionDrugList =
-            Dict.get "prescription_drug_list" healthHistory
+            Dict.get "prescription_drug_list" medicationSection
                 |> Maybe.andThen
                     (\value ->
                         case value of
@@ -2858,7 +2985,7 @@ transformAetnaMedications healthHistory =
                     )
                 |> Maybe.withDefault (JsonBase NullValue)
     in
-    healthHistory
+    healthHistorySection
         -- |> Dict.remove "prescription_drug_list"
         |> Dict.insert "prescribed_medications" (JsonObject (Dict.fromList prescribedMedications))
         |> insertIfNotNull "med_name" lastMedication
@@ -2881,7 +3008,7 @@ applicationViewDecoder =
         |> Pipeline.required "naic" Decode.string
         |> Pipeline.required "data" jsonValueDecoder
         |> Pipeline.optional "formattedData" maybeJsonValueDecoder Nothing
-        |> Pipeline.optional "raw_medications" (Decode.list medicationDecoder) []
+        |> Pipeline.optional "rawMedications" (Decode.list medicationDecoder) []
         |> Pipeline.required "schema" CSGSchema.formSchemaDecoder
         |> Pipeline.required "onboarding_data" jsonValueDecoder
         |> Pipeline.required "status" statusDecoder
@@ -2940,12 +3067,16 @@ updateModelDataWithMedications carrier medications data =
 
         medicationSection =
             getSection "medication_information" baseUpdate
+
+        healthHistorySection =
+            getSection "health_history" baseUpdate
     in
     case carrier of
         Just Aetna ->
             let
                 transformedHealthHistory =
-                    transformAetnaMedications (getSection "health_history" baseUpdate)
+                    transformAetnaMedications medicationSection healthHistorySection
+                        |> Debug.log "transformedHealthHistory"
             in
             setSection "health_history" transformedHealthHistory baseUpdate
 
