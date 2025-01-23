@@ -3,7 +3,7 @@ import { cors } from '@elysiajs/cors'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
-import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats, getFormattedApplicationWithSchema } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
@@ -216,7 +216,8 @@ const app = new Elysia({
       if (data.type === 'request_application') {
         const applicationId = data.applicationId as string
         if (applicationId) {
-          getApplicationWithSchema(applicationId).then(application => {
+          getFormattedApplicationWithSchema(applicationId).then(application => {
+            console.log('**12** Application data formatted:', application?.formattedData);
             if (application) {
               ws.send(JSON.stringify({
                 type: 'application_data',
