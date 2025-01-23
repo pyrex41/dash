@@ -325,7 +325,7 @@ export const getFromattedApplicationWithSchema = async (applicationId: string) =
   }
 }
 
-export const getApplications = async (page: number, pageSize: number, searchTerm: string, hasContactFilter: boolean, naics: string[] = []) => {
+export const getApplications = async (page: number, pageSize: number, searchTerm: string, hasContactFilter: boolean, naics: string[] = [], status?: string) => {
   const offset = page * pageSize
   const searchPattern = `%${searchTerm.toLowerCase()}%`
   const shouldSearch = searchTerm.length >= 3
@@ -352,6 +352,43 @@ export const getApplications = async (page: number, pageSize: number, searchTerm
 
   if (naics.length > 0) {
     whereConditions.push(sql`${applications.naic} IN ${naics}`)
+  }
+
+  if (status) {
+    switch (status) {
+      case 'partial':
+        whereConditions.push(sql`(
+          ${applications.status} = 'partial' OR
+          (${applications.status} NOT IN ('completed', 'review', 'submitted_to_csg', 'declined', 'issued', 'awaiting_signature') AND
+           NOT EXISTS (SELECT 1 FROM ${bookings} WHERE ${bookings.applicationId} = ${applications.id}) AND
+           NOT EXISTS (SELECT 1 FROM ${csgApplications} WHERE ${csgApplications.applicationId} = ${applications.id}))
+        )`)
+        break;
+      case 'awaiting_signature':
+        whereConditions.push(sql`(
+          ${applications.status} = 'awaiting_signature' OR
+          EXISTS (
+            SELECT 1 FROM ${csgApplications}
+            WHERE ${csgApplications.applicationId} = ${applications.id}
+            AND ${csgApplications.verificationStatus} = 'verified'
+          )
+        )`)
+        break;
+      case 'waiting_review':
+        whereConditions.push(sql`(
+          ${applications.status} IN ('review', 'submitted_to_csg') OR
+          EXISTS (SELECT 1 FROM ${bookings} WHERE ${bookings.applicationId} = ${applications.id}) OR
+          EXISTS (
+            SELECT 1 FROM ${csgApplications}
+            WHERE ${csgApplications.applicationId} = ${applications.id}
+            AND ${csgApplications.verificationStatus} IN ('pending', 'verifying')
+          )
+        )`)
+        break;
+      case 'completed':
+        whereConditions.push(sql`${applications.status} IN ('completed', 'issued')`)
+        break;
+    }
   }
 
   if (shouldSearch) {
@@ -545,3 +582,72 @@ export async function getProducerConfig() {
         throw error; // Re-throw to be handled by the route handler
     }
 }
+
+export const getApplicationStats = async () => {
+  const db = getDb();
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const now = new Date();
+
+  // Get all applications with their CSG and booking status
+  const results = await db
+    .select({
+      id: applications.id,
+      status: applications.status,
+      csgId: csgApplications.id,
+      csgStatus: csgApplications.verificationStatus,
+      bookingId: bookings.id
+    })
+    .from(applications)
+    .leftJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
+    .leftJoin(bookings, eq(applications.id, bookings.applicationId));
+
+  console.log('Date range:', {
+    from: thirtyDaysAgo.toISOString(),
+    to: now.toISOString(),
+    fromTimestamp: Math.floor(thirtyDaysAgo.getTime() / 1000),
+    toTimestamp: Math.floor(now.getTime() / 1000)
+  });
+
+  // Use the determineStatus function to count each status
+  let totalCount = 0;
+  let submittedCount = 0;
+  let waitingReviewCount = 0;
+  let completedCount = 0;
+
+  results.forEach(app => {
+    totalCount++;
+    const status = determineStatus(
+      app.status,
+      !!app.csgId,
+      !!app.bookingId,
+      app.csgId ? { verificationStatus: app.csgStatus || '' } : undefined
+    );
+
+    switch (status) {
+      case 'awaiting_signature':
+      case 'submitted_to_csg':
+        submittedCount++;
+        break;
+      case 'waiting_review':
+      case 'verifying':
+        waitingReviewCount++;
+        break;
+      case 'completed':
+      case 'issued':
+        completedCount++;
+        break;
+    }
+  });
+
+  const stats = {
+    total: totalCount,
+    submitted: submittedCount,
+    waitingReview: waitingReviewCount,
+    completed: completedCount
+  };
+
+  console.log('Stats query results:', stats);
+
+  return stats;
+};

@@ -63,7 +63,7 @@ interface ElmPorts {
         subscribe: (callback: (data: any) => void) => void;
     };
     requestRefresh?: {
-        subscribe: (callback: (data: { page: number; pageSize: number; searchTerm: string; hasContactFilter: boolean; naics: string[]; }) => void) => void;
+        subscribe: (callback: (data: { page: number; pageSize: number; searchTerm: string; hasContactFilter: boolean; naics: string[]; status: string }) => void) => void;
     };
     requestApplication?: {
         subscribe: (callback: (data: { id: string }) => void) => void;
@@ -100,6 +100,12 @@ interface ElmPorts {
     };
     exportToCsv?: {
         subscribe: (callback: (data: { searchTerm: string; hasContactFilter: boolean; hasCSGFilter: boolean }) => void) => void;
+    };
+    requestApplicationStats?: {
+        subscribe: (callback: () => void) => void;
+    };
+    receiveApplicationStats?: {
+        send: (data: any) => void;
     };
 }
 
@@ -294,6 +300,24 @@ function setupWebSocket(app: any) {
                 }
                 return;
             }
+
+            // Handle applications list requests
+            if (message.type === 'request_applications') {
+                console.log('Request for application received:', message.applicationId);
+                sendOrQueueMessage({
+                    type: 'request_application',
+                    applicationId: message.applicationId
+                });
+            }
+
+            // Handle application stats
+            if (message.type === 'application_stats') {
+                if (app.ports?.receiveApplicationStats?.send) {
+                    console.log('Sending application stats to Elm:', message);
+                    app.ports.receiveApplicationStats.send(message.stats);
+                }
+                return;
+            }
         } catch (error) {
             console.error(`[${receivedAt}] Error handling WebSocket message:`, error);
         }
@@ -341,6 +365,16 @@ function setupWebSocket(app: any) {
         });
     }
 
+    // Add requestApplicationStats subscription
+    if (app.ports?.requestApplicationStats?.subscribe) {
+        app.ports.requestApplicationStats.subscribe(() => {
+            console.log('Requesting application stats');
+            sendOrQueueMessage({
+                type: 'request_application_stats'
+            });
+        });
+    }
+
     // Add submitToCSG port subscription
     if (app.ports?.submitToCSG?.subscribe) {
         app.ports.submitToCSG.subscribe(([applicationId, producerId]) => {
@@ -367,15 +401,16 @@ function setupWebSocket(app: any) {
     }
 
     if (app.ports?.requestRefresh?.subscribe) {
-        app.ports.requestRefresh.subscribe(({ page, pageSize, searchTerm, hasContactFilter, naics }) => {
-            console.log('Requesting applications refresh:', { page, pageSize, searchTerm, hasContactFilter, naics });
+        app.ports.requestRefresh.subscribe(({ page, pageSize, searchTerm, hasContactFilter, naics, status }) => {
+            console.log('Requesting applications refresh:', { page, pageSize, searchTerm, hasContactFilter, naics, status });
             sendOrQueueMessage({
                 type: 'request_applications',
                 page,
                 pageSize,
                 searchTerm,
                 hasContactFilter,
-                naics
+                naics,
+                status
             });
         });
     }
