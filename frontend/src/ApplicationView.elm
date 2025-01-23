@@ -29,6 +29,7 @@ type alias Model =
     , medicationForm : Dict String String
     , schema : ApplicationSchema
     , id : String
+    , csgKey : Maybe String
     , error : Maybe String
     , expandedSections : Dict String Bool
     , currentDate : Maybe Date
@@ -89,6 +90,7 @@ type Status
 
 type alias Application =
     { id : String
+    , csgKey : Maybe String
     , naic : String
     , data : JsonValue
     , formattedData : Maybe JsonValue
@@ -149,7 +151,6 @@ init selectedProducer app =
                         |> overwriteSection "producer" producerSection
                         |> partialOverwrite
                         |> updateModelDataWithMedications carrierInit app.rawMedications
-                        |> Debug.log "finalData"
 
                 _ ->
                     baseData
@@ -160,6 +161,7 @@ init selectedProducer app =
             app.schema
     in
     ( { id = app.id
+      , csgKey = app.csgKey
       , naic = app.naic
       , carrier = carrierInit
       , data = finalData
@@ -1017,7 +1019,17 @@ view model =
                         [ class "mt-4" ]
                         [ div [ class "flex flex-row gap-8" ]
                             [ viewStatus model
-                            , text "link here"
+                            , case model.csgKey of
+                                Just key ->
+                                    a
+                                        [ class "text-purple-600 hover:text-purple-700"
+                                        , href ("https://eapp.csgactuarial.com/applications/" ++ key ++ "/verify")
+                                        , target "_blank"
+                                        ]
+                                        [ text "Verify and Sign" ]
+
+                                Nothing ->
+                                    text ""
                             ]
                         ]
                     , case verificationScreenshot of
@@ -3010,6 +3022,7 @@ applicationViewDecoder : Decoder Application
 applicationViewDecoder =
     Decode.succeed Application
         |> Pipeline.required "id" Decode.string
+        |> Pipeline.optional "csgKey" (Decode.maybe Decode.string) Nothing
         |> Pipeline.required "naic" Decode.string
         |> Pipeline.required "data" jsonValueDecoder
         |> Pipeline.optional "formattedData" maybeJsonValueDecoder Nothing
