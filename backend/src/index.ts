@@ -939,41 +939,67 @@ if (!isDev) {
     }
 
     // Serve static files from the dist directory
-    app.use(staticPlugin({
-      assets: distPath,
-      prefix: '/',
-      alwaysStatic: true,
-      headers: {
-        'Content-Type': 'application/octet-stream',
-        'Cache-Control': 'public, max-age=31536000',
-        'X-Content-Type-Options': 'nosniff'
-      }
-    }))
+    app.get('/assets/*', async ({ request }) => {
+      const { pathname } = new URL(request.url);
+      const filePath = join(distPath, pathname);
+      const ext = pathname.substring(pathname.lastIndexOf('.'));
+      const mimeType = mimeTypes[ext] || 'application/octet-stream';
 
-    // Fallback route: serve index.html for non-asset requests
-    app.get('*', async ({ request }) => {
-      const { pathname } = new URL(request.url)
-
-      // If the request has a file extension and wasn't served by staticPlugin, return 404
-      if (/\.[^/]+$/.test(pathname)) {
-        return new Response('Not found', { status: 404 })
-      }
-
-      // Serve index.html for all routes - let the Elm router handle the routing
       try {
-        const htmlPath = join(distPath, 'index.html')
-        const html = await Bun.file(htmlPath).text()
-        return new Response(html, {
+        const file = Bun.file(filePath);
+        return new Response(file, {
+          headers: {
+            'Content-Type': mimeType,
+            'Cache-Control': 'public, max-age=31536000',
+            'X-Content-Type-Options': 'nosniff'
+          }
+        });
+      } catch (error) {
+        return new Response('Not found', { status: 404 });
+      }
+    });
+
+    // Serve root index.html
+    app.get('/', async () => {
+      try {
+        const htmlPath = join(distPath, 'index.html');
+        const file = Bun.file(htmlPath);
+        return new Response(file, {
           headers: {
             'Content-Type': 'text/html',
             'Cache-Control': 'no-cache'
           }
-        })
+        });
       } catch (error) {
-        console.error('Error serving index.html:', error)
-        return new Response('Server Error', { status: 500 })
+        console.error('Error serving index.html:', error);
+        return new Response('Server Error', { status: 500 });
       }
-    })
+    });
+
+    // Fallback route: serve index.html for non-asset requests
+    app.get('*', async ({ request }) => {
+      const { pathname } = new URL(request.url);
+
+      // If the request has a file extension and wasn't served by previous routes, return 404
+      if (/\.[^/]+$/.test(pathname)) {
+        return new Response('Not found', { status: 404 });
+      }
+
+      // Serve index.html for all other routes - let the Elm router handle the routing
+      try {
+        const htmlPath = join(distPath, 'index.html');
+        const file = Bun.file(htmlPath);
+        return new Response(file, {
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-cache'
+          }
+        });
+      } catch (error) {
+        console.error('Error serving index.html:', error);
+        return new Response('Server Error', { status: 500 });
+      }
+    });
   } catch (error) {
     console.error('Error setting up static file handling:', error)
   }
