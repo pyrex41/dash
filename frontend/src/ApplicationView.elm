@@ -48,6 +48,8 @@ type alias Model =
     , submittingToCSG : Bool
     , csgSubmissionError : Maybe String
     , status : Status
+    , showResubmitConfirmation : Bool
+    , focusedField : Maybe ( String, String ) -- (sectionId, fieldId)
     }
 
 
@@ -74,6 +76,8 @@ type Msg
     | DrugDosageResponse (Result Http.Error (List DrugInfo))
     | GotLAProToken String
     | CheckForUnsavedChanges Time.Posix
+    | ConfirmResubmitToCSG
+    | CancelResubmitToCSG
 
 
 type Status
@@ -137,7 +141,7 @@ init selectedProducer app =
                     out
 
                 _ ->
-                    overwriteSection "medication_information" emptyMedicationSection jsonValue
+                    jsonValue
 
         -- If we have a producer config and carrier, update the data with producer section
         finalData =
@@ -172,7 +176,37 @@ init selectedProducer app =
       , expandedSections = Dict.empty
       , currentDate = Nothing
       , showDebugFields = True
-      , isValid = False
+      , isValid =
+            validateData
+                { id = app.id
+                , csgKey = app.csgKey
+                , naic = app.naic
+                , carrier = carrierInit
+                , data = finalData
+                , medications = app.rawMedications
+                , medicationForm = Dict.empty
+                , schema = schema
+                , error = Nothing
+                , expandedSections = Dict.empty
+                , currentDate = Nothing
+                , showDebugFields = True
+                , isValid = False
+                , underwritingType = Nothing
+                , drugSearchResults = []
+                , selectedDrug = Nothing
+                , drugDosages = []
+                , loadingDrugData = False
+                , laproToken = Nothing
+                , searchError = Nothing
+                , isSearching = False
+                , hasUnsavedChanges = False
+                , producerConfig = selectedProducer
+                , submittingToCSG = False
+                , csgSubmissionError = Nothing
+                , status = app.status
+                , showResubmitConfirmation = False
+                , focusedField = Nothing
+                }
       , underwritingType = Nothing
       , drugSearchResults = []
       , selectedDrug = Nothing
@@ -186,6 +220,8 @@ init selectedProducer app =
       , submittingToCSG = False
       , csgSubmissionError = Nothing
       , status = app.status
+      , showResubmitConfirmation = False
+      , focusedField = Nothing
       }
     , Cmd.batch
         [ Task.perform GotCurrentTime Date.today
@@ -463,11 +499,16 @@ update msg model =
 
                                     Nothing ->
                                         newData
+
+                            updatedModel =
+                                { model
+                                    | data = finalData
+                                    , underwritingType = newUnderwritingType
+                                    , focusedField = Just ( sectionId, fieldId )
+                                }
                         in
-                        { model
-                            | data = finalData
-                            , underwritingType = newUnderwritingType
-                            , isValid = validateData model
+                        { updatedModel
+                            | isValid = validateData updatedModel
                             , hasUnsavedChanges = finalData /= model.data
                         }
 
@@ -535,31 +576,24 @@ update msg model =
             )
 
         SaveForm ->
-            let
-                encodedData =
-                    encodeData model.data
+            if model.hasUnsavedChanges then
+                let
+                    encodedData =
+                        encodeData model.data
 
-                encodedMedications =
-                    encodeMedicationList model.medications
-
-                newModel =
-                    { model
-                        | error = Nothing
-                        , hasUnsavedChanges = False
-                        , isValid = validateData model
-                    }
-            in
-            ( newModel
-            , if model.hasUnsavedChanges then
-                saveApplication
+                    encodedMedications =
+                        encodeMedicationList model.medications
+                in
+                ( { model | hasUnsavedChanges = False }
+                , saveApplication
                     { id = model.id
                     , data = encodedData
                     , medications = encodedMedications
                     }
+                )
 
-              else
-                Cmd.none
-            )
+            else
+                ( model, Cmd.none )
 
         SaveFormResponse response ->
             case response.error of
@@ -846,6 +880,12 @@ update msg model =
             else
                 ( model, Cmd.none )
 
+        ConfirmResubmitToCSG ->
+            ( { model | showResubmitConfirmation = True }, Cmd.none )
+
+        CancelResubmitToCSG ->
+            ( { model | showResubmitConfirmation = False }, Cmd.none )
+
 
 httpErrorToString : Http.Error -> String
 httpErrorToString error =
@@ -971,12 +1011,23 @@ view model =
             [ div [ class "max-w-3xl mx-auto p-6 rounded-lg shadow-lg" ]
                 [ div [ class "bg-white rounded-lg shadow-sm" ]
                     [ div [ class "flex items-start justify-between" ]
-                        [ div [ class "flex flex-col gap-4" ]
-                            [ div [ class "w-24 h-24 bg-blue-100 rounded-lg flex items-center justify-center" ]
-                                [ text
-                                    (planName
-                                        ++ " Logo"
-                                    )
+                        [ div [ class "flex flex-col gap-4 w-1/2" ]
+                            [ div [ class "flex items-center justify-start h-24" ]
+                                [ case model.carrier of
+                                    Just Allstate ->
+                                        img [ src "/allstate.svg", alt "Allstate Logo", class "h-16 w-auto object-contain" ] []
+
+                                    Just Aetna ->
+                                        img [ src "/Aetna.svg", alt "Aetna Logo", class "h-16 w-auto object-contain" ] []
+
+                                    Just ACE ->
+                                        img [ src "/chubb.svg", alt "Chubb Logo", class "h-16 w-auto object-contain" ] []
+
+                                    Just UHC ->
+                                        img [ src "/unitedhealthcare.svg", alt "UnitedHealthcare Logo", class "h-16 w-auto object-contain" ] []
+
+                                    Nothing ->
+                                        text "Unknown Plan"
                                 ]
                             ]
                         , div [ class "flex items-start gap-4" ]
@@ -997,9 +1048,9 @@ view model =
                                 ]
                             , div [ class "flex flex-col gap-2" ]
                                 [ button
-                                    [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm h-[34px]"
+                                    [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm h-[34px] disabled:opacity-50 disabled:cursor-not-allowed"
                                     , onClick SubmitToCSG
-                                    , disabled model.submittingToCSG
+                                    , disabled (model.submittingToCSG || not model.isValid)
                                     ]
                                     [ if model.submittingToCSG then
                                         text "Verifying..."
@@ -1111,10 +1162,13 @@ viewVerifyButton model =
     button
         [ class "bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg text-lg font-medium disabled:opacity-50 disabled:cursor-not-allowed"
         , onClick SubmitToCSG
-        , disabled model.submittingToCSG
+        , disabled (model.submittingToCSG || not model.isValid)
         ]
         [ if model.submittingToCSG then
             text "Verifying..."
+
+          else if not model.isValid then
+            text "Complete Required Fields"
 
           else
             text "Verify Application"
@@ -1301,13 +1355,8 @@ validateFieldValue model section field =
 
 validateSection : Model -> FormSection -> Bool
 validateSection model section =
-    let
-        hasEmptyRequired =
-            List.any
-                (validateFieldValue model section)
-                section.body
-    in
-    hasEmptyRequired
+    List.filter (\field -> isFieldVisible field section model.data) section.body
+        |> List.any (validateFieldValue model section)
 
 
 renderFormSection : Model -> FormSection -> Html Msg
@@ -1568,6 +1617,12 @@ renderFormField model section field =
                                        )
                                     ++ (Maybe.map (\maxLen -> [ Html.Attributes.maxlength maxLen ]) config.maxLength
                                             |> Maybe.withDefault []
+                                       )
+                                    ++ (if model.focusedField == Just ( section.id, field.id ) then
+                                            [ Html.Attributes.autofocus True ]
+
+                                        else
+                                            []
                                        )
                                 )
                                 []
@@ -2007,7 +2062,11 @@ validMedications model =
                 _ ->
                     False
     in
-    hasPrescriptionDrugs && prescriptionDrugListHasItems
+    if hasPrescriptionDrugs then
+        prescriptionDrugListHasItems
+
+    else
+        True
 
 
 determineUnderwritingType : JsonValue -> Maybe Date -> Maybe Int
@@ -3022,7 +3081,7 @@ applicationViewDecoder : Decoder Application
 applicationViewDecoder =
     Decode.succeed Application
         |> Pipeline.required "id" Decode.string
-        |> Pipeline.optional "csgKey" (Decode.maybe Decode.string) Nothing
+        |> Pipeline.optional "csgApplication" (Decode.map Just (Decode.field "key" Decode.string)) Nothing
         |> Pipeline.required "naic" Decode.string
         |> Pipeline.required "data" jsonValueDecoder
         |> Pipeline.optional "formattedData" maybeJsonValueDecoder Nothing

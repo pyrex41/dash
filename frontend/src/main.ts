@@ -237,6 +237,7 @@ function setupWebSocket(app: any) {
                 return;
             }
 
+
             // Handle save application responses
             if (message.type === 'save_application_response') {
                 if (app.ports?.saveApplicationResponse?.send) {
