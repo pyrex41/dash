@@ -210,32 +210,28 @@ export const getApplicationWithSchema = async (applicationId: string) => {
     return null
   }
 
-  const [relatedUser] = await db.select({ email: user.email }).from(user).where(eq(user.id, application.userId))
-  const [relatedOnboarding] = await db.select({ data: onboarding.data }).from(onboarding).where(eq(onboarding.userId, application.userId))
-  const [relatedCsgApp] = await db
-    .select({
-      id: csgApplications.id,
+  const [relatedUser, relatedOnboarding, relatedCsgApp, relatedBooking] = await Promise.all([
+    db.select({ email: user.email }).from(user).where(eq(user.id, application.userId)),
+    db.select({ data: onboarding.data }).from(onboarding).where(eq(onboarding.userId, application.userId)),
+    db.select({
       key: csgApplications.key,
       brokerEmail: csgApplications.brokerEmail,
       verificationStatus: csgApplications.verificationStatus,
       verificationScreenshot: csgApplications.verificationScreenshot,
       verificationError: csgApplications.verificationError,
       lastVerifiedAt: csgApplications.lastVerifiedAt
-    })
-    .from(csgApplications)
-    .where(eq(csgApplications.applicationId, applicationId))
-  const [relatedBooking] = await db.select().from(bookings).where(eq(bookings.applicationId, applicationId))
+    }).from(csgApplications).where(eq(csgApplications.applicationId, applicationId)),
+    db.select().from(bookings).where(eq(bookings.applicationId, applicationId))
+  ])
+  console.log('csgApp', relatedCsgApp)
+  const onboardingData = relatedOnboarding ? (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) : {};
 
-  const onboardingData = relatedOnboarding?.data ? 
-    (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) 
-    : {}
-
-  const appData = typeof application.data === 'string' ? JSON.parse(application.data) : application.data
+  const appData = typeof application.data === 'string' ? JSON.parse(application.data) : application.data;
   const status = determineStatus(
     application.status, 
     !!relatedCsgApp, 
-    !!relatedBooking,
-    relatedCsgApp
+    !!relatedBooking?.[0],
+    relatedCsgApp?.[0]
   )
 
   const safeDate = (timestamp: number | null): string => {
@@ -262,15 +258,7 @@ export const getApplicationWithSchema = async (applicationId: string) => {
     schema: application.schema?.sections,
     rawMedications: application.rawMedications,
     onboarding_data: onboardingData,
-    csgKey: relatedCsgApp?.key || null,
-    csgApplication: relatedCsgApp ? {
-      key: relatedCsgApp.key,
-      brokerEmail: relatedCsgApp.brokerEmail,
-      verificationStatus: relatedCsgApp.verificationStatus,
-      verificationScreenshot: relatedCsgApp.verificationScreenshot,
-      verificationError: relatedCsgApp.verificationError,
-      lastVerifiedAt: relatedCsgApp.lastVerifiedAt ? safeDate(relatedCsgApp.lastVerifiedAt) : null
-    } : null
+    csgApplication: relatedCsgApp ? relatedCsgApp[0] : null
   }
 }
 
@@ -285,7 +273,6 @@ export const getFormattedApplicationWithSchema = async (applicationId: string) =
       ...application,
       formattedData: application.formattedData,
       rawMedications: application.rawMedications || [],
-      csgKey: application.csgKey
     }
   }
   const newData = await format_application(applicationId)
@@ -335,7 +322,6 @@ export const getFormattedApplicationWithSchema = async (applicationId: string) =
     ...application,
     formattedData: newData.data,
     rawMedications: application.rawMedications || [],
-    csgKey: application.csgKey
   }
 }
 

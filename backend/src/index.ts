@@ -218,6 +218,7 @@ const app = new Elysia({
         if (applicationId) {
           getFormattedApplicationWithSchema(applicationId).then(application => {
             console.log('**12** Application data formatted:', application?.formattedData);
+            console.log('**13** Application csgApplication:', application?.csgApplication);
             if (application) {
               ws.send(JSON.stringify({
                 type: 'application_data',
