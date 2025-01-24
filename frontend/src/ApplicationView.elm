@@ -813,19 +813,6 @@ update msg model =
                 validToken =
                     not (String.isEmpty token)
 
-                _ =
-                    Debug.log "Got LAPro token"
-                        { token =
-                            if validToken then
-                                "valid"
-
-                            else
-                                "invalid"
-                        , isSearching = model.isSearching
-                        , loadingDrugData = model.loadingDrugData
-                        , selectedDrug = model.selectedDrug
-                        }
-
                 nextCmd =
                     if validToken && model.isSearching then
                         case Dict.get "drugName" model.medicationForm of
