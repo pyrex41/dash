@@ -1,17 +1,23 @@
-module SchemaDecoder exposing (formSchemaDecoder, applicationDecoder, FormSchema, FormSection, stringify, TValue(..), Option(..), DependsOn(..), SimpleFieldValue, SectionFieldValue, FormField, Required(..), FormFieldType(..), ApplicationWithSchema, JValue(..))
+module SchemaDecoder exposing (ApplicationWithSchema, DependsOn(..), FormField, FormFieldType(..), FormSchema, FormSection, JValue(..), Option(..), Required(..), SectionFieldValue, SimpleFieldValue, TValue(..), applicationDecoder, formSchemaDecoder, stringify)
 
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
 
+
+
 -- Put here all the types that deal with schema
+
+
 type alias ApplicationWithSchema =
     { id : String
     , data : Decode.Value
     , schema : FormSchema
     }
 
+
 type alias FormSchema =
     { sections : List FormSection }
+
 
 type alias FormSection =
     { id : String
@@ -21,6 +27,7 @@ type alias FormSection =
     , body : List FormField
     , dependsOn : Maybe DependsOn
     }
+
 
 type DependsOn
     = SimpleDependsOn
@@ -32,17 +39,20 @@ type DependsOn
         , logicOperator : String
         }
 
+
 type alias SimpleFieldValue =
     { id : String
     , sectionId : String
     , value : JValue
     }
 
+
 type alias SectionFieldValue =
     { objectName : String
     , attributeName : String
     , value : JValue
     }
+
 
 type alias FormField =
     { id : String
@@ -56,9 +66,11 @@ type alias FormField =
     , order : Int
     }
 
+
 type Required
     = RequiredBool Bool
     | RequiredDependsOn DependsOn
+
 
 type JValue
     = StringValue String
@@ -66,35 +78,49 @@ type JValue
     | BoolValue Bool
     | NullValue
 
+
 type TValue
     = TString String
     | TInt Int
     | TBool Bool
 
+
 stringify : TValue -> String
-stringify = \value ->
-    case value of
-        TString s -> s
-        TInt i -> String.fromInt i
-        TBool b -> 
-            if b then "true" else "false"
+stringify =
+    \value ->
+        case value of
+            TString s ->
+                s
+
+            TInt i ->
+                String.fromInt i
+
+            TBool b ->
+                if b then
+                    "true"
+
+                else
+                    "false"
+
 
 type Option
     = OptionKV KVOption
     | OptionInt Int
 
-type alias KVOption = 
+
+type alias KVOption =
     { key : TValue
-    , value: TValue
+    , value : TValue
     , id : Maybe String
     }
+
 
 type FormFieldType
     = NoDateDatePickerField
     | RadioField (List Option)
     | ComplexDatePickerField
     | TextField { maxLength : Maybe Int }
-    | StringSearchField 
+    | StringSearchField
         { maxLength : Maybe Int
         , childFields : List FormField
         , path : String
@@ -125,8 +151,10 @@ type FormFieldType
     | LinkField { url : String }
     | TextNameValueField { displayLabel : String, displayValue : String, id : String }
 
--- DECODERS HERE
 
+
+-- DECODERS HERE
+{--
 jdebug : String -> Decode.Decoder a -> Decode.Decoder a
 jdebug message decoder =
     Decode.value
@@ -137,11 +165,18 @@ jdebug message decoder =
             decoder
         )
 
+--}
+
+
 formSchemaDecoder : Decode.Decoder FormSchema
 formSchemaDecoder =
     Decode.succeed FormSchema
         |> Pipeline.required "sections" (Decode.list formSectionDecoder)
-        |> jdebug "formSchemaDecoder"
+
+
+
+--|> jdebug "formSchemaDecoder"
+
 
 formSectionDecoder : Decode.Decoder FormSection
 formSectionDecoder =
@@ -159,7 +194,11 @@ formSectionDecoder =
                 ]
             )
             Nothing
-        |> jdebug "formSectionDecoder"
+
+
+
+--|> jdebug "formSectionDecoder"
+
 
 dependsOnDecoder : Decode.Decoder DependsOn
 dependsOnDecoder =
@@ -167,14 +206,22 @@ dependsOnDecoder =
         [ Decode.map SectionDependsOn sectionDependsOnDecoder
         , Decode.map SimpleDependsOn simpleDependsOnDecoder
         ]
-        |> jdebug "dependsOnDecoder"
+
+
+
+--|> jdebug "dependsOnDecoder"
+
 
 simpleDependsOnDecoder : Decode.Decoder { logicOperator : String, fieldValueList : List SimpleFieldValue }
 simpleDependsOnDecoder =
     Decode.succeed (\op list -> { logicOperator = op, fieldValueList = list })
         |> Pipeline.required "logic_operator" Decode.string
         |> Pipeline.required "field_value_list" (Decode.list simpleFieldValueDecoder)
-        |> jdebug "simpleDependsOnDecoder"
+
+
+
+--|> jdebug "simpleDependsOnDecoder"
+
 
 simpleFieldValueDecoder : Decode.Decoder SimpleFieldValue
 simpleFieldValueDecoder =
@@ -182,14 +229,22 @@ simpleFieldValueDecoder =
         |> Pipeline.required "id" Decode.string
         |> Pipeline.required "section_id" Decode.string
         |> Pipeline.required "value" jsonValueDecoder
-        |> jdebug "simpleFieldValueDecoder"
+
+
+
+--|> jdebug "simpleFieldValueDecoder"
+
 
 sectionDependsOnDecoder : Decode.Decoder { fieldValueList : List SectionFieldValue, logicOperator : String }
 sectionDependsOnDecoder =
     Decode.succeed (\list op -> { fieldValueList = list, logicOperator = op })
         |> Pipeline.required "field_value_list" (Decode.list sectionFieldValueDecoder)
         |> Pipeline.required "logic_operator" Decode.string
-        |> jdebug "sectionDependsOnDecoder"
+
+
+
+--|> jdebug "sectionDependsOnDecoder"
+
 
 sectionFieldValueDecoder : Decode.Decoder SectionFieldValue
 sectionFieldValueDecoder =
@@ -197,7 +252,11 @@ sectionFieldValueDecoder =
         |> Pipeline.required "object_name" Decode.string
         |> Pipeline.required "attribute_name" Decode.string
         |> Pipeline.required "value" jsonValueDecoder
-        |> jdebug "sectionFieldValueDecoder"
+
+
+
+--|> jdebug "sectionFieldValueDecoder"
+
 
 formFieldDecoder : Decode.Decoder FormField
 formFieldDecoder =
@@ -218,17 +277,23 @@ formFieldDecoder =
         |> Pipeline.optional "maxlength" (Decode.nullable Decode.int) Nothing
         |> Pipeline.optional "depends_on" (Decode.nullable dependsOnDecoder) Nothing
         |> Pipeline.required "order" Decode.int
-        |> jdebug "formFieldDecoder"
+
+
+
+--|> jdebug "formFieldDecoder"
 
 
 fieldTypeDecoder : Decode.Decoder FormFieldType
 fieldTypeDecoder =
     Decode.field "type" Decode.string
         |> Decode.andThen decodeFieldType
-        |> jdebug "fieldTypeDecoder"
 
--- The decodeFieldType, optionDecoder, jsonValueDecoder, etc. 
+
+
+--|> jdebug "fieldTypeDecoder"
+-- The decodeFieldType, optionDecoder, jsonValueDecoder, etc.
 -- would be similar to what you had before. Move them here.
+
 
 jsonValueDecoder : Decode.Decoder JValue
 jsonValueDecoder =
@@ -238,11 +303,14 @@ jsonValueDecoder =
         , Decode.map StringValue Decode.string
         , Decode.null NullValue
         ]
-        |> jdebug "jsonValueDecoder"
+
+
+
+--|> jdebug "jsonValueDecoder"
+
 
 decodeFieldType : String -> Decode.Decoder FormFieldType
 decodeFieldType typeStr =
-    jdebug "decodeFieldType" <| 
     case typeStr of
         "no_date_date_picker_field" ->
             Decode.succeed NoDateDatePickerField
@@ -392,12 +460,13 @@ decodeFieldType typeStr =
                         { isLastFillVisible = isLastFillVisible }
                 )
                 (Decode.field "is_last_fill_visible" Decode.bool)
+
         "text_name_value_field" ->
             Decode.map3
                 (\displayLabel displayValue id ->
                     TextNameValueField
                         { displayLabel = displayLabel
-                        , displayValue = displayValue 
+                        , displayValue = displayValue
                         , id = id
                         }
                 )
@@ -436,6 +505,7 @@ decodeFieldType typeStr =
         _ ->
             Decode.fail ("Unknown field type: " ++ typeStr)
 
+
 optionDecoder : Decode.Decoder Option
 optionDecoder =
     Decode.oneOf
@@ -444,12 +514,14 @@ optionDecoder =
         , Decode.succeed (OptionKV { key = TString "NA", value = TString "NA", id = Nothing })
         ]
 
+
 optionKVDecoder : Decode.Decoder KVOption
 optionKVDecoder =
     Decode.succeed KVOption
         |> Pipeline.required "key" tValueDecoder
         |> Pipeline.required "value" tValueDecoder
         |> Pipeline.optional "id" (Decode.nullable Decode.string) Nothing
+
 
 tValueDecoder : Decode.Decoder TValue
 tValueDecoder =
@@ -460,11 +532,17 @@ tValueDecoder =
         ]
 
 
+
 -- Finally, decode the entire ApplicationWithSchema
+
+
 applicationDecoder : Decode.Decoder ApplicationWithSchema
 applicationDecoder =
     Decode.succeed ApplicationWithSchema
         |> Pipeline.required "id" Decode.string
         |> Pipeline.required "data" Decode.value
         |> Pipeline.required "schema" formSchemaDecoder
-        |> jdebug "applicationDecoder"
+
+
+
+--|> jdebug "applicationDecoder"

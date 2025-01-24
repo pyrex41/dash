@@ -282,8 +282,6 @@ update msg model =
             case result of
                 Ok response ->
                     let
-                        _ =
-                            Debug.log "Applications received" response
 
                         -- No need to fetch full applications unless opening a modal
                         newModel =
@@ -301,10 +299,6 @@ update msg model =
                     ( newModel, Cmd.none )
 
                 Err error ->
-                    let
-                        _ =
-                            Debug.log "Applications decode error" error
-                    in
                     ( { model
                         | error = Just (Decode.errorToString error)
                         , isLoading = False
@@ -370,9 +364,6 @@ update msg model =
 
         ApplicationUpdated value ->
             let
-                _ =
-                    Debug.log "Application updated" value
-
                 maybeNewStatus =
                     Decode.decodeValue (Decode.field "status" statusDecoder) value
 
@@ -445,7 +436,7 @@ update msg model =
             ( { model | showProducerModal = False }, Cmd.none )
 
         GotApplicationStats result ->
-            case result |> Debug.log "GotApplicationStats" of
+            case result of
                 Ok stats ->
                     ( { model | stats = Just stats }, Cmd.none )
 
@@ -813,10 +804,6 @@ subscriptions model =
     Sub.batch
         [ receiveApplications
             (\value ->
-                let
-                    _ =
-                        Debug.log "Received applications" value
-                in
                 ApplicationsReceived (Decode.decodeValue applicationListDecoder value)
             )
         , statusUpdate StatusUpdate

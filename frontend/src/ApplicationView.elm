@@ -3,7 +3,6 @@ module ApplicationView exposing (Application, Model, Msg(..), Status(..), applic
 import CSGSchema exposing (ApplicationSchema, Carrier(..), FormField, FormFieldType(..), FormSection, JValue(..), JsonValue(..), RequiredType(..), carrierFromNaic, defaultAetnaMedicationSection, defaultMedicationSection, isFieldVisible, jsonValueDecoder, maybeJsonValueDecoder, parseValue, unwrapJValue)
 import DataEncoder exposing (unflattenData)
 import Date exposing (Date, Unit(..))
-import Debug
 import Dict exposing (Dict)
 import Hash
 import Html exposing (..)
@@ -112,12 +111,8 @@ type alias Application =
 init : Maybe Producer.ProducerConfig -> Application -> ( Model, Cmd Msg )
 init selectedProducer app =
     let
-        _ =
-            Debug.log "app rawMedications" app.rawMedications
-
         carrierInit =
             carrierFromNaic app.naic
-                |> Debug.log "carrierInit"
 
         -- First get the base data
         baseData =
@@ -131,14 +126,7 @@ init selectedProducer app =
         partialOverwrite jsonValue =
             case carrierInit of
                 Just Aetna ->
-                    let
-                        out =
-                            partiallyOverwriteSection "health_history" keepFields jsonValue
-
-                        _ =
-                            Debug.log "partialOverwrite Aetna" (getSection "health_history" out)
-                    in
-                    out
+                    partiallyOverwriteSection "health_history" keepFields jsonValue
 
                 _ ->
                     jsonValue
@@ -2249,10 +2237,6 @@ type alias Medication =
 
 medicationDecoder : Decoder Medication
 medicationDecoder =
-    let
-        _ =
-            Debug.log "Creating medication decoder" "start"
-    in
     Decode.succeed Medication
         |> Pipeline.required "drug" (Decode.maybe drugDetailsDecoder |> Decode.map (Maybe.withDefault defaultDrugDetails))
         |> Pipeline.optional "diagnosis" Decode.string ""
@@ -2806,11 +2790,7 @@ transformAllstateMedications medicationInfo =
 
         transformDrugName : String -> ( String, String )
         transformDrugName fullName =
-            let
-                _ =
-                    Debug.log "transformDrugName" fullName
-            in
-            (case fullName |> String.split " " |> List.Extra.splitWhen isUpper of
+            case fullName |> String.split " " |> List.Extra.splitWhen isUpper of
                 Just ( medNameList, dosageList ) ->
                     ( String.join " " medNameList
                     , dosageList
@@ -2821,8 +2801,6 @@ transformAllstateMedications medicationInfo =
 
                 _ ->
                     ( fullName, "" )
-            )
-                |> Debug.log "transformDrugName result"
 
         prescribedMedications : List ( String, JsonValue )
         prescribedMedications =
@@ -2985,7 +2963,6 @@ transformAetnaMedications medicationSection healthHistorySection =
                                 Nothing
                     )
                 |> Maybe.withDefault []
-                |> Debug.log "Prescription drug  for Aetna transformation"
 
         nameTransform : String -> String
         nameTransform fullName =
@@ -3153,7 +3130,6 @@ updateModelDataWithMedications carrier medications data =
             let
                 transformedHealthHistory =
                     transformAetnaMedications medicationSection healthHistorySection
-                        |> Debug.log "transformedHealthHistory"
             in
             setSection "health_history" transformedHealthHistory baseUpdate
 
