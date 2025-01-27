@@ -3,6 +3,7 @@ import elmPlugin from 'vite-plugin-elm';
 
 export default defineConfig({
   plugins: [elmPlugin()],
+  base: '/', // Explicitly set base URL
   resolve: {
     extensions: ['.ts', '.js', '.elm']
   },
@@ -31,6 +32,17 @@ export default defineConfig({
   build: {
     // Build to the backend's static directory
     outDir: '../dist',
-    emptyOutDir: true
-  }
+    emptyOutDir: true,
+    assetsDir: 'assets',
+    copyPublicDir: true,
+    rollupOptions: {
+      output: {
+        assetFileNames: (assetInfo) => {
+          // Put all assets (including public files) into assets directory
+          return 'assets/[name][extname]';
+        }
+      }
+    }
+  },
+  publicDir: 'public'
 });
