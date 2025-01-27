@@ -129,8 +129,10 @@ const app = new Elysia({
 })
 .use(cors())
 .use(staticPlugin({
-  assets: '../dist',  // Point to the dist directory where Vite builds
-  prefix: '/'  // Serve files from root URL
+  assets: '../dist',
+  prefix: '/',
+  alwaysStatic: true,
+  ignorePatterns: []  // Don't ignore any files
 }))
 .ws('/ws', {
   open(ws) {
@@ -942,51 +944,68 @@ if (!isDev) {
       '.eot': 'application/vnd.ms-fontobject',
     }
 
-    // Serve all static files from dist directory (both root and assets)
-    app.get('/*', async ({ request }) => {
+    // Serve static files from the dist directory
+    app.get('/assets/*', async ({ request }) => {
       const { pathname } = new URL(request.url);
-      
-      // Skip API routes
-      if (pathname.startsWith('/api/')) {
-        return;
-      }
-
-      // Try to serve the file from the exact path first
-      let filePath = join(distPath, pathname);
-      
-      // If file doesn't exist and doesn't have an extension, serve index.html
-      if (!await Bun.file(filePath).exists()) {
-        if (!pathname.includes('.')) {
-          filePath = join(distPath, 'index.html');
-        } else {
-          return new Response('Not found', { status: 404 });
-        }
-      }
-
+      const filePath = join(distPath, pathname);
       const ext = pathname.substring(pathname.lastIndexOf('.'));
       const mimeType = mimeTypes[ext] || 'application/octet-stream';
 
       try {
         const file = Bun.file(filePath);
-        const headers: Record<string, string> = {
-          'Content-Type': mimeType,
-          'X-Content-Type-Options': 'nosniff'
-        };
-
-        // Add caching for assets but not for HTML
-        if (ext !== '.html') {
-          headers['Cache-Control'] = 'public, max-age=31536000';
-        } else {
-          headers['Cache-Control'] = 'no-cache';
-        }
-
-        return new Response(file, { headers });
+        return new Response(file, {
+          headers: {
+            'Content-Type': mimeType,
+            'Cache-Control': 'public, max-age=31536000',
+            'X-Content-Type-Options': 'nosniff'
+          }
+        });
       } catch (error) {
-        console.error('Error serving file:', error);
+        return new Response('Not found', { status: 404 });
+      }
+    });
+
+    // Serve root index.html
+    app.get('/', async () => {
+      try {
+        const htmlPath = join(distPath, 'index.html');
+        const file = Bun.file(htmlPath);
+        return new Response(file, {
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-cache'
+          }
+        });
+      } catch (error) {
+        console.error('Error serving index.html:', error);
         return new Response('Server Error', { status: 500 });
       }
     });
 
+    // Fallback route: serve index.html for non-asset requests
+    app.get('*', async ({ request }) => {
+      const { pathname } = new URL(request.url);
+
+      // If the request has a file extension and wasn't served by previous routes, return 404
+      if (/\.[^/]+$/.test(pathname)) {
+        return new Response('Not found', { status: 404 });
+      }
+
+      // Serve index.html for all other routes - let the Elm router handle the routing
+      try {
+        const htmlPath = join(distPath, 'index.html');
+        const file = Bun.file(htmlPath);
+        return new Response(file, {
+          headers: {
+            'Content-Type': 'text/html',
+            'Cache-Control': 'no-cache'
+          }
+        });
+      } catch (error) {
+        console.error('Error serving index.html:', error);
+        return new Response('Server Error', { status: 500 });
+      }
+    });
   } catch (error) {
     console.error('Error setting up static file handling:', error)
   }
