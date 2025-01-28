@@ -990,7 +990,7 @@ view model =
                                         img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/allstate.svg]", alt "Allstate Logo", class "h-16 w-auto object-contain" ] []
 
                                     Just Aetna ->
-                                        img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/aetna.svg]", alt "Aetna Logo", class "h-16 w-auto object-contain" ] []
+                                        img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/Aetna.svg]", alt "Aetna Logo", class "h-16 w-auto object-contain" ] []
 
                                     Just ACE ->
                                         img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/chubb.svg]", alt "Chubb Logo", class "h-16 w-auto object-contain" ] []
