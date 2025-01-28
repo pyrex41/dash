@@ -7,7 +7,7 @@ import Dict exposing (Dict)
 import Hash
 import Html exposing (..)
 import Html.Attributes exposing (..)
-import Html.Events exposing (onBlur, onCheck, onClick, onInput)
+import Html.Events exposing (onBlur, onCheck, onClick, onInput, stopPropagationOn)
 import Http
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Pipeline exposing (optional, required)
@@ -29,6 +29,7 @@ type alias Model =
     , schema : ApplicationSchema
     , id : String
     , csgKey : Maybe String
+    , csgScreenshot : Maybe String
     , error : Maybe String
     , expandedSections : Dict String Bool
     , currentDate : Maybe Date
@@ -49,6 +50,7 @@ type alias Model =
     , status : Status
     , showResubmitConfirmation : Bool
     , focusedField : Maybe ( String, String ) -- (sectionId, fieldId)
+    , showScreenshotModal : Bool
     }
 
 
@@ -77,6 +79,8 @@ type Msg
     | CheckForUnsavedChanges Time.Posix
     | ConfirmResubmitToCSG
     | CancelResubmitToCSG
+    | OpenScreenshotModal
+    | CloseScreenshotModal
 
 
 type Status
@@ -94,6 +98,7 @@ type Status
 type alias Application =
     { id : String
     , csgKey : Maybe String
+    , csgScreenshot : Maybe String
     , naic : String
     , data : JsonValue
     , formattedData : Maybe JsonValue
@@ -154,6 +159,7 @@ init selectedProducer app =
     in
     ( { id = app.id
       , csgKey = app.csgKey
+      , csgScreenshot = app.csgScreenshot
       , naic = app.naic
       , carrier = carrierInit
       , data = finalData
@@ -168,6 +174,7 @@ init selectedProducer app =
             validateData
                 { id = app.id
                 , csgKey = app.csgKey
+                , csgScreenshot = app.csgScreenshot
                 , naic = app.naic
                 , carrier = carrierInit
                 , data = finalData
@@ -194,6 +201,7 @@ init selectedProducer app =
                 , status = app.status
                 , showResubmitConfirmation = False
                 , focusedField = Nothing
+                , showScreenshotModal = False
                 }
       , underwritingType = Nothing
       , drugSearchResults = []
@@ -210,6 +218,7 @@ init selectedProducer app =
       , status = app.status
       , showResubmitConfirmation = False
       , focusedField = Nothing
+      , showScreenshotModal = False
       }
     , Cmd.batch
         [ Task.perform GotCurrentTime Date.today
@@ -861,6 +870,12 @@ update msg model =
         CancelResubmitToCSG ->
             ( { model | showResubmitConfirmation = False }, Cmd.none )
 
+        OpenScreenshotModal ->
+            ( { model | showScreenshotModal = True }, Cmd.none )
+
+        CloseScreenshotModal ->
+            ( { model | showScreenshotModal = False }, Cmd.none )
+
 
 httpErrorToString : Http.Error -> String
 httpErrorToString error =
@@ -962,24 +977,6 @@ view model =
 
                 _ ->
                     ""
-
-        verificationScreenshot =
-            case model.data of
-                JsonObject dict ->
-                    case Dict.get "csgApplication" dict of
-                        Just (JsonObject csgDict) ->
-                            case Dict.get "verificationScreenshot" csgDict of
-                                Just (JsonBase (StringValue screenshot)) ->
-                                    Just screenshot
-
-                                _ ->
-                                    Nothing
-
-                        _ ->
-                            Nothing
-
-                _ ->
-                    Nothing
     in
     div [ class "min-h-screen flex flex-col space-y-8" ]
         [ div [ class "bg-white" ]
@@ -990,26 +987,26 @@ view model =
                             [ div [ class "flex items-center justify-start h-24" ]
                                 [ case model.carrier of
                                     Just Allstate ->
-                                        img [ src "/allstate.svg", alt "Allstate Logo", class "h-16 w-auto object-contain" ] []
+                                        img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/allstate.svg]", alt "Allstate Logo", class "h-16 w-auto object-contain" ] []
 
                                     Just Aetna ->
-                                        img [ src "/Aetna.svg", alt "Aetna Logo", class "h-16 w-auto object-contain" ] []
+                                        img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/aetna.svg]", alt "Aetna Logo", class "h-16 w-auto object-contain" ] []
 
                                     Just ACE ->
-                                        img [ src "/chubb.svg", alt "Chubb Logo", class "h-16 w-auto object-contain" ] []
+                                        img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/chubb.svg]", alt "Chubb Logo", class "h-16 w-auto object-contain" ] []
 
                                     Just UHC ->
-                                        img [ src "/unitedhealthcare.svg", alt "UnitedHealthcare Logo", class "h-16 w-auto object-contain" ] []
+                                        img [ src "[VITE_PLUGIN_ELM_ASSET:/assets/unitedhealthcare.svg]", alt "UnitedHealthcare Logo", class "h-16 w-auto object-contain" ] []
 
                                     Nothing ->
                                         text "Unknown Plan"
                                 ]
                             ]
-                        , div [ class "flex items-start gap-4" ]
-                            [ div [ class "flex-1" ]
-                                [ div [ class "relative h-[34px]" ]
+                        , div [ class "flex flex-col gap-4" ]
+                            [ div [ class "flex items-center justify-end gap-4" ]
+                                [ div [ class "relative" ]
                                     [ select
-                                        [ class "w-full appearance-none border border-purple-200 rounded px-4 h-[34px] pr-8 text-sm bg-white hover:border-purple-300 focus:outline-none focus:border-purple-500"
+                                        [ class "w-48 appearance-none border border-purple-200 rounded px-4 h-[34px] pr-8 text-sm bg-white hover:border-purple-300 focus:outline-none focus:border-purple-500"
                                         , value (Maybe.map String.fromInt model.underwritingType |> Maybe.withDefault "")
                                         , onInput (\str -> SetUnderwritingType (String.toInt str |> Maybe.withDefault 0))
                                         ]
@@ -1020,9 +1017,7 @@ view model =
                                     , div [ class "pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700" ]
                                         [ text "▼" ]
                                     ]
-                                ]
-                            , div [ class "flex flex-col gap-2" ]
-                                [ button
+                                , button
                                     [ class "bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded text-sm h-[34px] disabled:opacity-50 disabled:cursor-not-allowed"
                                     , onClick SubmitToCSG
                                     , disabled (model.submittingToCSG || not model.isValid)
@@ -1033,44 +1028,50 @@ view model =
                                       else
                                         text "Verify Application"
                                     ]
-                                , button
-                                    [ class "border border-purple-600 text-purple-600 px-4 py-1.5 rounded text-sm h-[34px]"
+                                ]
+                            , div [ class "flex items-center justify-end gap-4" ]
+                                [ button
+                                    [ class "border border-purple-600 text-purple-600 px-4 py-1.5 rounded text-sm h-[34px] hover:bg-purple-50"
                                     , onClick NoOp
                                     ]
                                     [ text "Change Plans" ]
                                 ]
                             ]
                         ]
-                    , div
-                        [ class "mt-4" ]
-                        [ div [ class "flex flex-row gap-8" ]
-                            [ viewStatus model
-                            , case model.csgKey of
+                    , div [ class "mt-6 flex items-center justify-between" ]
+                        [ viewStatus model
+                        , div [ class "flex items-center gap-4" ]
+                            [ case model.csgKey of
                                 Just key ->
-                                    a
-                                        [ class "text-purple-600 hover:text-purple-700"
-                                        , href ("https://eapp.csgactuarial.com/applications/" ++ key ++ "/verify")
-                                        , target "_blank"
+                                    button
+                                        [ class "text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded text-sm flex items-center gap-1"
+                                        , onClick NoOp -- You'll need to add appropriate message
                                         ]
-                                        [ text "Verify and Sign" ]
+                                        [ text "View and Sign"
+                                        , span [ class "text-xs" ] [ text "↗" ]
+                                        ]
+
+                                Nothing ->
+                                    text ""
+                            , case model.csgScreenshot of
+                                Just screenshot ->
+                                    button
+                                        [ class "text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded text-sm flex items-center gap-1"
+                                        , onClick OpenScreenshotModal
+                                        ]
+                                        [ text "View Verification"
+                                        , span [ class "text-xs" ] [ text "↗" ]
+                                        ]
 
                                 Nothing ->
                                     text ""
                             ]
                         ]
-                    , case verificationScreenshot of
-                        Just screenshot ->
-                            a
-                                [ class "text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1 mt-2"
-                                , href screenshot
-                                , target "_blank"
-                                ]
-                                [ text "View Verification"
-                                , span [ class "text-xs" ] [ text "↗" ]
-                                ]
+                    , if model.showScreenshotModal then
+                        viewScreenshotModal model.csgScreenshot
 
-                        Nothing ->
-                            text ""
+                      else
+                        text ""
                     ]
                 ]
             ]
@@ -1092,6 +1093,45 @@ view model =
             , viewForm model
             ]
         ]
+
+
+viewScreenshotModal : Maybe String -> Html Msg
+viewScreenshotModal maybeScreenshot =
+    case maybeScreenshot of
+        Just screenshot ->
+            div
+                [ class """fixed inset-0 bg-black bg-opacity-50 z-50 
+                          flex items-center justify-center p-4"""
+                , onClick CloseScreenshotModal
+                ]
+                [ div
+                    [ class """bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] 
+                              flex flex-col overflow-hidden"""
+                    , stopPropagationOn "click" (Decode.succeed ( NoOp, True ))
+                    ]
+                    [ div [ class "p-4 border-b border-gray-200 flex justify-between items-center" ]
+                        [ h3 [ class "text-lg font-medium" ] [ text "Verification Screenshot" ]
+                        , button
+                            [ class """text-gray-400 hover:text-gray-500 p-2 rounded-full
+                                      hover:bg-gray-100 transition-colors duration-150
+                                      focus:outline-none focus:ring-2 focus:ring-gray-200"""
+                            , onClick CloseScreenshotModal
+                            ]
+                            [ text "×" ]
+                        ]
+                    , div [ class "flex-1 overflow-auto p-4" ]
+                        [ img
+                            [ src ("data:image/png;base64," ++ screenshot)
+                            , class "max-w-full h-auto"
+                            , alt "Verification Screenshot"
+                            ]
+                            []
+                        ]
+                    ]
+                ]
+
+        Nothing ->
+            text ""
 
 
 viewStatus : Model -> Html Msg
@@ -3046,6 +3086,7 @@ applicationViewDecoder =
     Decode.succeed Application
         |> Pipeline.required "id" Decode.string
         |> Pipeline.optional "csgApplication" (Decode.map Just (Decode.field "key" Decode.string)) Nothing
+        |> Pipeline.optional "csgApplication" (Decode.map Just (Decode.field "verificationScreenshot" Decode.string)) Nothing
         |> Pipeline.required "naic" Decode.string
         |> Pipeline.required "data" jsonValueDecoder
         |> Pipeline.optional "formattedData" maybeJsonValueDecoder Nothing

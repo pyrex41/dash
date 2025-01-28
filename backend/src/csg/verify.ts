@@ -150,18 +150,18 @@ export async function fixChubbZipCode(page: Page, urlSlug: string, debug: boolea
     await page.waitForSelector('#content', { timeout: 30000 });
     log('Content loaded');
 
-    // Find and click the zip code field container
-    const zipCodeSelector = 'div[id*="string_search_field-section-applicant_info-field-zip5"]';
+    // Find and click the zip code field container - updated selector for React Select
+    const zipCodeSelector = '.css-13cymwt-control';
     log('Waiting for zip code field...');
-    await page.waitForSelector(zipCodeSelector);
+    await page.waitForSelector(zipCodeSelector, { timeout: 30000 });
     log('Clicking zip code field...');
     await page.click(zipCodeSelector);
     log('Clicked zip code field');
 
-    // Wait for and find the input field
+    // Wait for and find the input field - updated selector for React Select
     const inputSelector = '#react-select-2-input';
     log('Waiting for zip code input field...');
-    await page.waitForSelector(inputSelector);
+    await page.waitForSelector(inputSelector, { timeout: 30000 });
     log('Found zip code input field');
 
     // Clear any existing value first
@@ -439,6 +439,7 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
             status: verificationStatus,
             key: urlSlug,
             error: verificationError,
+            screenshot: screenshot,
             applicationStatus: inGoodOrder && !hasErrors ? 'awaiting_signature' : 'submission_issue'
           });
         }

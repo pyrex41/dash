@@ -317,6 +317,17 @@ const app = new Elysia({
             key: result.key || null,
             verificationStatus: result.verificationStatus || null
           }))
+
+          // Start verification process if submission was successful
+          if (result.key) {
+            console.log('Starting verification process for key:', result.key);
+            verifyCSGApplication(result.key, {
+              headless: true,
+              debug: isDev
+            }).catch(error => {
+              console.error('Error during verification:', error);
+            });
+          }
         }).catch(error => {
           ws.send(JSON.stringify({
             type: 'submit_to_csg_response',

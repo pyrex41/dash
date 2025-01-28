@@ -6,6 +6,7 @@ export default defineConfig({
   resolve: {
     extensions: ['.ts', '.js', '.elm']
   },
+  publicDir: 'src/assets',
   server: {
     proxy: {
       '/api': {
