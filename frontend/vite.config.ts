@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import elmPlugin from 'vite-plugin-elm';
+import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [elmPlugin()],
@@ -31,6 +32,12 @@ export default defineConfig({
   build: {
     // Build to the backend's static directory
     outDir: '../dist',
-    emptyOutDir: true
+    emptyOutDir: true,
+    assetsDir: 'assets',
+    rollupOptions: {
+      input: {
+        main: resolve(__dirname, 'index.html')
+      }
+    }
   }
 });
