@@ -135,70 +135,214 @@ export async function fixChubbZipCode(page: Page, urlSlug: string, debug: boolea
     }
 
     log(`Found zip code ${zipCode} for application ${application.id}`);
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: `Found zip code ${zipCode} for application`
+    });
     
     // Navigate to the application page first
     const applicationUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}`;
     log(`Navigating to application page: ${applicationUrl}`);
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: `Navigating to application page: ${applicationUrl}`
+    });
+
     await page.goto(applicationUrl, {
       waitUntil: 'networkidle0',
       timeout: 60000
     });
     log('Successfully loaded application page');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Successfully loaded application page'
+    });
 
     // Wait for the content to load
     log('Waiting for content to load...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Waiting for content to load...'
+    });
+
     await page.waitForSelector('#content', { timeout: 30000 });
     log('Content loaded');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Content loaded'
+    });
 
     // Find and click the zip code field container - updated selector for React Select
     const zipCodeSelector = '.css-13cymwt-control';
     log('Waiting for zip code field...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Waiting for zip code field...'
+    });
+
     await page.waitForSelector(zipCodeSelector, { timeout: 30000 });
     log('Clicking zip code field...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Clicking zip code field...'
+    });
+
     await page.click(zipCodeSelector);
     log('Clicked zip code field');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Clicked zip code field'
+    });
 
     // Wait for and find the input field - updated selector for React Select
     const inputSelector = '#react-select-2-input';
     log('Waiting for zip code input field...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Waiting for zip code input field...'
+    });
+
     await page.waitForSelector(inputSelector, { timeout: 30000 });
     log('Found zip code input field');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Found zip code input field'
+    });
 
     // Clear any existing value first
     log('Clearing existing zip code...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Clearing existing zip code...'
+    });
+
     for (let i = 0; i < 5; i++) {
       await page.keyboard.press('Backspace');
     }
     log('Cleared existing zip code');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Cleared existing zip code'
+    });
 
     // Fill in the zip code
     log(`Typing zip code: ${zipCode}`);
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: `Typing zip code: ${zipCode}`
+    });
+
     await page.type(inputSelector, zipCode);
     log('Finished typing zip code');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Finished typing zip code'
+    });
 
     // Wait for 3 seconds after entering zip code
     log('Waiting 3 seconds...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Waiting 3 seconds...'
+    });
+
     await new Promise(resolve => setTimeout(resolve, 3000));
     log('Wait complete');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Wait complete'
+    });
 
     // Click the continue button
     log('Looking for continue button...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Looking for continue button...'
+    });
+
     const continueButton = await page.waitForSelector('#content button');
     log('Clicking continue button...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Clicking continue button...'
+    });
+
     await continueButton?.click();
     log('Clicked continue button');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Clicked continue button'
+    });
 
     // Navigate to the prelude page
     const preludeUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}/med_supp_tool/prelude`;
     log(`Navigating to prelude page: ${preludeUrl}`);
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: `Navigating to prelude page: ${preludeUrl}`
+    });
+
     await page.goto(preludeUrl, {
       waitUntil: 'networkidle0',
       timeout: 60000
     });
     log('Successfully loaded prelude page');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Successfully loaded prelude page'
+    });
 
     // Verify the zip code was set correctly
     log('Verifying zip code was set correctly...');
+    broadcastVerificationUpdate(csgApp.applicationId, {
+      status: 'applying_workaround',
+      key: urlSlug,
+      applicationStatus: 'verifying',
+      message: 'Verifying zip code was set correctly...'
+    });
+
     const updatedData = await makeCSGRequest<any>({
       method: 'GET',
       url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
@@ -206,9 +350,23 @@ export async function fixChubbZipCode(page: Page, urlSlug: string, debug: boolea
 
     const updatedZip = updatedData?.values?.applicant_info?.zip5;
     if (updatedZip !== zipCode) {
-      console.warn(`⚠️ Zip code verification failed. Expected ${zipCode} but got ${updatedZip || 'undefined'}`);
+      const errorMsg = `⚠️ Zip code verification failed. Expected ${zipCode} but got ${updatedZip || 'undefined'}`;
+      log(errorMsg);
+      broadcastVerificationUpdate(csgApp.applicationId, {
+        status: 'applying_workaround',
+        key: urlSlug,
+        applicationStatus: 'verifying',
+        message: errorMsg
+      });
     } else {
-      log(`✓ Zip code verified: ${updatedZip}`);
+      const successMsg = `✓ Zip code verified: ${updatedZip}`;
+      log(successMsg);
+      broadcastVerificationUpdate(csgApp.applicationId, {
+        status: 'applying_workaround',
+        key: urlSlug,
+        applicationStatus: 'verifying',
+        message: successMsg
+      });
     }
 
     log('Successfully applied Chubb zip code workaround');
@@ -227,14 +385,29 @@ interface VerifyOptions {
 interface CSGApplicationData {
   in_good_order: boolean;
   naic?: string;
+  values?: {
+    applicant_info?: {
+      zip5?: string;
+    };
+  };
   [key: string]: any;
 }
+
+// Add more granular verification statuses
+type VerificationStatus = 
+  | 'pending'
+  | 'starting'
+  | 'applying_workaround'
+  | 'verifying'
+  | 'verified'
+  | 'failed';
 
 interface VerificationResult {
   success: boolean;
   screenshot: string | null;
   verifyUrl: string | null;
   error: string | null;
+  status: VerificationStatus;
 }
 
 interface VerificationResponse {
@@ -242,6 +415,8 @@ interface VerificationResponse {
   screenshot: string | null;
   verifyUrl: string | null;
   error: string | null;
+  status: VerificationStatus;
+  message?: string;
 }
 
 export async function verifyCSGApplication(urlSlug: string, options: VerifyOptions = {}): Promise<VerificationResponse> {
@@ -264,10 +439,50 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
     // Create the verification promise
     const verificationPromise = (async () => {
       try {
+        // Get the application ID for broadcasting
+        const db = getDb();
+        const [csgApp] = await db
+          .select()
+          .from(csgApplications)
+          .where(eq(csgApplications.key, urlSlug));
+
+        if (!csgApp?.applicationId) {
+          throw new Error('CSG application not found in database');
+        }
+
+        // Get application data to check NAIC
+        const [application] = await db
+          .select()
+          .from(applications)
+          .where(eq(applications.id, csgApp.applicationId));
+
+        if (application?.formattedData?.naic) {
+          broadcastVerificationUpdate(csgApp.applicationId, {
+            status: 'preparing_quote',
+            key: urlSlug,
+            applicationStatus: 'verifying',
+            message: `Preparing CSG quote request for NAIC: ${application.formattedData.naic}`
+          });
+        }
+
+        log('Starting verification process for key:', urlSlug);
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'starting',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: `Starting verification process for key: ${urlSlug}`
+        });
+
         log('Setting initial viewport...');
         await page.setViewport({
           width: 2166,
           height: 1363
+        });
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Setting up browser viewport...'
         });
 
         // Fetch the application data to check NAIC
@@ -275,14 +490,43 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           method: 'GET',
           url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
         });
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Retrieved application data from CSG...'
+        });
 
-        // If this is a Chubb application, apply the zip code workaround
-        if (initialAppData.naic === '20699' && !/^\d{5}$/.test(initialAppData.values.applicant_info.zip5)) {
-          await fixChubbZipCode(page, urlSlug, debug);
+        // If this is a Chubb application, check if we need the zip code workaround
+        if (initialAppData.naic === '20699') {
+          const zipCode = initialAppData.values?.applicant_info?.zip5;
+          if (!zipCode || !/^\d{5}$/.test(zipCode)) {
+            // Broadcast that we're applying the workaround
+            broadcastVerificationUpdate(csgApp.applicationId, {
+              status: 'applying_workaround',
+              key: urlSlug,
+              applicationStatus: 'verifying',
+              message: 'Detected Chubb application, applying zip code workaround...'
+            });
+
+            await fixChubbZipCode(page, urlSlug, debug);
+            broadcastVerificationUpdate(csgApp.applicationId, {
+              status: 'verifying',
+              key: urlSlug,
+              applicationStatus: 'verifying',
+              message: 'Successfully applied Chubb zip code workaround'
+            });
+          }
         }
 
         const verifyUrl = `https://eapp.csgactuarial.com/applications/${urlSlug}/verify`;
         log(`Navigating to: ${verifyUrl}`);
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Navigating to verification page...'
+        });
         
         await page.goto(verifyUrl, {
           waitUntil: 'networkidle0',
@@ -290,6 +534,13 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
         });
 
         log('Waiting for page content...');
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Waiting for page content to load...'
+        });
+
         await page.waitForSelector('#content', { 
           visible: true,
           timeout: 30000 
@@ -297,10 +548,22 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
 
         // Ensure the page is fully rendered
         log('Waiting additional time for rendering...'); 
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Waiting for page to fully render...'
+        });
         await new Promise(resolve => setTimeout(resolve, 5000));
 
         // Set a very tall viewport to capture everything
         log('Setting tall viewport for full page capture...');
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Preparing to capture verification page...'
+        });
         await page.setViewport({
           width: 2166,
           height: 5000  // Very tall to capture everything
@@ -308,6 +571,12 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
 
         // Always take screenshot now
         log('Taking screenshot...');
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Taking screenshot of verification page...'
+        });
         const screenshot = await page.screenshot({
           fullPage: true,
           encoding: 'base64'
@@ -315,6 +584,13 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
 
         // Click the E-sign button (handles different text variations)
         log('Looking for E-sign button...');
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Looking for E-sign button...'
+        });
+
         const buttonSelectors = [
           '#e_sign',
           'button:has-text("Continue to E-Sign")',
@@ -330,6 +606,12 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
             const button = await page.waitForSelector(selector, { timeout: 1000 });
             if (button) {
               log(`Found button with selector: ${selector}`);
+              broadcastVerificationUpdate(csgApp.applicationId, {
+                status: 'verifying',
+                key: urlSlug,
+                applicationStatus: 'verifying',
+                message: `Found E-sign button with selector: ${selector}`
+              });
               await button.click();
               clicked = true;
               break;
@@ -342,15 +624,39 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
 
         if (!clicked) {
           log('Warning: Could not find E-sign button with any selector');
+          broadcastVerificationUpdate(csgApp.applicationId, {
+            status: 'verifying',
+            key: urlSlug,
+            applicationStatus: 'verifying',
+            message: 'Warning: Could not find E-sign button'
+          });
         } else {
           log('Clicked E-sign button');
+          broadcastVerificationUpdate(csgApp.applicationId, {
+            status: 'verifying',
+            key: urlSlug,
+            applicationStatus: 'verifying',
+            message: 'Clicked E-sign button, waiting for navigation...'
+          });
           // Wait for navigation after click
           await page.waitForNavigation({ timeout: 30000 }).catch(error => {
             log('Warning: Navigation timeout after clicking E-sign button');
+            broadcastVerificationUpdate(csgApp.applicationId, {
+              status: 'verifying',
+              key: urlSlug,
+              applicationStatus: 'verifying',
+              message: 'Warning: Navigation timeout after clicking E-sign button'
+            });
           });
         }
 
         // Check for yellow highlighted error elements
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Checking for validation errors...'
+        });
         const hasErrors = await page.evaluate(() => {
           const elements = document.querySelectorAll('*');
           for (const element of elements) {
@@ -365,6 +671,12 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
         });
 
         // Fetch the application data to check in_good_order
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Checking if application is in good order...'
+        });
         const finalAppData = await makeCSGRequest<CSGApplicationData>({
           method: 'GET',
           url: `/v1/e_app/enrollment_applications/${urlSlug}.json`
@@ -374,24 +686,13 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
         const verificationStatus = inGoodOrder && !hasErrors ? 'verified' : 'failed';
         const verificationError = hasErrors ? 'Verification page shows highlighted errors' : !inGoodOrder ? 'Application is not in good order' : null;
 
-        // First update application status to verifying
-        const db = getDb();
-        await db.update(applications)
-          .set({
-            status: 'verifying',
-            updatedAt: new Date()
-          })
-          .where(
-            eq(applications.id, 
-              db.select({ id: applications.id })
-                .from(applications)
-                .innerJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
-                .where(eq(csgApplications.key, urlSlug))
-                .limit(1)
-            )
-          );
-
-        // Then save verification results to database
+        // Save verification results to database
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: 'verifying',
+          key: urlSlug,
+          applicationStatus: 'verifying',
+          message: 'Saving verification results...'
+        });
         await Promise.all([
           db.update(csgApplications)
             .set({
@@ -409,47 +710,27 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
               status: inGoodOrder && !hasErrors ? 'awaiting_signature' : 'submission_issue',
               updatedAt: new Date()
             })
-            .where(
-              eq(applications.id, 
-                db.select({ id: applications.id })
-                  .from(applications)
-                  .innerJoin(csgApplications, eq(applications.id, csgApplications.applicationId))
-                  .where(eq(csgApplications.key, urlSlug))
-                  .limit(1)
-              )
-            )
+            .where(eq(applications.id, csgApp.applicationId))
         ]);
 
-        // Get the application ID for broadcasting
-        const [csgApp] = await db
-          .select()
-          .from(csgApplications)
-          .where(eq(csgApplications.key, urlSlug));
-
-        if (csgApp?.applicationId) {
-          // First broadcast verifying status
-          broadcastVerificationUpdate(csgApp.applicationId, {
-            status: 'verifying',
-            key: urlSlug,
-            applicationStatus: 'verifying'
-          });
-
-          // Then broadcast final verification status
-          broadcastVerificationUpdate(csgApp.applicationId, {
-            status: verificationStatus,
-            key: urlSlug,
-            error: verificationError,
-            screenshot: screenshot,
-            applicationStatus: inGoodOrder && !hasErrors ? 'awaiting_signature' : 'submission_issue'
-          });
-        }
+        // Broadcast final verification status
+        broadcastVerificationUpdate(csgApp.applicationId, {
+          status: verificationStatus,
+          key: urlSlug,
+          error: verificationError,
+          screenshot: screenshot,
+          applicationStatus: inGoodOrder && !hasErrors ? 'awaiting_signature' : 'submission_issue',
+          message: verificationError || (inGoodOrder && !hasErrors ? 'Verification completed successfully' : 'Verification failed')
+        });
 
         if (hasErrors || !inGoodOrder) {
           return { 
             success: false, 
             screenshot,
             verifyUrl,
-            error: verificationError || 'Unknown verification error'
+            error: verificationError || 'Unknown verification error',
+            status: 'failed',
+            message: verificationError || 'Verification failed'
           } satisfies VerificationResponse;
         }
 
@@ -457,7 +738,9 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           success: true, 
           screenshot,
           verifyUrl,
-          error: null
+          error: null,
+          status: 'verified',
+          message: 'Verification completed successfully'
         } satisfies VerificationResponse;
       } catch (error) {
         // Handle errors during verification
@@ -516,12 +799,13 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           .where(eq(csgApplications.key, urlSlug));
 
         if (errorCsgApp?.applicationId) {
-          // Broadcast verification failure
+          // Broadcast verification failure with detailed message
           broadcastVerificationUpdate(errorCsgApp.applicationId, {
             status: 'failed',
             key: urlSlug,
             error: errorMessage,
-            applicationStatus: 'submission_issue'
+            applicationStatus: 'submission_issue',
+            message: `Verification failed: ${errorMessage}`
           });
         }
 
@@ -529,7 +813,9 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
           success: false,
           screenshot: errorScreenshot,
           verifyUrl: null,
-          error: errorMessage
+          error: errorMessage,
+          status: 'failed',
+          message: errorMessage
         } satisfies VerificationResponse;
       } finally {
         await page.close();
@@ -537,29 +823,61 @@ export async function verifyCSGApplication(urlSlug: string, options: VerifyOptio
     })();
 
     // Race between verification and timeout
-    const result = await Promise.race([verificationPromise, timeoutPromise]) as VerificationResponse;
-    return result;
+    try {
+      const result = await Promise.race([verificationPromise, timeoutPromise]) as VerificationResponse;
+      return result;
+    } catch (error) {
+      // Handle timeout or other errors
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      console.error('Verification failed:', errorMessage);
+      
+      // Get application ID for broadcasting timeout
+      const db = getDb();
+      const [timeoutCsgApp] = await db
+        .select()
+        .from(csgApplications)
+        .where(eq(csgApplications.key, urlSlug));
+
+      if (timeoutCsgApp?.applicationId) {
+        // Broadcast timeout failure
+        broadcastVerificationUpdate(timeoutCsgApp.applicationId, {
+          status: 'failed',
+          key: urlSlug,
+          error: errorMessage,
+          applicationStatus: 'submission_issue',
+          message: `Verification failed: ${errorMessage}`
+        });
+      }
+
+      // Update database with timeout/error status
+      await db.update(csgApplications)
+        .set({
+          verificationStatus: 'failed',
+          verificationError: errorMessage,
+          lastVerifiedAt: new Date(),
+          updatedAt: new Date()
+        })
+        .where(eq(csgApplications.key, urlSlug));
+
+      return {
+        success: false,
+        screenshot: null,
+        verifyUrl: null,
+        error: errorMessage,
+        status: 'failed',
+        message: errorMessage
+      } satisfies VerificationResponse;
+    }
   } catch (error) {
-    // Handle timeout or other errors
     const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
     console.error('Verification failed:', errorMessage);
-    
-    // Update database with timeout/error status
-    const db = getDb();
-    await db.update(csgApplications)
-      .set({
-        verificationStatus: 'failed',
-        verificationError: errorMessage,
-        lastVerifiedAt: new Date(),
-        updatedAt: new Date()
-      })
-      .where(eq(csgApplications.key, urlSlug));
-
     return {
       success: false,
       screenshot: null,
       verifyUrl: null,
-      error: errorMessage
+      error: errorMessage,
+      status: 'failed',
+      message: errorMessage
     } satisfies VerificationResponse;
   }
 } 

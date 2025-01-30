@@ -223,7 +223,7 @@ export const getApplicationWithSchema = async (applicationId: string) => {
     }).from(csgApplications).where(eq(csgApplications.applicationId, applicationId)),
     db.select().from(bookings).where(eq(bookings.applicationId, applicationId))
   ])
-  console.log('csgApp', relatedCsgApp)
+  //console.log('csgApp', relatedCsgApp)
   const onboardingData = relatedOnboarding ? (typeof relatedOnboarding.data === 'string' ? JSON.parse(relatedOnboarding.data) : relatedOnboarding.data) : {};
 
   const appData = typeof application.data === 'string' ? JSON.parse(application.data) : application.data;

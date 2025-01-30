@@ -49,8 +49,9 @@ type alias Model =
     , csgSubmissionError : Maybe String
     , status : Status
     , showResubmitConfirmation : Bool
-    , focusedField : Maybe ( String, String ) -- (sectionId, fieldId)
+    , focusedField : Maybe ( String, String )
     , showScreenshotModal : Bool
+    , verificationMessages : List String
     }
 
 
@@ -81,6 +82,7 @@ type Msg
     | CancelResubmitToCSG
     | OpenScreenshotModal
     | CloseScreenshotModal
+    | VerificationUpdate Decode.Value
 
 
 type Status
@@ -202,6 +204,7 @@ init selectedProducer app =
                 , showResubmitConfirmation = False
                 , focusedField = Nothing
                 , showScreenshotModal = False
+                , verificationMessages = []
                 }
       , underwritingType = Nothing
       , drugSearchResults = []
@@ -219,6 +222,7 @@ init selectedProducer app =
       , showResubmitConfirmation = False
       , focusedField = Nothing
       , showScreenshotModal = False
+      , verificationMessages = []
       }
     , Cmd.batch
         [ Task.perform GotCurrentTime Date.today
@@ -876,6 +880,51 @@ update msg model =
         CloseScreenshotModal ->
             ( { model | showScreenshotModal = False }, Cmd.none )
 
+        VerificationUpdate value ->
+            let
+                messageDecoder =
+                    Decode.succeed (\status message -> { status = status, message = message })
+                        |> Pipeline.optional "status" statusDecoder model.status
+                        |> Pipeline.required "message" Decode.string
+
+                result =
+                    Decode.decodeValue messageDecoder value
+            in
+            case result of
+                Ok { status, message } ->
+                    if String.isEmpty message then
+                        ( model, Cmd.none )
+
+                    else
+                        ( { model
+                            | verificationMessages = model.verificationMessages ++ [ message ]
+                            , status = status -- statusDecoder already gives us the correct Status type
+                          }
+                        , Cmd.none
+                        )
+
+                Err _ ->
+                    -- Try to at least get the message if status decode fails
+                    let
+                        messageOnlyDecoder =
+                            Decode.field "message" Decode.string
+
+                        messageResult =
+                            Decode.decodeValue messageOnlyDecoder value
+                    in
+                    case messageResult of
+                        Ok message ->
+                            if String.isEmpty message then
+                                ( model, Cmd.none )
+
+                            else
+                                ( { model | verificationMessages = model.verificationMessages ++ [ message ] }
+                                , Cmd.none
+                                )
+
+                        Err _ ->
+                            ( model, Cmd.none )
+
 
 httpErrorToString : Http.Error -> String
 httpErrorToString error =
@@ -977,6 +1026,27 @@ view model =
 
                 _ ->
                     ""
+
+        verificationConsole =
+            if not (List.isEmpty model.verificationMessages) then
+                div
+                    [ class """fixed bottom-4 right-4 w-96 max-h-96 overflow-y-auto 
+                               bg-white rounded-lg shadow-lg border border-red-500 
+                               p-4 space-y-2 text-sm font-mono"""
+                    ]
+                    (List.reverse model.verificationMessages
+                        |> List.indexedMap
+                            (\index msg ->
+                                div [ class "flex items-start gap-2 text-gray-600" ]
+                                    [ span [ class "text-gray-400 w-6 flex-shrink-0 text-right" ]
+                                        [ text (String.fromInt (List.length model.verificationMessages - index)) ]
+                                    , text msg
+                                    ]
+                            )
+                    )
+
+            else
+                text ""
     in
     div [ class "min-h-screen flex flex-col space-y-8" ]
         [ div [ class "bg-white" ]
@@ -1043,9 +1113,10 @@ view model =
                         , div [ class "flex items-center gap-4" ]
                             [ case model.csgKey of
                                 Just key ->
-                                    button
+                                    a
                                         [ class "text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded text-sm flex items-center gap-1"
-                                        , onClick NoOp -- You'll need to add appropriate message
+                                        , href ("https://eapp.csgactuarial.com/applications/" ++ key ++ "/verify")
+                                        , target "_blank"
                                         ]
                                         [ text "View and Sign"
                                         , span [ class "text-xs" ] [ text "↗" ]
@@ -1092,6 +1163,7 @@ view model =
                     text ""
             , viewForm model
             ]
+        , verificationConsole
         ]
 
 
@@ -2201,6 +2273,7 @@ subscriptions model =
         [ saveApplicationResponse SaveFormResponse
         , getLAProTokenResponse GotLAProToken
         , submitToCSGResponse CSGSubmissionResponse
+        , verificationUpdate VerificationUpdate
 
         --, Time.every 5000 CheckForUnsavedChanges -- Changed from 1000 to 5000
         ]
@@ -3086,7 +3159,18 @@ applicationViewDecoder =
     Decode.succeed Application
         |> Pipeline.required "id" Decode.string
         |> Pipeline.optional "csgApplication" (Decode.map Just (Decode.field "key" Decode.string)) Nothing
-        |> Pipeline.optional "csgApplication" (Decode.map Just (Decode.field "verificationScreenshot" Decode.string)) Nothing
+        |> Pipeline.optional "csgApplication"
+            (Decode.map
+                (\s ->
+                    if s == "" then
+                        Nothing
+
+                    else
+                        Just s
+                )
+                (Decode.field "verificationScreenshot" (Decode.nullable Decode.string |> Decode.map (Maybe.withDefault "")))
+            )
+            Nothing
         |> Pipeline.required "naic" Decode.string
         |> Pipeline.required "data" jsonValueDecoder
         |> Pipeline.optional "formattedData" maybeJsonValueDecoder Nothing

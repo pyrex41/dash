@@ -53,6 +53,7 @@ interface VerificationUpdateMessage {
         screenshot?: string;
         verifyUrl?: string;
         signatureUrl?: string;
+        message?: string;
     };
 }
 
@@ -96,7 +97,7 @@ interface ElmPorts {
         send: (token: string) => void;
     };
     statusUpdate?: {
-        send: (data: { id: string; status: string }) => void;
+        send: (data: { id: string; status: string; message: string | null }) => void;
     };
     exportToCsv?: {
         subscribe: (callback: (data: { searchTerm: string; hasContactFilter: boolean; hasCSGFilter: boolean }) => void) => void;
@@ -106,6 +107,15 @@ interface ElmPorts {
     };
     receiveApplicationStats?: {
         send: (data: any) => void;
+    };
+    verificationUpdate?: {
+        send: (message: string) => void;
+    };
+    wsSubscribe?: {
+        subscribe: (callback: (applicationIds: string[]) => void) => void;
+    };
+    wsUnsubscribe?: {
+        subscribe: (callback: (applicationIds: string[]) => void) => void;
     };
 }
 
@@ -191,6 +201,30 @@ function setupWebSocket(app: any) {
                 return;
             }
 
+            // Handle verification updates
+            if (message.type === 'verification_update') {
+                // Send status update
+                if (app.ports?.statusUpdate?.send) {
+                    app.ports.statusUpdate.send({
+                        id: message.applicationId,
+                        status: message.body.status,
+                        message: message.body.message || null
+                    });
+                }
+
+                // Send verification message
+                if (app.ports?.verificationUpdate?.send) {
+                    const formattedMessage = message.body.message || 
+                        `[${new Date(message.timestamp).toLocaleTimeString()}] ${message.body.status}${message.body.error ? `: ${message.body.error}` : ''}`;
+                    console.log(`[${receivedAt}] Sending verification update to Elm:`, formattedMessage);
+                    app.ports.verificationUpdate.send({
+                        status: message.body.status,
+                        message: formattedMessage
+                    });
+                }
+                return;
+            }
+
             // Handle subscription confirmations
             if (message.type === 'subscribed') {
                 console.log(`[${receivedAt}] Subscription confirmed for:`, message.applicationIds);
@@ -207,6 +241,13 @@ function setupWebSocket(app: any) {
             // Handle applications data
             if (message.type === 'applications_data') {
                 console.log('Received applications data:', message);
+                
+                // Update current subscriptions with the new set
+                if (message.subscribed) {
+                    currentSubscriptions.clear();
+                    message.subscribed.forEach((id: string) => currentSubscriptions.add(id));
+                    console.log(`[${receivedAt}] Updated subscriptions:`, Array.from(currentSubscriptions));
+                }
                 
                 if (app.ports?.receiveApplications?.send) {
                     app.ports.receiveApplications.send({
@@ -294,15 +335,6 @@ function setupWebSocket(app: any) {
                     console.error('Failed to refresh LAPro token:', message.error);
                 }
                 return;
-            }
-
-            // Handle applications list requests
-            if (message.type === 'request_applications') {
-                console.log('Request for application received:', message.applicationId);
-                sendOrQueueMessage({
-                    type: 'request_application',
-                    applicationId: message.applicationId
-                });
             }
 
             // Handle application stats
@@ -406,6 +438,28 @@ function setupWebSocket(app: any) {
                 hasContactFilter,
                 naics,
                 status
+            });
+        });
+    }
+
+    // Add subscription port handling
+    if (app.ports?.wsSubscribe?.subscribe) {
+        app.ports.wsSubscribe.subscribe((applicationIds) => {
+            console.log('Subscribing to applications:', applicationIds);
+            sendOrQueueMessage({
+                type: 'subscribe',
+                applicationIds
+            });
+        });
+    }
+
+    // Add unsubscribe port handling
+    if (app.ports?.wsUnsubscribe?.subscribe) {
+        app.ports.wsUnsubscribe.subscribe((applicationIds) => {
+            console.log('Unsubscribing from applications:', applicationIds);
+            sendOrQueueMessage({
+                type: 'unsubscribe',
+                applicationIds
             });
         });
     }

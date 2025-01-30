@@ -184,6 +184,14 @@ routeUrl url model =
     let
         parsedRoute =
             Parser.parse routeParser url
+
+        cleanupCmd =
+            case model.page of
+                ApplicationPage subModel ->
+                    Cmd.map ApplicationMsg (ApplicationPage.update ApplicationPage.Cleanup subModel |> Tuple.second)
+
+                _ ->
+                    Cmd.none
     in
     case parsedRoute of
         Just DashboardRoute ->
@@ -192,7 +200,10 @@ routeUrl url model =
                     Dashboard.init model.flags
             in
             ( { model | url = url, page = DashboardPage pageModel }
-            , Cmd.map DashboardMsg pageCmd
+            , Cmd.batch
+                [ Cmd.map DashboardMsg pageCmd
+                , cleanupCmd
+                ]
             )
 
         Just CSGApplicationRoute ->
@@ -201,7 +212,10 @@ routeUrl url model =
                     CSGApplicationView.init ()
             in
             ( { model | url = url, page = CSGApplicationPage pageModel }
-            , Cmd.map CSGApplicationMsg pageCmd
+            , Cmd.batch
+                [ Cmd.map CSGApplicationMsg pageCmd
+                , cleanupCmd
+                ]
             )
 
         Just CSGApplicationsRoute ->
@@ -210,7 +224,10 @@ routeUrl url model =
                     CSGApplicationsPage.init ()
             in
             ( { model | url = url, page = CSGApplicationsPage pageModel }
-            , Cmd.map CSGApplicationsMsg pageCmd
+            , Cmd.batch
+                [ Cmd.map CSGApplicationsMsg pageCmd
+                , cleanupCmd
+                ]
             )
 
         Just (ApplicationRoute id) ->
@@ -219,12 +236,15 @@ routeUrl url model =
                     ApplicationPage.init id model.flags
             in
             ( { model | url = url, page = ApplicationPage pageModel }
-            , Cmd.map ApplicationMsg pageCmd
+            , Cmd.batch
+                [ Cmd.map ApplicationMsg pageCmd
+                , cleanupCmd
+                ]
             )
 
         Nothing ->
             ( { model | url = url, page = NotFound }
-            , Cmd.none
+            , cleanupCmd
             )
 
 

@@ -14,7 +14,7 @@ import Html.Events exposing (on, onCheck, onClick, onInput, stopPropagationOn, t
 import Http
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
-import Ports exposing (..)
+import Ports exposing (receiveApplication, receiveApplicationStats, receiveApplications, requestApplication, requestApplicationStats, requestRefresh, statusUpdate, wsSubscribe, wsUnsubscribe)
 import Producer
 import Set exposing (Set)
 import Task
@@ -102,6 +102,13 @@ type alias ApplicationStats =
     }
 
 
+type alias StatusUpdateData =
+    { id : String
+    , status : String
+    , message : Maybe String
+    }
+
+
 
 -- INIT
 
@@ -170,7 +177,7 @@ type Msg
     | CloseApplicationModal
     | HandleKeyPress String
     | ApplicationUpdated Decode.Value
-    | StatusUpdate { id : String, status : String }
+    | StatusUpdate StatusUpdateData
     | ToggleProducerModal
     | SelectProducer Int
     | CloseProducerModal
@@ -191,7 +198,10 @@ update msg model =
                 , applicationView = Nothing
                 , selectedApplicationId = Just id
               }
-            , requestApplication { id = id }
+            , Cmd.batch
+                [ requestApplication { id = id }
+                , wsSubscribe [ id ]
+                ]
             )
 
         ApplicationReceived selectedProducer result ->
@@ -282,7 +292,6 @@ update msg model =
             case result of
                 Ok response ->
                     let
-
                         -- No need to fetch full applications unless opening a modal
                         newModel =
                             { model
@@ -352,6 +361,14 @@ update msg model =
                 , applicationView = Nothing
                 , selectedApplicationId = Nothing
               }
+              {--
+            , case model.selectedApplicationId of
+                Just id ->
+                    wsUnsubscribe [ id ]
+
+                Nothing ->
+                    Cmd.none
+            --}
             , Cmd.none
             )
 
@@ -388,10 +405,10 @@ update msg model =
             in
             ( { model | applications = newApplications }, Cmd.none )
 
-        StatusUpdate { id, status } ->
+        StatusUpdate data ->
             let
                 maybeNewStatus =
-                    case status of
+                    case data.status of
                         "submitting" ->
                             Just Submitting
 
@@ -417,14 +434,18 @@ update msg model =
                     model.applications
                         |> List.map
                             (\app ->
-                                if app.id == id then
+                                if app.id == data.id then
                                     { app | status = maybeNewStatus |> Maybe.withDefault app.status }
 
                                 else
                                     app
                             )
             in
-            ( { model | applications = newApplications }, Cmd.none )
+            ( { model
+                | applications = newApplications
+              }
+            , Cmd.none
+            )
 
         ToggleProducerModal ->
             ( { model | showProducerModal = True }, Cmd.none )
@@ -513,34 +534,7 @@ view model =
             [ viewApplications model
             ]
         , if model.showApplicationModal then
-            div
-                [ class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-                , onClick CloseApplicationModal
-                ]
-                [ div
-                    [ class "bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
-                    , stopPropagation "click"
-                    ]
-                    [ div [ class "flex justify-between items-center p-4 border-b" ]
-                        [ div [] []
-                        , a
-                            [ class "text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1"
-                            , href ("/application/" ++ applicationId)
-                            , target "_blank"
-                            ]
-                            [ text "Open in new tab"
-                            , span [ class "text-xs" ] [ text "↗" ]
-                            ]
-                        ]
-                    , case model.applicationView of
-                        Just viewModel ->
-                            Html.map ApplicationViewMsg (ApplicationView.view viewModel)
-
-                        Nothing ->
-                            div [ class "p-4 flex justify-center items-center" ]
-                                [ div [ class "animate-spin h-8 w-8 border-4 border-purple-600 border-t-transparent rounded-full" ] [] ]
-                    ]
-                ]
+            viewApplicationModal model
 
           else
             text ""
@@ -806,7 +800,10 @@ subscriptions model =
             (\value ->
                 ApplicationsReceived (Decode.decodeValue applicationListDecoder value)
             )
-        , statusUpdate StatusUpdate
+        , statusUpdate
+            (\{ id, status, message } ->
+                StatusUpdate { id = id, status = status, message = message }
+            )
         , receiveApplication
             (\value ->
                 case model.selectedApplicationId of
@@ -1100,3 +1097,39 @@ applicationStatsDecoder =
         (Decode.field "submitted" Decode.int)
         (Decode.field "waitingReview" Decode.int)
         (Decode.field "completed" Decode.int)
+
+
+viewApplicationModal : Model -> Html Msg
+viewApplicationModal model =
+    let
+        applicationId =
+            model.selectedApplicationId |> Maybe.withDefault ""
+    in
+    div
+        [ class "fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+        , onClick CloseApplicationModal
+        ]
+        [ div
+            [ class "bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+            , stopPropagation "click"
+            ]
+            [ div [ class "flex justify-between items-center p-4 border-b" ]
+                [ div [] []
+                , a
+                    [ class "text-purple-600 hover:text-purple-700 text-sm flex items-center gap-1"
+                    , href ("/application/" ++ applicationId)
+                    , target "_blank"
+                    ]
+                    [ text "Open in new tab"
+                    , span [ class "text-xs" ] [ text "↗" ]
+                    ]
+                ]
+            , case model.applicationView of
+                Just viewModel ->
+                    Html.map ApplicationViewMsg (ApplicationView.view viewModel)
+
+                Nothing ->
+                    div [ class "p-4 flex justify-center items-center" ]
+                        [ div [ class "animate-spin h-8 w-8 border-4 border-purple-600 border-t-transparent rounded-full" ] [] ]
+            ]
+        ]

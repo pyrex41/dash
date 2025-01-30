@@ -3,6 +3,7 @@ import { csgTokens, csgTokens2 } from '../db/schema';
 import { eq, gt, desc } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/libsql';
 import axios, { AxiosRequestConfig } from 'axios';
+import { broadcastVerificationUpdate } from '../index';
 
 const client = createClient({
   url: process.env.TURSO_DATABASE_URL!,
@@ -79,6 +80,11 @@ async function getTokenWithRetry(tokenTable: typeof csgTokens | typeof csgTokens
     if (existingToken) {
       console.log('Found valid CSG token:', existingToken.token);
       console.log('Expires at:', existingToken.expiresAt);
+      // Broadcast token info through verification update
+      broadcastVerificationUpdate('system', {
+        status: 'token_info',
+        message: `Found valid CSG token: ${existingToken.token}\nExpires at: ${existingToken.expiresAt}`
+      });
       return existingToken.token;
     }
 

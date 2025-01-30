@@ -7,7 +7,7 @@ import Html exposing (..)
 import Html.Attributes exposing (..)
 import Http
 import Json.Decode as Decode
-import Ports exposing (requestApplication)
+import Ports exposing (requestApplication, wsSubscribe, wsUnsubscribe)
 import Producer
 
 
@@ -16,12 +16,14 @@ type alias Model =
     , selectedProducer : Maybe Producer.ProducerConfig
     , error : Maybe String
     , loading : Bool
+    , applicationId : String
     }
 
 
 type Msg
     = ApplicationReceived (Result Decode.Error ApplicationView.Application)
     | ApplicationViewMsg ApplicationView.Msg
+    | Cleanup
 
 
 init : String -> Decode.Value -> ( Model, Cmd Msg )
@@ -36,8 +38,12 @@ init applicationId producerConfig =
       , selectedProducer = Dict.get 1 producerConfigDict
       , error = Nothing
       , loading = True
+      , applicationId = applicationId
       }
-    , requestApplication { id = applicationId }
+    , Cmd.batch
+        [ requestApplication { id = applicationId }
+        , wsSubscribe [ applicationId ]
+        ]
     )
 
 
@@ -79,6 +85,11 @@ update msg model =
 
                 Nothing ->
                     ( model, Cmd.none )
+
+        Cleanup ->
+            ( model
+            , wsUnsubscribe [ model.applicationId ]
+            )
 
 
 view : Model -> Html Msg

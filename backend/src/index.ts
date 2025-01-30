@@ -51,7 +51,7 @@ export async function broadcastVerificationUpdate(applicationId: string, body: a
   const timestamp = new Date().toISOString();
   
   console.log(`[${timestamp}] Broadcasting verification update (msgId: ${msgId}) for application:`, applicationId);
-  console.log('Update body:', body);
+  //console.log('Update body:', body);
 
   // Get the current application state from the database
   const db = getDb();
@@ -78,7 +78,7 @@ export async function broadcastVerificationUpdate(applicationId: string, body: a
   );
   
   console.log(`[${timestamp}] Determined status:`, status);
-  console.log(`[${timestamp}] Application data:`, application);
+  //console.log(`[${timestamp}] Application data:`, application);
   
   const message = JSON.stringify({
     type: 'verification_update',
@@ -92,11 +92,12 @@ export async function broadcastVerificationUpdate(applicationId: string, body: a
       error: application.csg_applications?.verificationError || body.error,
       screenshot: application.csg_applications?.verificationScreenshot || body.screenshot,
       verifyUrl: body.verifyUrl,
-      signatureUrl: body.signatureUrl
+      signatureUrl: body.signatureUrl,
+      message: body.message
     }
   });
   
-  console.log(`[${timestamp}] Message to be sent:`, message);
+  //console.log(`[${timestamp}] Message to be sent:`, message);
   console.log(`[${timestamp}] Total connected clients:`, wsClients.size);
   
   // Only send to clients subscribed to this application
@@ -174,9 +175,14 @@ const app = new Elysia({
       // Handle subscription messages
       if (data.type === 'subscribe') {
         const applicationIds = data.applicationIds as string[]
+        console.log(`[${new Date().toISOString()}] Received subscription request for:`, applicationIds);
+        
         if (Array.isArray(applicationIds)) {
           // Filter out already subscribed IDs
           const newSubscriptions = applicationIds.filter(id => !wsData.subscriptions.has(id));
+          
+          console.log(`[${new Date().toISOString()}] New subscriptions to add:`, newSubscriptions);
+          console.log(`[${new Date().toISOString()}] Current subscriptions:`, Array.from(wsData.subscriptions));
           
           // Only process if there are new subscriptions
           if (newSubscriptions.length > 0) {
@@ -189,9 +195,12 @@ const app = new Elysia({
               applicationIds: newSubscriptions
             }));
             
-            console.log('Client subscribed to new applications:', newSubscriptions);
-            console.log('Total subscriptions:', Array.from(wsData.subscriptions));
+            console.log(`[${new Date().toISOString()}] Updated subscriptions for client:`, Array.from(wsData.subscriptions));
+          } else {
+            console.log(`[${new Date().toISOString()}] No new subscriptions to add`);
           }
+        } else {
+          console.error(`[${new Date().toISOString()}] Invalid applicationIds format:`, applicationIds);
         }
       }
       
@@ -217,8 +226,8 @@ const app = new Elysia({
         const applicationId = data.applicationId as string
         if (applicationId) {
           getFormattedApplicationWithSchema(applicationId).then(application => {
-            console.log('**12** Application data formatted:', application?.formattedData);
-            console.log('**13** Application csgApplication:', application?.csgApplication);
+            //console.log('**12** Application data formatted:', application?.formattedData);
+            //console.log('**13** Application csgApplication:', application?.csgApplication);
             if (application) {
               ws.send(JSON.stringify({
                 type: 'application_data',
@@ -246,14 +255,30 @@ const app = new Elysia({
       if (data.type === 'request_applications') {
         const { page = 0, pageSize = 20, searchTerm = '', hasContactFilter = false, naics = [], status = undefined } = data
         console.log('Fetching applications with params:', { page, pageSize, searchTerm, hasContactFilter, naics, status })
+        
+        // Get client data
+        const wsData = wsClients.get(ws.id);
+        if (!wsData) {
+          console.error('No WebSocket data found for client:', ws.id);
+          return;
+        }
+
+        // Clear existing subscriptions
+        wsData.subscriptions.clear();
+        
         getApplications(page, pageSize, searchTerm, hasContactFilter, naics, status).then(result => {
-          // Directly send the result as it is already formatted
+          // Extract application IDs and add to subscriptions
+          const applicationIds = result.applications.map(app => app.id);
+          applicationIds.forEach(id => wsData.subscriptions.add(id));
+          
+          // Send response with applications data and subscription confirmation
           const response = {
             type: 'applications_data',
             applications: result.applications,
-            pagination: result.pagination
+            pagination: result.pagination,
+            subscribed: applicationIds
           }
-          console.log('Sending applications response:', response)
+          console.log('Sending applications response with subscriptions:', applicationIds.length);
           ws.send(JSON.stringify(response));
         }).catch(error => {
           const errorResponse = {
@@ -273,7 +298,7 @@ const app = new Elysia({
             type: 'application_stats',
             stats
           }
-          console.log('Sending application stats response:', response);
+          console.log('Sending application stats response:');
           ws.send(JSON.stringify(response));
         }).catch(error => {
           const errorResponse = {
@@ -309,6 +334,12 @@ const app = new Elysia({
       if (data.type === 'submit_to_csg') {
         const { applicationId, producerId } = data
         submitToCSG(applicationId, producerId).then(result => {
+          // Broadcast submission message
+          broadcastVerificationUpdate(applicationId, {
+            status: 'submitting',
+            message: `Submitting application to ${process.env.CSG_API_URL}/v1/e_app/enrollment_applications.json`
+          });
+
           ws.send(JSON.stringify({
             type: 'submit_to_csg_response',
             success: result.success || false,
@@ -344,16 +375,32 @@ const app = new Elysia({
       if (data.type === 'verify_csg_application') {
         const { key } = data
         verifyCSGApplication(key).then(result => {
+          // Broadcast quote response status if successful
+          if (result.success) {
+            broadcastVerificationUpdate(key, {
+              status: 'quote_response',
+              message: 'Quote response status 200'
+            });
+          }
+
           ws.send(JSON.stringify({
             type: 'verify_csg_application_response',
             success: true,
             result
           }))
         }).catch(error => {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to verify CSG application';
+          
+          // Send verification update about failure
+          broadcastVerificationUpdate(key, {
+            status: 'failed',
+            message: errorMessage
+          });
+
           ws.send(JSON.stringify({
-            type: 'verify_csg_application_response',
+            type: 'verify_csg_application_response', 
             success: false,
-            error: error instanceof Error ? error.message : 'Failed to verify CSG application'
+            error: errorMessage
           }))
         })
       }
