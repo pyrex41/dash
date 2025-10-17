@@ -4,9 +4,20 @@ import { desc, sql } from 'drizzle-orm'
 import { applications, bookings, user, csgApplications, producers, onboarding } from './schema'
 import { eq } from 'drizzle-orm'
 import { getDb } from '.'
+import { config } from 'dotenv'
+import { resolve } from 'path'
 
-const formatServer = process.env.FORMAT_SERVER_URL 
-console.log('formatServer', formatServer)
+// Load environment variables (go up one directory from backend/)
+// Use override: true to replace any existing environment variables
+config({ path: resolve(process.cwd(), '../.env'), override: true })
+
+const formatServer = process.env.FORMAT_SERVER_URL
+const formatServerApiKey = process.env.FORMAT_SERVER_API_KEY
+console.log('========================================')
+console.log('FORMAT_SERVER_URL loaded:', formatServer)
+console.log('FORMAT_SERVER_API_KEY loaded:', formatServerApiKey ? 'Set' : 'NOT SET')
+console.log('Expected: https://csgformat-1-pyrex41.replit.app')
+console.log('========================================')
 
 const getFormatUrl = (applicationId: string) => {
   return `${formatServer}/api/formatter/api/applications/${applicationId}/formatted?skip_medication=true&skip_producer=true`
@@ -15,7 +26,17 @@ const getFormatUrl = (applicationId: string) => {
 const format_application = async (applicationId: string) => {
   const url = getFormatUrl(applicationId)
   console.log('format_application', url)
-  const response = await fetch(url)
+
+  const headers: HeadersInit = {
+    'Content-Type': 'application/json'
+  }
+
+  // Add Authorization header if API key is available
+  if (formatServerApiKey) {
+    headers['Authorization'] = `Bearer ${formatServerApiKey}`
+  }
+
+  const response = await fetch(url, { headers })
   const data = await response.json()
   return data
 }

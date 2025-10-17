@@ -900,7 +900,12 @@ update msg model =
                             | verificationMessages = model.verificationMessages ++ [ message ]
                             , status = status -- statusDecoder already gives us the correct Status type
                           }
-                        , Cmd.none
+                        , if status == model.status then
+                            Cmd.none
+
+                          else
+                            -- If status has changed, request a refresh of the application
+                            requestApplication { id = model.id }
                         )
 
                 Err _ ->
@@ -1125,7 +1130,7 @@ view model =
                                 Nothing ->
                                     text ""
                             , case model.csgScreenshot of
-                                Just screenshot ->
+                                Just _ ->
                                     button
                                         [ class "text-purple-600 hover:text-purple-700 hover:bg-purple-50 px-3 py-1.5 rounded text-sm flex items-center gap-1"
                                         , onClick OpenScreenshotModal
@@ -1719,14 +1724,21 @@ renderFormField model section field =
                         div [ class "space-y-2" ]
                             [ div []
                                 [ input
-                                    [ type_ "text"
-                                    , class baseInputClass
-                                    , value (getValueString section.id field.id model.data)
-                                    , onInput (UpdateField section.id field.id)
-                                    , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
+                                    ([ type_ "text"
+                                     , class baseInputClass
+                                     , value (getValueString section.id field.id model.data)
+                                     , onInput (UpdateField section.id field.id)
+                                     , Maybe.map (\maxLen -> Html.Attributes.maxlength maxLen) config.maxLength
                                         |> Maybe.withDefault (class "")
-                                    , onBlur SaveForm
-                                    ]
+                                     , onBlur SaveForm
+                                     ]
+                                        ++ (if model.focusedField == Just ( section.id, field.id ) then
+                                                [ Html.Attributes.autofocus True ]
+
+                                            else
+                                                []
+                                           )
+                                    )
                                     []
                                 ]
                             , div [ class "mt-2" ]

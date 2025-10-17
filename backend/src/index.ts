@@ -3,6 +3,29 @@ import { cors } from '@elysiajs/cors'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import staticPlugin from '@elysiajs/static'
+import { config } from 'dotenv'
+import { resolve } from 'path'
+
+// Load environment variables from .env file (go up one directory from backend/)
+const envPath = resolve(process.cwd(), '../.env')
+console.log('Loading .env from:', envPath)
+const result = config({ path: envPath })
+if (result.error) {
+  console.error('Error loading .env file:', result.error)
+} else {
+  console.log('Successfully loaded .env file')
+}
+
+// Log environment variables to verify they're loaded
+console.log('\n=== Environment Variables Check ===')
+console.log('TURSO_DATABASE_URL:', process.env.TURSO_DATABASE_URL ? 'Set' : 'NOT SET')
+console.log('TURSO_AUTH_TOKEN:', process.env.TURSO_AUTH_TOKEN ? `Set (${process.env.TURSO_AUTH_TOKEN.substring(0, 20)}...)` : 'NOT SET')
+console.log('CSG_API_URL:', process.env.CSG_API_URL || 'NOT SET')
+console.log('CSG_API_KEY:', process.env.CSG_API_KEY ? 'Set' : 'NOT SET')
+console.log('NODE_ENV:', process.env.NODE_ENV || 'NOT SET')
+console.log('LAPRO_USERNAME:', process.env.LAPRO_USERNAME || 'NOT SET')
+console.log('===================================\n')
+
 import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats, getFormattedApplicationWithSchema } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
@@ -30,6 +53,29 @@ interface WSData {
 }
 
 const wsClients = new Map<string, WSData>();
+
+// Session management
+interface Session {
+  username: string;
+  expiresAt: number;
+}
+
+const sessions = new Map<string, Session>();
+
+// Generate random session token
+function generateSessionToken(): string {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+
+// Clean up expired sessions periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of sessions.entries()) {
+    if (session.expiresAt < now) {
+      sessions.delete(token);
+    }
+  }
+}, 60 * 60 * 1000); // Clean up every hour
 
 // Add type definition for application response
 interface ApplicationResponse {
@@ -122,13 +168,21 @@ interface CSGApplicationResponse {
 
 const app = new Elysia({
   websocket: {
-    idleTimeout: 30
+    idleTimeout: 30,
+    // Add support for secure WebSocket
+    perMessageDeflate: true
   },
   serve: {
     idleTimeout: 120
   }
 })
-.use(cors())
+.use(cors({
+  // Add WebSocket headers to CORS
+  credentials: true,
+  allowedHeaders: ['content-type', 'upgrade', 'connection'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  origin: '*'
+}))
 .ws('/ws', {
   open(ws) {
     console.log('WebSocket client connected')
@@ -473,6 +527,144 @@ const app = new Elysia({
   }
 })
 .group('/api', app => app
+  .post('/login', async ({ body }) => {
+    try {
+      const { username, password } = body as { username: string; password: string }
+
+      const expectedUsername = process.env.LOGIN
+      const expectedPassword = process.env.PASSWORD
+
+      console.log('Login attempt:', {
+        receivedUsername: username,
+        expectedUsername,
+        usernameMatch: username === expectedUsername,
+        passwordMatch: password === expectedPassword
+      })
+
+      if (username === expectedUsername && password === expectedPassword) {
+        // Generate session token
+        const sessionToken = generateSessionToken()
+
+        // Session expires in 4 hours
+        const expiresAt = Date.now() + (4 * 60 * 60 * 1000)
+
+        // Store session
+        sessions.set(sessionToken, {
+          username,
+          expiresAt
+        })
+
+        console.log('Session created:', { token: sessionToken, expiresAt: new Date(expiresAt).toISOString() })
+
+        // Set cookie (expires in 4 hours)
+        const cookieExpiry = new Date(expiresAt).toUTCString()
+
+        return new Response(
+          JSON.stringify({ success: true }),
+          {
+            status: 200,
+            headers: {
+              'Content-Type': 'application/json',
+              'Set-Cookie': `session=${sessionToken}; HttpOnly; Path=/; Max-Age=${4 * 60 * 60}; SameSite=Strict${isDev ? '' : '; Secure'}`
+            }
+          }
+        )
+      } else {
+        return new Response(
+          JSON.stringify({ success: false, error: 'Invalid username or password' }),
+          {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        )
+      }
+    } catch (error) {
+      console.error('Login error:', error)
+      return new Response(
+        JSON.stringify({ success: false, error: 'Server error' }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )
+    }
+  })
+  .get('/session', async ({ request }) => {
+    try {
+      // Parse cookies from request
+      const cookieHeader = request.headers.get('cookie')
+      if (!cookieHeader) {
+        return new Response(
+          JSON.stringify({ authenticated: false }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        )
+      }
+
+      // Extract session token from cookies
+      const cookies = cookieHeader.split(';').reduce((acc, cookie) => {
+        const [key, value] = cookie.trim().split('=')
+        acc[key] = value
+        return acc
+      }, {} as Record<string, string>)
+
+      const sessionToken = cookies['session']
+      if (!sessionToken) {
+        return new Response(
+          JSON.stringify({ authenticated: false }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        )
+      }
+
+      // Check if session exists and is valid
+      const session = sessions.get(sessionToken)
+      if (!session) {
+        return new Response(
+          JSON.stringify({ authenticated: false }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        )
+      }
+
+      // Check if session has expired
+      if (session.expiresAt < Date.now()) {
+        sessions.delete(sessionToken)
+        return new Response(
+          JSON.stringify({ authenticated: false }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        )
+      }
+
+      console.log('Session validated:', { username: session.username })
+
+      return new Response(
+        JSON.stringify({ authenticated: true, username: session.username }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )
+    } catch (error) {
+      console.error('Session validation error:', error)
+      return new Response(
+        JSON.stringify({ authenticated: false }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      )
+    }
+  })
   .get('/applications', async ({ query: params }) => {
     try {
       const page = Number(params?.page) || 0
@@ -1067,17 +1259,29 @@ if (!isDev) {
 async function startServer() {
   try {
     // Start the server
-    const port = Number(process.env.PORT) || 3000
-    await app.listen({
+    const port = Number(process.env.PORT) || 3000;
+    
+    const serverConfig: any = {
       port,
       hostname: '0.0.0.0',
       development: isDev
-    })
+    };
+
+    // Add SSL configuration in production
+    if (!isDev && process.env.SSL_CERT && process.env.SSL_KEY) {
+      serverConfig.tls = {
+        cert: Bun.file(process.env.SSL_CERT),
+        key: Bun.file(process.env.SSL_KEY)
+      };
+      console.log('SSL configuration loaded for secure WebSocket support');
+    }
+
+    await app.listen(serverConfig);
     
-    console.log(`🦊 Server is running at http://localhost:${port} (${isDev ? 'development' : 'production'} mode)`)
+    console.log(`🦊 Server is running at ${isDev ? 'http' : 'https'}://localhost:${port} (${isDev ? 'development' : 'production'} mode)`);
   } catch (error) {
-    console.error('Failed to start server:', error)
-    process.exit(1)
+    console.error('Failed to start server:', error);
+    process.exit(1);
   }
 }
 

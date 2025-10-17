@@ -125,12 +125,14 @@ interface ElmApp {
 
 // WebSocket connection handler
 function setupWebSocket(app: any) {
-    let wsUrl = import.meta.env.VITE_API_WS_URL || 'ws://localhost:3000/ws';
+    let wsUrl = import.meta.env.VITE_API_WS_URL;
     
     // If the URL is relative (starts with /), make it absolute
     if (wsUrl?.startsWith('/')) {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        wsUrl = `${wsProtocol}//${window.location.host}${wsUrl}`;
+        const host = window.location.host;
+        wsUrl = `${wsProtocol}//${host}${wsUrl}`;
+        console.log(`Using ${wsProtocol} protocol for WebSocket connection`);
     }
     
     console.log('Connecting to WebSocket:', wsUrl);
@@ -517,7 +519,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         const app = Elm.Main.init({
             node: target,
-            flags: { producers: producerConfigDb }
+            flags: {
+                producers: producerConfigDb
+            }
         }) as ElmApp;
 
         console.log('Elm app initialized');

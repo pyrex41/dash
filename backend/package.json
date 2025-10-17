@@ -11,6 +11,7 @@
         "@elysiajs/static": "^1.2.0",
         "@libsql/client": "^0.14.0",
         "axios": "^1.7.9",
+        "dotenv": "^17.2.3",
         "drizzle-orm": "^0.38.2",
         "elysia": "^1.2.10",
         "puppeteer": "^24.0.0"

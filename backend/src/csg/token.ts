@@ -4,6 +4,11 @@ import { eq, gt, desc } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/libsql';
 import axios, { AxiosRequestConfig } from 'axios';
 import { broadcastVerificationUpdate } from '../index';
+import { config } from 'dotenv';
+import { resolve } from 'path';
+
+// Load environment variables (go up two directories from backend/src/csg)
+config({ path: resolve(process.cwd(), '../.env') });
 
 const client = createClient({
   url: process.env.TURSO_DATABASE_URL!,
