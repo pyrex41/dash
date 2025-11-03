@@ -1,4 +1,4 @@
-module DataEncoder exposing (encodeJValue, unflattenData)
+module DataEncoder exposing (encodeBookingFilters, encodeJValue, encodeSyncBookingRequest, unflattenData)
 
 import CSGSchema exposing (JValue(..))
 import Dict exposing (Dict)
@@ -72,3 +72,38 @@ encodeJValue jvalue =
 
         NullValue ->
             Encode.null
+
+
+-- Booking encoders
+
+
+encodeBookingFilters :
+    { page : Int
+    , pageSize : Int
+    , searchTerm : String
+    , statusFilter : Maybe String
+    }
+    -> Encode.Value
+encodeBookingFilters filters =
+    Encode.object
+        [ ( "type", Encode.string "request_bookings" )
+        , ( "page", Encode.int filters.page )
+        , ( "pageSize", Encode.int filters.pageSize )
+        , ( "searchTerm", Encode.string filters.searchTerm )
+        , ( "statusFilter"
+          , case filters.statusFilter of
+                Just status ->
+                    Encode.string status
+
+                Nothing ->
+                    Encode.null
+          )
+        ]
+
+
+encodeSyncBookingRequest : String -> Encode.Value
+encodeSyncBookingRequest bookingId =
+    Encode.object
+        [ ( "type", Encode.string "sync_booking_to_hubspot" )
+        , ( "bookingId", Encode.string bookingId )
+        ]

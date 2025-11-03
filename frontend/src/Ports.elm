@@ -100,3 +100,19 @@ port requestApplicationStats : () -> Cmd msg
 
 
 port receiveApplicationStats : (Decode.Value -> msg) -> Sub msg
+
+
+
+-- Bookings Ports
+
+
+port requestBookings : Encode.Value -> Cmd msg
+
+
+port receiveBookings : (Decode.Value -> msg) -> Sub msg
+
+
+port syncBookingToHubSpot : String -> Cmd msg
+
+
+port hubspotSyncResult : (Decode.Value -> msg) -> Sub msg
