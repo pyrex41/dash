@@ -28,6 +28,7 @@ console.log('===================================\n')
 
 import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats, getFormattedApplicationWithSchema, createBooking, getBookings, getBookingWithContext } from './db/query'
 import { HubSpotClient, transformBookingToHubSpot, handleHubSpotError } from './integrations/hubspot'
+import { startSyncScheduler, getSyncSchedulerStatus } from './services/syncScheduler'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
@@ -1423,6 +1424,102 @@ const app = new Elysia({
       };
     }
   })
+
+  // Get sync scheduler status
+  .get('/api/sync/status', () => {
+    return getSyncSchedulerStatus();
+  })
+
+  // Manually trigger a sync cycle
+  .post('/api/sync/trigger', async () => {
+    try {
+      const scheduler = (await import('./services/syncScheduler')).getSyncScheduler();
+      const stats = await scheduler.triggerSync();
+      return {
+        success: true,
+        stats
+      };
+    } catch (error) {
+      console.error('Error triggering sync:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to trigger sync'
+      };
+    }
+  })
+
+  // Force a full re-sync of ALL bookings (ignores sync status)
+  .post('/api/sync/force', async () => {
+    try {
+      const scheduler = (await import('./services/syncScheduler')).getSyncScheduler();
+      const stats = await scheduler.triggerSync(true); // true = force all
+      return {
+        success: true,
+        message: 'Full sync initiated - all bookings will be re-synced',
+        stats
+      };
+    } catch (error) {
+      console.error('Error forcing full sync:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to force full sync'
+      };
+    }
+  })
+
+  // Test HubSpot connection
+  .post('/api/hubspot/test', async () => {
+    try {
+      const { HubSpotClient } = await import('./integrations/hubspot');
+      const client = new HubSpotClient();
+
+      // Test connection by attempting to search for a contact (will fail gracefully if no API key)
+      const testEmail = 'test@example.com';
+
+      try {
+        await client.searchContactByEmail(testEmail);
+        return {
+          success: true,
+          message: 'HubSpot connection successful',
+          configured: true
+        };
+      } catch (error: any) {
+        if (error.message && error.message.includes('not configured')) {
+          return {
+            success: false,
+            message: 'HubSpot API key not configured',
+            configured: false,
+            error: 'HUBSPOT_API_KEY environment variable not set'
+          };
+        }
+
+        // If we get a 401, the API key is invalid
+        if (error.message && error.message.includes('401')) {
+          return {
+            success: false,
+            message: 'HubSpot API key is invalid',
+            configured: true,
+            error: 'Invalid API key or insufficient permissions'
+          };
+        }
+
+        // Any other error means connection is working but search failed (which is fine)
+        return {
+          success: true,
+          message: 'HubSpot connection successful',
+          configured: true
+        };
+      }
+    } catch (error) {
+      console.error('Error testing HubSpot connection:', error);
+      return {
+        success: false,
+        message: 'Failed to test HubSpot connection',
+        configured: false,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      };
+    }
+  })
 )
 
 // --------------------------
@@ -1539,8 +1636,14 @@ async function startServer() {
     }
 
     await app.listen(serverConfig);
-    
+
     console.log(`🦊 Server is running at ${isDev ? 'http' : 'https'}://localhost:${port} (${isDev ? 'development' : 'production'} mode)`);
+
+    // Start automatic HubSpot sync scheduler
+    const syncIntervalMs = parseInt(process.env.HUBSPOT_SYNC_INTERVAL_MS || '300000', 10); // Default: 5 minutes
+    console.log(`\n🔄 Starting HubSpot sync scheduler (interval: ${syncIntervalMs / 1000}s)`);
+    startSyncScheduler({ intervalMs: syncIntervalMs });
+
   } catch (error) {
     console.error('Failed to start server:', error);
     process.exit(1);

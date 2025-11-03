@@ -565,6 +565,47 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         });
 
+        // Admin port handlers
+        app.ports.getSyncStatus?.subscribe(async () => {
+            try {
+                const response = await fetch('/api/sync/status');
+                const data = await response.json();
+                app.ports.receiveSyncStatus?.send(data);
+            } catch (error) {
+                console.error('Error fetching sync status:', error);
+            }
+        });
+
+        app.ports.testHubSpotConnection?.subscribe(async () => {
+            try {
+                const response = await fetch('/api/hubspot/test', { method: 'POST' });
+                const data = await response.json();
+                app.ports.receiveConnectionTest?.send(data);
+            } catch (error) {
+                console.error('Error testing HubSpot connection:', error);
+                app.ports.receiveConnectionTest?.send({
+                    success: false,
+                    message: 'Failed to connect',
+                    configured: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
+        app.ports.triggerManualSync?.subscribe(async () => {
+            try {
+                const response = await fetch('/api/sync/trigger', { method: 'POST' });
+                const data = await response.json();
+                app.ports.receiveManualSyncResult?.send(data);
+            } catch (error) {
+                console.error('Error triggering manual sync:', error);
+                app.ports.receiveManualSyncResult?.send({
+                    success: false,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                });
+            }
+        });
+
     } catch (error) {
         console.error('Error initializing Elm app:', error);
     }

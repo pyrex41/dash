@@ -1,9 +1,4 @@
-import { config } from 'dotenv';
-import { resolve } from 'path';
-
-// Load environment variables
-config({ path: resolve(process.cwd(), '../.env'), override: true });
-
+// Environment variables are loaded by backend/src/index.ts
 const HUBSPOT_API_KEY = process.env.HUBSPOT_API_KEY;
 const HUBSPOT_BASE_URL = 'https://api.hubapi.com';
 
@@ -40,9 +35,11 @@ export class HubSpotClient {
 
   constructor() {
     if (!HUBSPOT_API_KEY) {
-      throw new Error('HUBSPOT_API_KEY environment variable is required');
+      console.warn('[HubSpot] HUBSPOT_API_KEY not set - HubSpot sync will be disabled');
+      this.apiKey = '';
+    } else {
+      this.apiKey = HUBSPOT_API_KEY;
     }
-    this.apiKey = HUBSPOT_API_KEY;
     this.baseUrl = HUBSPOT_BASE_URL;
     this.rateLimiter = {
       queue: [],
@@ -111,7 +108,7 @@ export class HubSpotClient {
       const url = `${this.baseUrl}${endpoint}`;
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
+        'Authorization': `Bearer ${this.apiKey}`,  // HubSpot Private Apps use Bearer token format
       };
 
       const options: RequestInit = {
@@ -140,24 +137,28 @@ export class HubSpotClient {
 
   async searchContactByEmail(email: string): Promise<HubSpotContactResponse | null> {
     try {
+      const searchBody = {
+        filterGroups: [
+          {
+            filters: [
+              {
+                propertyName: 'email',
+                operator: 'EQ',
+                value: email,
+              },
+            ],
+          },
+        ],
+      };
+
+      console.log('[HubSpot] Search body:', JSON.stringify(searchBody));
+
       const result = await this.makeRequest<{
         results: HubSpotContactResponse[];
       }>(
         '/crm/v3/objects/contacts/search',
         'POST',
-        {
-          filterGroups: [
-            {
-              filters: [
-                {
-                  propertyName: 'email',
-                  operator: 'EQ',
-                  value: email,
-                },
-              ],
-            },
-          ],
-        }
+        searchBody
       );
 
       return result.results?.[0] || null;
@@ -199,26 +200,135 @@ export class HubSpotClient {
   async createOrUpdateContact(
     email: string,
     properties: Record<string, any>
-  ): Promise<{ contact: HubSpotContactResponse; created: boolean }> {
+  ): Promise<{ contact: HubSpotContactResponse; created: boolean; contactId?: string }> {
+    if (!this.apiKey) {
+      throw new Error('HubSpot API key not configured - sync disabled');
+    }
+
     try {
-      // Search for existing contact
+      // Search for existing contact - pass email string, NOT properties object
       const existingContact = await this.searchContactByEmail(email);
 
       if (existingContact) {
-        // Update existing contact
-        console.log(`[HubSpot] Updating existing contact: ${existingContact.id}`);
-        const updated = await this.updateContact(existingContact.id, properties);
-        return { contact: updated, created: false };
+        // Update existing contact - ONLY update booking_json_data field
+        console.log(`[HubSpot] Updating existing contact: ${existingContact.id} (booking_json_data only)`);
+        const updateProperties: Record<string, any> = {};
+
+        // Only include booking_json_data for existing contacts
+        if (properties.booking_json_data) {
+          updateProperties.booking_json_data = properties.booking_json_data;
+        }
+
+        const updated = await this.updateContact(existingContact.id, updateProperties);
+        return { contact: updated, created: false, contactId: existingContact.id };
       } else {
-        // Create new contact
+        // Create new contact - use all available fields
         console.log(`[HubSpot] Creating new contact for: ${email}`);
-        const created = await this.createContact({
-          properties: { email, ...properties },
-        });
-        return { contact: created, created: true };
+        try {
+          const created = await this.createContact({
+            properties: { ...properties, email }, // email last to ensure it's not overwritten
+          });
+          return { contact: created, created: true, contactId: created.id };
+        } catch (createError: any) {
+          // Handle race condition: contact was created between search and create
+          if (createError?.message?.includes('409') || createError?.message?.includes('Contact already exists')) {
+            console.log(`[HubSpot] Contact was created concurrently, retrying as update for: ${email}`);
+            // Extract contact ID from error message if available
+            const match = createError.message.match(/Existing ID: (\d+)/);
+            if (match) {
+              const contactId = match[1];
+              const updateProperties: Record<string, any> = {};
+              if (properties.booking_json_data) {
+                updateProperties.booking_json_data = properties.booking_json_data;
+              }
+              const updated = await this.updateContact(contactId, updateProperties);
+              return { contact: updated, created: false, contactId };
+            }
+            // If we can't extract ID, search again
+            const retryContact = await this.searchContactByEmail(email);
+            if (retryContact) {
+              const updateProperties: Record<string, any> = {};
+              if (properties.booking_json_data) {
+                updateProperties.booking_json_data = properties.booking_json_data;
+              }
+              const updated = await this.updateContact(retryContact.id, updateProperties);
+              return { contact: updated, created: false, contactId: retryContact.id };
+            }
+          }
+          throw createError;
+        }
       }
     } catch (error) {
       console.error('[HubSpot] Error in createOrUpdateContact:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Batch upsert contacts using HubSpot's batch upsert API
+   * This is MUCH more efficient than individual creates/updates
+   * Uses email as the idProperty to identify contacts
+   */
+  async batchUpsertContacts(
+    contacts: Array<{ email: string; properties: Record<string, any> }>
+  ): Promise<{
+    results: Array<{ id: string; email: string; created: boolean }>;
+    errors: Array<{ email: string; error: string }>;
+  }> {
+    if (!this.apiKey) {
+      throw new Error('HubSpot API key not configured - sync disabled');
+    }
+
+    const results: Array<{ id: string; email: string; created: boolean }> = [];
+    const errors: Array<{ email: string; error: string }> = [];
+
+    // Format contacts for batch upsert API
+    const inputs = contacts.map(({ email, properties }) => ({
+      id: email,
+      idProperty: 'email',
+      properties: properties, // All properties including email, booking_json_data, etc.
+    }));
+
+    try {
+      const response = await this.makeRequest<any>(
+        '/crm/v3/objects/contacts/batch/upsert',
+        'POST',
+        { inputs }
+      );
+
+      // Process results
+      // NOTE: HubSpot batch API response order may NOT match input order!
+      // We must match results back to inputs by email address
+      for (const result of response.results) {
+        // Extract email from the response properties (HubSpot returns it)
+        const resultEmail = result.properties.email;
+
+        // Check if contact was newly created (no previous properties) or updated
+        const wasCreated = !result.properties.hs_object_id; // Simple heuristic
+
+        results.push({
+          id: result.id,
+          email: resultEmail,
+          created: wasCreated,
+        });
+      }
+
+      // Process errors if any
+      if (response.errors && response.errors.length > 0) {
+        for (const error of response.errors) {
+          const failedInput = inputs[error.index || 0];
+          errors.push({
+            email: failedInput?.id || 'unknown',
+            error: error.message || JSON.stringify(error),
+          });
+        }
+      }
+
+      console.log(`[HubSpot Batch] Upserted ${results.length} contacts, ${errors.length} errors`);
+
+      return { results, errors };
+    } catch (error: any) {
+      console.error('[HubSpot Batch] Error in batchUpsertContacts:', error);
       throw error;
     }
   }
@@ -240,70 +350,71 @@ export interface BookingData {
 }
 
 export function transformBookingToHubSpot(booking: BookingData): Record<string, any> {
-  const properties: Record<string, any> = {
-    email: booking.email,
-  };
-
-  // Fallback hierarchy: booking.data → application.data → booking fields
+  // Smart fallback hierarchy: booking.data → application.data → booking fields
   const bookingData = booking.data || {};
   const applicationData = booking.application?.data || {};
 
-  // Extract name from various sources
-  const firstName =
-    bookingData.applicant_info?.f_name ||
-    bookingData.applicant_info?.first_name ||
-    applicationData.applicant_info?.f_name ||
-    applicationData.applicant_info?.first_name;
+  // Extract applicant info with fallback
+  const applicantInfo = bookingData.applicant_info || applicationData.applicant_info || {};
 
-  const lastName =
-    bookingData.applicant_info?.l_name ||
-    bookingData.applicant_info?.last_name ||
-    applicationData.applicant_info?.l_name ||
-    applicationData.applicant_info?.last_name ||
-    booking.application?.name;
+  const properties: Record<string, any> = {
+    email: booking.email, // Required field
+  };
 
-  if (firstName) properties.firstname = firstName;
-  if (lastName) properties.lastname = lastName;
+  // Add optional fields with fallback hierarchy
+  if (applicantInfo.f_name) {
+    properties.firstname = applicantInfo.f_name;
+  }
 
-  // Phone number
-  const phone =
-    booking.phone ||
-    bookingData.applicant_info?.phone ||
-    applicationData.applicant_info?.phone;
+  if (applicantInfo.l_name) {
+    properties.lastname = applicantInfo.l_name;
+  }
 
-  if (phone) properties.phone = phone;
+  if (booking.phone || applicantInfo.phone) {
+    properties.phone = booking.phone || applicantInfo.phone;
+  }
 
-  // Additional fields from application data
-  const dob =
-    bookingData.applicant_info?.applicant_dob ||
-    applicationData.applicant_info?.applicant_dob;
-  if (dob) properties.date_of_birth = dob;
+  if (applicantInfo.dob) {
+    properties.date_of_birth = applicantInfo.dob;
+  }
 
-  const zip =
-    bookingData.applicant_info?.zip5 ||
-    applicationData.applicant_info?.zip5;
-  if (zip) properties.zip = zip;
+  if (applicantInfo.zip) {
+    properties.zip = applicantInfo.zip;
+  }
 
-  const city =
-    bookingData.applicant_info?.address_city ||
-    applicationData.applicant_info?.address_city;
-  if (city) properties.city = city;
+  if (applicantInfo.city) {
+    properties.city = applicantInfo.city;
+  }
 
-  const state =
-    bookingData.applicant_info?.address_state ||
-    applicationData.applicant_info?.address_state;
-  if (state) properties.state = state;
+  if (applicantInfo.state) {
+    properties.state = applicantInfo.state;
+  }
 
-  // Medicare information
-  const effectiveDate =
-    bookingData.medicare_information?.effective_date ||
-    bookingData.applicant_info?.effective_date ||
-    applicationData.medicare_information?.effective_date ||
-    applicationData.applicant_info?.effective_date;
-  if (effectiveDate) properties.medicare_effective_date = effectiveDate;
+  // Use part_b_effective_date from booking or application data
+  const partBEffectiveDate = bookingData.part_b_effective_date || applicationData.part_b_effective_date;
+  if (partBEffectiveDate) {
+    properties.part_b_effective_date = partBEffectiveDate;
+  }
 
-  // Add booking ID as a custom property
-  properties.booking_id = booking.id;
+  // Add complete booking data as formatted JSON for reference
+  if (booking.data || booking.application?.data) {
+    const completeData = {
+      booking: booking.data || {},
+      application: booking.application?.data || {},
+      metadata: {
+        bookingId: booking.id,
+        email: booking.email,
+        phone: booking.phone,
+        syncedAt: new Date().toISOString()
+      }
+    };
+
+    // Format as human-readable JSON with 2-space indentation
+    properties.booking_json_data = JSON.stringify(completeData, null, 2);
+  }
+
+  console.log(`[HubSpot Transform] Extracted ${Object.keys(properties).length} properties from booking ${booking.id}`);
+  console.log('[HubSpot Transform] Properties:', JSON.stringify(properties, null, 2).substring(0, 500));
 
   return properties;
 }

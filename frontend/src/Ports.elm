@@ -116,3 +116,25 @@ port syncBookingToHubSpot : String -> Cmd msg
 
 
 port hubspotSyncResult : (Decode.Value -> msg) -> Sub msg
+
+
+
+-- Admin Ports
+
+
+port getSyncStatus : () -> Cmd msg
+
+
+port receiveSyncStatus : (Decode.Value -> msg) -> Sub msg
+
+
+port testHubSpotConnection : () -> Cmd msg
+
+
+port receiveConnectionTest : (Decode.Value -> msg) -> Sub msg
+
+
+port triggerManualSync : () -> Cmd msg
+
+
+port receiveManualSyncResult : (Decode.Value -> msg) -> Sub msg

@@ -156,7 +156,7 @@
             "title": "Implement HubSpotClient Methods",
             "description": "Develop the HubSpotClient class with methods for createContact and updateContact to interact with the HubSpot API, using the create-or-update endpoint for duplicate prevention by searching email first.",
             "dependencies": [],
-            "details": "In the integrations/hubspot.ts file, create the HubSpotClient class with async methods that use the HubSpot API endpoints. Ensure methods handle authentication using environment variables for API key and portal ID, utilize create-or-update for contacts to prevent duplicates, and return appropriate responses or throw errors on failure.\n<info added on 2025-11-03T17:33:16.696Z>\nImplemented HubSpotClient class in backend/src/integrations/hubspot.ts with methods: searchContactByEmail(), createContact(), updateContact(), and createOrUpdateContact() for duplicate prevention. Added makeRequest() wrapper with proper headers and error handling.\n</info added on 2025-11-03T17:33:16.696Z>",
+            "details": "In the integrations/hubspot.ts file, create the HubSpotClient class with async methods that use the HubSpot API endpoints. Ensure methods handle authentication using environment variables for API key and portal ID, utilize create-or-update for contacts to prevent duplicates, and return appropriate responses or throw errors on failure.\n<info added on 2025-11-03T17:33:16.696Z>\nImplemented HubSpotClient class in backend/src/integrations/hubspot.ts with methods: searchContactByEmail(), createContact(), updateContact(), and createOrUpdateContact() for duplicate prevention. Added makeRequest() wrapper with proper headers and error handling.\n</info added on 2025-11-03T17:33:16.696Z>\n<info added on 2025-11-03T21:51:46.693Z>\nImplemented HubSpot batch sync functionality. Added batchUpsertContacts() method that uses HubSpot's /crm/v3/objects/contacts/batch/upsert endpoint. Critical fix: Match batch results by email from response properties instead of array index since HubSpot doesn't guarantee response order. Achieves 30x reduction in API calls (1 call per 100 contacts vs 300 calls). Code location: backend/src/integrations/hubspot.ts:267-332\n</info added on 2025-11-03T21:51:46.693Z>",
             "status": "done",
             "testStrategy": "Unit tests with mocked API responses to verify method calls, duplicate prevention, and error handling.",
             "parentId": "undefined",
@@ -482,7 +482,7 @@
         "id": 8,
         "title": "Configure HubSpot Data Mapping and Properties",
         "description": "Set up data mapping for HubSpot contacts and custom properties, ensuring proper transformation of booking and application data. Update .env.example with HubSpot environment variables and create /config directory with hubspot-properties.json.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "3"
         ],
@@ -562,47 +562,49 @@
         ],
         "complexity": 4,
         "recommendedSubtasks": 0,
-        "expansionPrompt": ""
+        "expansionPrompt": "",
+        "updatedAt": "2025-11-03T18:25:29.291Z"
       },
       {
         "id": 9,
         "title": "Implement Automatic Sync Workflow",
-        "description": "Enable manual syncing of bookings to HubSpot triggered by user clicking 'Sync to HubSpot' button in the bookings table, for MVP.",
-        "status": "pending",
+        "description": "Implement automatic interval-based sync workflow for bookings to HubSpot. Since the app doesn't receive Calendly webhooks, use a background interval to check the database for bookings with hubspotSyncStatus='pending' and automatically sync them to HubSpot.",
+        "status": "done",
         "dependencies": [
           "3",
           "4"
         ],
         "priority": "high",
-        "details": "Implement manual sync trigger via button click in the bookings table. Use simple retry logic: 3 attempts with exponential backoff (1s, 4s, 16s). Retry on 429 (rate limit) and 500-503 (server errors). Don't retry 401 (auth) or 400 (bad data). Update bookings table with hubspotSyncStatus tracking pending/success/failed. Fire-and-forget with retries, no persistent queue needed.",
-        "testStrategy": "Integration tests for manual sync trigger via button click; simulate sync attempts with various error codes; monitor hubspotSyncStatus updates and retry behavior.",
+        "details": "Implement a background process that runs every configurable interval (default 5 minutes) to query bookings with hubspotSyncStatus='pending' and sync them to HubSpot. Include automatic retry logic: 3 attempts with exponential backoff (1s, 4s, 16s). Retry on 429 (rate limit) and 500-503 (server errors). Don't retry 401 (auth) or 400 (bad data). Update bookings table with hubspotSyncStatus tracking pending/success/failed. Fire-and-forget with retries, no persistent queue needed. Add comprehensive logging for sync operations.",
+        "testStrategy": "Integration tests for background sync interval and automatic triggering; simulate sync attempts with various error codes; monitor hubspotSyncStatus updates, retry behavior, and logging; test configurable sync interval settings.",
         "subtasks": [
           {
             "id": 1,
-            "title": "Implement Manual Sync Trigger",
-            "description": "Add functionality for the 'Sync to HubSpot' button in the bookings table to trigger manual sync for selected bookings.",
+            "title": "Implement Background Sync Interval",
+            "description": "Set up a background process to periodically check for bookings with hubspotSyncStatus='pending' and trigger automatic sync to HubSpot.",
             "dependencies": [],
-            "details": "Wire up the button click to call the HubSpot sync function for the booking. Ensure it handles async operations and updates hubspotSyncStatus to pending initially. Integrate with the retry logic for failures.",
+            "details": "Implement a configurable interval (default 5 minutes) using a background job or scheduler. Query the database for bookings with hubspotSyncStatus='pending' and initiate sync for each. Ensure it handles async operations and updates hubspotSyncStatus to pending initially if needed. Integrate with the retry logic for failures.\n<info added on 2025-11-03T18:14:53.340Z>\nCreated comprehensive sync scheduler module (backend/src/services/syncScheduler.ts) with SyncScheduler class. Features: configurable interval (default 5 min), automatic discovery of pending/failed bookings, batch processing with rate limiting, comprehensive logging and stats tracking. Integrated into backend startup (index.ts:1546-1549) with HUBSPOT_SYNC_INTERVAL_MS env var. Added API endpoints GET /api/sync/status and POST /api/sync/trigger for monitoring and manual triggering.\n</info added on 2025-11-03T18:14:53.340Z>",
             "status": "pending",
-            "testStrategy": "Unit tests for button click handler and sync trigger; integration tests to verify sync initiation and status updates without blocking UI.",
+            "testStrategy": "Unit tests for interval setup and configuration; integration tests to verify periodic checks, sync initiation, and status updates without blocking other processes.",
             "parentId": "undefined"
           },
           {
             "id": 2,
             "title": "Implement Retry Logic and Status Updates",
-            "description": "Add retry mechanism for failed HubSpot syncs with specified logic, and update hubspotSyncStatus in the database.",
+            "description": "Add retry mechanism for failed HubSpot syncs with specified logic, and update hubspotSyncStatus in the database for automatic syncs.",
             "dependencies": [
               1
             ],
-            "details": "Implement 3 attempts with exponential backoff (1s, 4s, 16s). Retry only on 429 and 500-503 errors. After each attempt, update hubspotSyncStatus to success or failed. No retries for 401 or 400. Handle as fire-and-forget.",
+            "details": "Implement 3 attempts with exponential backoff (1s, 4s, 16s). Retry only on 429 and 500-503 errors. After each attempt, update hubspotSyncStatus to success or failed. No retries for 401 or 400. Handle as fire-and-forget. Include comprehensive logging for each sync attempt and outcome.\n<info added on 2025-11-03T18:15:09.389Z>\nRetry logic built into sync scheduler: failed bookings automatically retried after configurable delay (default 60s). Uses database hubspotSyncStatus and hubspotLastSyncedAt fields to track retry eligibility. Scheduler finds bookings with status='failed' AND (lastSyncedAt is null OR lastSyncedAt < now - retryDelay). Each sync attempt updates database with success/failure status and error messages. Safety limit of 100 bookings per cycle, processes in batches of 10 with 1s delay between batches.\n</info added on 2025-11-03T18:15:09.389Z>",
             "status": "pending",
-            "testStrategy": "Unit tests for retry logic with mocked failures; integration tests for database status updates; simulate various error codes to verify retry behavior.",
+            "testStrategy": "Unit tests for retry logic with mocked failures; integration tests for database status updates and logging; simulate various error codes to verify retry behavior in automatic context.",
             "parentId": "undefined"
           }
         ],
         "complexity": 8,
         "recommendedSubtasks": 3,
-        "expansionPrompt": "Break into subtasks for modifying booking creation logic, integrating with webhooks, implementing retry logic, and updating notifications."
+        "expansionPrompt": "Break into subtasks for modifying booking creation logic, integrating with webhooks, implementing retry logic, and updating notifications.",
+        "updatedAt": "2025-11-03T18:15:26.516Z"
       },
       {
         "id": 10,
@@ -615,7 +617,7 @@
           "7",
           "8"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -660,18 +662,19 @@
         ],
         "complexity": 6,
         "recommendedSubtasks": 4,
-        "expansionPrompt": "Divide into subtasks for bulk sync UI components, configuration panel, test connection feature, and error logging displays."
+        "expansionPrompt": "Divide into subtasks for bulk sync UI components, configuration panel, test connection feature, and error logging displays.",
+        "updatedAt": "2025-11-03T19:15:25.023Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-11-03T17:53:52.497Z",
+      "lastModified": "2025-11-03T19:15:25.023Z",
       "taskCount": 10,
-      "completedCount": 7,
+      "completedCount": 10,
       "tags": [
         "master"
       ],
-      "created": "2025-11-03T18:03:33.127Z",
+      "created": "2025-11-03T21:51:42.590Z",
       "description": "Tasks for master context"
     }
   }

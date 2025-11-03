@@ -1,5 +1,6 @@
 module Main exposing (main)
 
+import AdminPage
 import ApplicationPage
 import Browser
 import Browser.Navigation as Nav
@@ -15,6 +16,54 @@ import Json.Encode as Encode
 import Producer exposing (producerConfigDecoder)
 import Url
 import Url.Parser as Parser exposing ((</>), Parser, oneOf)
+import Ports
+
+
+
+-- ADMIN DECODERS
+
+
+syncErrorDecoder : Decode.Decoder AdminPage.SyncError
+syncErrorDecoder =
+    Decode.map2 AdminPage.SyncError
+        (Decode.field "bookingId" Decode.string)
+        (Decode.field "error" Decode.string)
+
+
+syncStatsDecoder : Decode.Decoder AdminPage.SyncStats
+syncStatsDecoder =
+    Decode.map4 AdminPage.SyncStats
+        (Decode.field "totalProcessed" Decode.int)
+        (Decode.field "successCount" Decode.int)
+        (Decode.field "failureCount" Decode.int)
+        (Decode.field "errors" (Decode.list syncErrorDecoder))
+
+
+syncStatusDecoder : Decode.Decoder AdminPage.SyncStatus
+syncStatusDecoder =
+    Decode.map5 AdminPage.SyncStatus
+        (Decode.field "isRunning" Decode.bool)
+        (Decode.field "intervalMs" Decode.int)
+        (Decode.maybe (Decode.field "lastSyncTime" Decode.string))
+        (Decode.field "nextSyncIn" Decode.int)
+        (Decode.maybe (Decode.field "lastSyncStats" syncStatsDecoder))
+
+
+connectionTestDecoder : Decode.Decoder AdminPage.ConnectionTestResult
+connectionTestDecoder =
+    Decode.map4 AdminPage.ConnectionTestResult
+        (Decode.field "success" Decode.bool)
+        (Decode.field "message" Decode.string)
+        (Decode.field "configured" Decode.bool)
+        (Decode.maybe (Decode.field "error" Decode.string))
+
+
+manualSyncResultDecoder : Decode.Decoder AdminPage.ManualSyncResult
+manualSyncResultDecoder =
+    Decode.map3 AdminPage.ManualSyncResult
+        (Decode.field "success" Decode.bool)
+        (Decode.maybe (Decode.field "stats" syncStatsDecoder))
+        (Decode.maybe (Decode.field "error" Decode.string))
 
 
 
@@ -56,6 +105,7 @@ type Page
     | CSGApplicationPage CSGApplicationView.Model
     | CSGApplicationsPage CSGApplicationsPage.Model
     | ApplicationPage ApplicationPage.Model
+    | AdminPage AdminPage.Model
 
 
 
@@ -98,6 +148,7 @@ type Msg
     | CSGApplicationMsg CSGApplicationView.Msg
     | CSGApplicationsMsg CSGApplicationsPage.Msg
     | ApplicationMsg ApplicationPage.Msg
+    | AdminMsg AdminPage.Msg
     | UpdateLoginUsername String
     | UpdateLoginPassword String
     | SubmitLogin
@@ -153,6 +204,15 @@ update msg model =
             in
             ( { model | page = ApplicationPage newSubModel }
             , Cmd.map ApplicationMsg subCmd
+            )
+
+        ( AdminMsg subMsg, AdminPage subModel ) ->
+            let
+                ( newSubModel, subCmd ) =
+                    AdminPage.update subMsg subModel
+            in
+            ( { model | page = AdminPage newSubModel }
+            , Cmd.map AdminMsg subCmd
             )
 
         ( UpdateLoginUsername username, _ ) ->
@@ -226,6 +286,13 @@ subscriptions model =
         ApplicationPage subModel ->
             Sub.map ApplicationMsg (ApplicationPage.subscriptions subModel)
 
+        AdminPage _ ->
+            Sub.batch
+                [ Ports.receiveSyncStatus (\value -> AdminMsg (AdminPage.SyncStatusReceived (Decode.decodeValue syncStatusDecoder value)))
+                , Ports.receiveConnectionTest (\value -> AdminMsg (AdminPage.ConnectionTestReceived (Decode.decodeValue connectionTestDecoder value)))
+                , Ports.receiveManualSyncResult (\value -> AdminMsg (AdminPage.ManualSyncReceived (Decode.decodeValue manualSyncResultDecoder value)))
+                ]
+
         NotFound ->
             Sub.none
 
@@ -239,6 +306,7 @@ type Route
     | CSGApplicationRoute
     | CSGApplicationsRoute
     | ApplicationRoute String
+    | AdminRoute
 
 
 routeParser : Parser (Route -> a) a
@@ -249,6 +317,7 @@ routeParser =
         , Parser.map CSGApplicationRoute (Parser.s "csg-application")
         , Parser.map CSGApplicationsRoute (Parser.s "csg-applications")
         , Parser.map ApplicationRoute (Parser.s "application" </> Parser.string)
+        , Parser.map AdminRoute (Parser.s "admin")
         ]
 
 
@@ -315,6 +384,18 @@ routeUrl url model =
                 ]
             )
 
+        Just AdminRoute ->
+            let
+                pageModel =
+                    AdminPage.init
+            in
+            ( { model | url = url, page = AdminPage pageModel }
+            , Cmd.batch
+                [ Cmd.map AdminMsg (Tuple.second (AdminPage.update AdminPage.RefreshSyncStatus pageModel))
+                , cleanupCmd
+                ]
+            )
+
         Nothing ->
             ( { model | url = url, page = NotFound }
             , cleanupCmd
@@ -348,6 +429,9 @@ view model =
 
                 ApplicationPage subModel ->
                     Html.map ApplicationMsg (ApplicationPage.view subModel)
+
+                AdminPage subModel ->
+                    Html.map AdminMsg (AdminPage.view subModel)
         ]
     }
 

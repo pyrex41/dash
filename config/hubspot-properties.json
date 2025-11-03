@@ -1,0 +1,130 @@
+{
+  "$schema": "./hubspot-properties.schema.json",
+  "version": "1.0.0",
+  "description": "HubSpot contact property mappings for booking and application data",
+  "mappings": [
+    {
+      "hubspotProperty": "email",
+      "sources": [
+        "booking.email"
+      ],
+      "required": true,
+      "validate": "email"
+    },
+    {
+      "hubspotProperty": "firstname",
+      "sources": [
+        "booking.data.applicant_info.f_name",
+        "booking.data.applicant_info.first_name",
+        "application.data.applicant_info.f_name",
+        "application.data.applicant_info.first_name"
+      ],
+      "required": false
+    },
+    {
+      "hubspotProperty": "lastname",
+      "sources": [
+        "booking.data.applicant_info.l_name",
+        "booking.data.applicant_info.last_name",
+        "application.data.applicant_info.l_name",
+        "application.data.applicant_info.last_name",
+        "application.name"
+      ],
+      "required": false
+    },
+    {
+      "hubspotProperty": "phone",
+      "sources": [
+        "booking.phone",
+        "booking.data.applicant_info.phone",
+        "application.data.applicant_info.phone"
+      ],
+      "required": false,
+      "validate": "phone"
+    },
+    {
+      "hubspotProperty": "date_of_birth",
+      "sources": [
+        "booking.data.applicant_info.applicant_dob",
+        "application.data.applicant_info.applicant_dob"
+      ],
+      "required": false,
+      "validate": "date"
+    },
+    {
+      "hubspotProperty": "zip",
+      "sources": [
+        "booking.data.applicant_info.zip5",
+        "application.data.applicant_info.zip5"
+      ],
+      "required": false,
+      "validate": "zip"
+    },
+    {
+      "hubspotProperty": "city",
+      "sources": [
+        "booking.data.applicant_info.address_city",
+        "application.data.applicant_info.address_city"
+      ],
+      "required": false
+    },
+    {
+      "hubspotProperty": "state",
+      "sources": [
+        "booking.data.applicant_info.address_state",
+        "application.data.applicant_info.address_state"
+      ],
+      "required": false,
+      "validate": "state"
+    },
+    {
+      "hubspotProperty": "medicare_effective_date",
+      "sources": [
+        "booking.data.medicare_information.effective_date",
+        "booking.data.applicant_info.effective_date",
+        "application.data.medicare_information.effective_date",
+        "application.data.applicant_info.effective_date"
+      ],
+      "required": false,
+      "validate": "date"
+    },
+    {
+      "hubspotProperty": "booking_id",
+      "sources": [
+        "booking.id"
+      ],
+      "required": true
+    }
+  ],
+  "validators": {
+    "email": "^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$",
+    "phone": "^\\+?1?\\d{9,15}$",
+    "zip": "^\\d{5}(-\\d{4})?$",
+    "state": "^[A-Z]{2}$",
+    "date": "^\\d{4}-\\d{2}-\\d{2}$"
+  },
+  "customProperties": [
+    {
+      "name": "booking_id",
+      "label": "Booking ID",
+      "type": "string",
+      "fieldType": "text",
+      "groupName": "bookinginfo",
+      "description": "Unique identifier for the booking from the insurance dashboard"
+    },
+    {
+      "name": "medicare_effective_date",
+      "label": "Medicare Effective Date",
+      "type": "date",
+      "fieldType": "date",
+      "groupName": "insuranceinfo",
+      "description": "The effective date for Medicare coverage"
+    }
+  ],
+  "notes": {
+    "development": "Use HUBSPOT_MOCK_API=true for safe testing without affecting production HubSpot data",
+    "production": "Use HUBSPOT_MOCK_API=false carefully - this will create/update real contacts in HubSpot",
+    "customProperties": "Custom properties listed above must be created in HubSpot portal before syncing",
+    "validation": "Validators are applied only when validate field is specified. Invalid data will be logged but not block sync"
+  }
+}

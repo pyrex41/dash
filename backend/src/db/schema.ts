@@ -159,7 +159,7 @@ export const bookings = sqliteTable('bookings', {
   data: text('data', { mode: 'json' }).$type<Record<string, any>>(),
   hubspotContactId: text('hubspot_contact_id'),
   hubspotSyncStatus: text('hubspot_sync_status').default('pending'),
-  hubspotLastSyncedAt: integer('hubspot_last_synced_at', { mode: 'timestamp' }),
+  hubspotLastSyncedAt: text('hubspot_last_synced_at'),  // Stored as ISO string
   hubspotSyncError: text('hubspot_sync_error'),
   createdAt: text('created_at')
     .notNull()
