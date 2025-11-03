@@ -2,6 +2,7 @@ module Dashboard exposing (Model, Msg(..), init, subscriptions, update, view)
 
 import ApplicationView exposing (Status(..), applicationViewDecoder)
 import Basics
+import BookingDecoder exposing (BookingRow, BookingsResponse, HubSpotSyncStatus(..), bookingsResponseDecoder)
 import Browser
 import Browser.Events
 import CSGSchema exposing (Carrier(..), carrierFromNaic, carrierToString)
@@ -14,7 +15,8 @@ import Html.Events exposing (on, onCheck, onClick, onInput, stopPropagationOn, t
 import Http
 import Json.Decode as Decode
 import Json.Decode.Pipeline as Pipeline
-import Ports exposing (receiveApplication, receiveApplicationStats, receiveApplications, requestApplication, requestApplicationStats, requestRefresh, statusUpdate, wsSubscribe, wsUnsubscribe)
+import Json.Encode as Encode
+import Ports exposing (hubspotSyncResult, receiveApplication, receiveApplicationStats, receiveApplications, receiveBookings, requestApplication, requestApplicationStats, requestBookings, requestRefresh, statusUpdate, wsSubscribe, wsUnsubscribe)
 import Producer
 import Set exposing (Set)
 import Task
@@ -68,6 +70,11 @@ main =
 -- MODEL
 
 
+type CurrentView
+    = ApplicationsView
+    | BookingsView
+
+
 type alias Model =
     { applications : List ApplicationRow
     , searchTerm : String
@@ -91,6 +98,12 @@ type alias Model =
     , stats : Maybe ApplicationStats
     , statusFilter : Maybe String
     , selectedStatsFilter : String
+    , currentView : CurrentView
+    , bookings : List BookingRow
+    , bookingsTotal : Int
+    , bookingsTotalPages : Int
+    , bookingsLoading : Bool
+    , hubspotSyncInProgress : Set String
     }
 
 
@@ -143,6 +156,12 @@ init producerConfig =
       , stats = Nothing
       , statusFilter = Nothing
       , selectedStatsFilter = "total"
+      , currentView = ApplicationsView
+      , bookings = []
+      , bookingsTotal = 0
+      , bookingsTotalPages = 0
+      , bookingsLoading = False
+      , hubspotSyncInProgress = Set.empty
       }
     , Cmd.batch
         [ requestRefresh
@@ -184,6 +203,12 @@ type Msg
     | GotApplicationStats (Result Decode.Error ApplicationStats)
     | FilterByStatus String
     | ClearStatusFilter
+    | SwitchView CurrentView
+    | RefreshBookings
+    | BookingsReceived (Result Decode.Error BookingsResponse)
+    | ChangeBookingsPage Int
+    | SyncBookingToHubSpot String
+    | HubSpotSyncResult Decode.Value
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -516,10 +541,166 @@ update msg model =
                 }
             )
 
+        SwitchView newView ->
+            let
+                cmd =
+                    case newView of
+                        BookingsView ->
+                            requestBookings
+                                (Encode.object
+                                    [ ( "page", Encode.int 0 )
+                                    , ( "pageSize", Encode.int model.pageSize )
+                                    , ( "searchTerm", Encode.string "" )
+                                    ]
+                                )
+
+                        ApplicationsView ->
+                            Cmd.none
+            in
+            ( { model
+                | currentView = newView
+                , currentPage = 0
+              }
+            , cmd
+            )
+
+        RefreshBookings ->
+            ( { model | bookingsLoading = True }
+            , requestBookings
+                (Encode.object
+                    [ ( "page", Encode.int model.currentPage )
+                    , ( "pageSize", Encode.int model.pageSize )
+                    , ( "searchTerm", Encode.string model.searchTerm )
+                    ]
+                )
+            )
+
+        BookingsReceived result ->
+            case result of
+                Ok response ->
+                    ( { model
+                        | bookings = response.bookings
+                        , bookingsTotal = response.totalCount
+                        , bookingsTotalPages = response.totalPages
+                        , bookingsLoading = False
+                      }
+                    , Cmd.none
+                    )
+
+                Err error ->
+                    ( { model | bookingsLoading = False }
+                    , Cmd.none
+                    )
+
+        ChangeBookingsPage page ->
+            ( { model
+                | currentPage = page
+                , bookingsLoading = True
+              }
+            , requestBookings
+                (Encode.object
+                    [ ( "page", Encode.int page )
+                    , ( "pageSize", Encode.int model.pageSize )
+                    , ( "searchTerm", Encode.string model.searchTerm )
+                    ]
+                )
+            )
+
+        SyncBookingToHubSpot bookingId ->
+            ( { model | hubspotSyncInProgress = Set.insert bookingId model.hubspotSyncInProgress }
+            , Ports.syncBookingToHubSpot bookingId
+            )
+
+        HubSpotSyncResult value ->
+            let
+                maybeBookingId =
+                    Decode.decodeValue (Decode.field "bookingId" Decode.string) value
+
+                maybeSuccess =
+                    Decode.decodeValue (Decode.field "success" Decode.bool) value
+
+                newBookings =
+                    case ( maybeBookingId, maybeSuccess ) of
+                        ( Ok bookingId, Ok True ) ->
+                            -- Update the booking's sync status to Synced
+                            model.bookings
+                                |> List.map
+                                    (\booking ->
+                                        if booking.id == bookingId then
+                                            { booking | hubspotSyncStatus = Synced }
+
+                                        else
+                                            booking
+                                    )
+
+                        ( Ok bookingId, Ok False ) ->
+                            -- Update to Failed
+                            model.bookings
+                                |> List.map
+                                    (\booking ->
+                                        if booking.id == bookingId then
+                                            { booking | hubspotSyncStatus = Failed }
+
+                                        else
+                                            booking
+                                    )
+
+                        _ ->
+                            model.bookings
+
+                newSyncInProgress =
+                    case maybeBookingId of
+                        Ok bookingId ->
+                            Set.remove bookingId model.hubspotSyncInProgress
+
+                        Err _ ->
+                            model.hubspotSyncInProgress
+            in
+            ( { model
+                | bookings = newBookings
+                , hubspotSyncInProgress = newSyncInProgress
+              }
+            , Cmd.none
+            )
+
 
 
 -- Add completion logic here
 -- VIEW
+
+
+viewToggle : Model -> Html Msg
+viewToggle model =
+    div [ class "mt-8 flex gap-2 border-b" ]
+        [ button
+            [ class
+                ("px-6 py-3 font-medium transition-colors "
+                    ++ (case model.currentView of
+                            ApplicationsView ->
+                                "text-purple-600 border-b-2 border-purple-600"
+
+                            BookingsView ->
+                                "text-gray-500 hover:text-gray-700"
+                       )
+                )
+            , onClick (SwitchView ApplicationsView)
+            ]
+            [ text "Applications" ]
+        , button
+            [ class
+                ("px-6 py-3 font-medium transition-colors "
+                    ++ (case model.currentView of
+                            BookingsView ->
+                                "text-purple-600 border-b-2 border-purple-600"
+
+                            ApplicationsView ->
+                                "text-gray-500 hover:text-gray-700"
+                       )
+                )
+            , onClick (SwitchView BookingsView)
+            ]
+            [ text "Bookings" ]
+        ]
 
 
 view : Model -> Html Msg
@@ -531,7 +712,13 @@ view model =
     div [ class "min-h-screen bg-white relative" ]
         [ viewHeader model
         , div [ class "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" ]
-            [ viewApplications model
+            [ viewToggle model
+            , case model.currentView of
+                ApplicationsView ->
+                    viewApplications model
+
+                BookingsView ->
+                    viewBookings model
             ]
         , if model.showApplicationModal then
             viewApplicationModal model
@@ -832,6 +1019,11 @@ subscriptions model =
             (\value ->
                 GotApplicationStats (Decode.decodeValue applicationStatsDecoder value)
             )
+        , receiveBookings
+            (\value ->
+                BookingsReceived (Decode.decodeValue bookingsResponseDecoder value)
+            )
+        , hubspotSyncResult HubSpotSyncResult
         ]
 
 
@@ -1097,6 +1289,177 @@ applicationStatsDecoder =
         (Decode.field "submitted" Decode.int)
         (Decode.field "waitingReview" Decode.int)
         (Decode.field "completed" Decode.int)
+
+
+viewBookings : Model -> Html Msg
+viewBookings model =
+    div [ class "mt-8" ]
+        [ div [ class "flex flex-col gap-4" ]
+            [ div [ class "flex justify-between items-center" ]
+                [ h2 [ class "text-2xl font-semibold" ]
+                    [ text ("Bookings (" ++ String.fromInt model.bookingsTotal ++ ")") ]
+                , button
+                    [ class "px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
+                    , onClick RefreshBookings
+                    ]
+                    [ text "Refresh" ]
+                ]
+            , if model.bookingsLoading then
+                div [ class "flex justify-center items-center py-12" ]
+                    [ div [ class "animate-spin h-8 w-8 border-4 border-purple-600 border-t-transparent rounded-full" ] [] ]
+
+              else if List.isEmpty model.bookings then
+                div [ class "text-center py-12 text-gray-500" ]
+                    [ text "No bookings found" ]
+
+              else
+                div []
+                    [ viewBookingsTable model
+                    , viewBookingsPagination model
+                    ]
+            ]
+        ]
+
+
+viewBookingsTable : Model -> Html Msg
+viewBookingsTable model =
+    div [ class "overflow-x-auto" ]
+        [ table [ class "min-w-full divide-y divide-gray-200" ]
+            [ thead [ class "bg-gray-50" ]
+                [ tr []
+                    [ th [ class "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" ] [ text "Name" ]
+                    , th [ class "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" ] [ text "Email" ]
+                    , th [ class "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" ] [ text "Phone" ]
+                    , th [ class "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" ] [ text "Status" ]
+                    , th [ class "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" ] [ text "Date Created" ]
+                    , th [ class "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" ] [ text "HubSpot Status" ]
+                    , th [ class "px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider" ] [ text "Actions" ]
+                    ]
+                ]
+            , tbody [ class "bg-white divide-y divide-gray-200" ]
+                (List.map (viewBookingRow model) model.bookings)
+            ]
+        ]
+
+
+viewBookingRow : Model -> BookingRow -> Html Msg
+viewBookingRow model booking =
+    tr [ class "hover:bg-gray-50" ]
+        [ td [ class "px-6 py-4 whitespace-nowrap" ]
+            [ case booking.application of
+                Just app ->
+                    text (app.name |> Maybe.withDefault "—")
+
+                Nothing ->
+                    text "—"
+            ]
+        , td [ class "px-6 py-4 whitespace-nowrap text-sm text-gray-900" ]
+            [ text booking.email ]
+        , td [ class "px-6 py-4 whitespace-nowrap text-sm text-gray-500" ]
+            [ text (booking.phone |> Maybe.withDefault "—") ]
+        , td [ class "px-6 py-4 whitespace-nowrap" ]
+            [ span [ class "px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-green-100 text-green-800" ]
+                [ text booking.status ]
+            ]
+        , td [ class "px-6 py-4 whitespace-nowrap text-sm text-gray-500" ]
+            [ text (formatDateString booking.createdAt) ]
+        , td [ class "px-6 py-4 whitespace-nowrap" ]
+            [ viewHubSpotSyncStatus booking.hubspotSyncStatus ]
+        , td [ class "px-6 py-4 whitespace-nowrap text-sm text-gray-500" ]
+            [ button
+                [ class "text-purple-600 hover:text-purple-900"
+                , onClick (SyncBookingToHubSpot booking.id)
+                , disabled (Set.member booking.id model.hubspotSyncInProgress)
+                ]
+                [ text
+                    (if Set.member booking.id model.hubspotSyncInProgress then
+                        "Syncing..."
+
+                     else
+                        "Sync to HubSpot"
+                    )
+                ]
+            ]
+        ]
+
+
+viewHubSpotSyncStatus : HubSpotSyncStatus -> Html Msg
+viewHubSpotSyncStatus status =
+    let
+        ( statusText, statusClass ) =
+            case status of
+                Pending ->
+                    ( "Pending", "bg-gray-100 text-gray-800" )
+
+                Syncing ->
+                    ( "Syncing", "bg-blue-100 text-blue-800" )
+
+                Synced ->
+                    ( "Synced", "bg-green-100 text-green-800" )
+
+                Failed ->
+                    ( "Failed", "bg-red-100 text-red-800" )
+    in
+    span [ class ("px-2 inline-flex text-xs leading-5 font-semibold rounded-full " ++ statusClass) ]
+        [ text statusText ]
+
+
+viewBookingsPagination : Model -> Html Msg
+viewBookingsPagination model =
+    let
+        totalPages =
+            model.bookingsTotalPages
+
+        currentPage =
+            model.currentPage
+    in
+    if totalPages <= 1 then
+        text ""
+
+    else
+        div [ class "flex items-center justify-between border-t border-gray-200 bg-white px-4 py-3 sm:px-6 mt-4" ]
+            [ div [ class "flex flex-1 justify-between sm:hidden" ]
+                [ button
+                    [ class "relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    , onClick (ChangeBookingsPage (Basics.max 0 (currentPage - 1)))
+                    , disabled (currentPage == 0)
+                    ]
+                    [ text "Previous" ]
+                , button
+                    [ class "relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    , onClick (ChangeBookingsPage (Basics.min (totalPages - 1) (currentPage + 1)))
+                    , disabled (currentPage >= totalPages - 1)
+                    ]
+                    [ text "Next" ]
+                ]
+            , div [ class "hidden sm:flex sm:flex-1 sm:items-center sm:justify-between" ]
+                [ div [ class "text-sm text-gray-700" ]
+                    [ text ("Page " ++ String.fromInt (currentPage + 1) ++ " of " ++ String.fromInt totalPages) ]
+                , div [ class "flex gap-2" ]
+                    (List.range 0 (totalPages - 1)
+                        |> List.map
+                            (\page ->
+                                button
+                                    [ class
+                                        (if page == currentPage then
+                                            "relative inline-flex items-center rounded-md bg-purple-600 px-4 py-2 text-sm font-medium text-white"
+
+                                         else
+                                            "relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                        )
+                                    , onClick (ChangeBookingsPage page)
+                                    ]
+                                    [ text (String.fromInt (page + 1)) ]
+                            )
+                    )
+                ]
+            ]
+
+
+formatDateString : String -> String
+formatDateString dateStr =
+    dateStr
+        |> String.left 10
 
 
 viewApplicationModal : Model -> Html Msg

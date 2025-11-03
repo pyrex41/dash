@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Update Database Schema for Bookings Table",
         "description": "Add new columns to the bookings table to store application data and track HubSpot sync status, including data, hubspot_contact_id, hubspot_sync_status, hubspot_last_synced_at, and hubspot_sync_error fields using Drizzle ORM.",
         "status": "done",
@@ -56,7 +56,7 @@
         "updatedAt": "2025-11-03T17:07:55.282Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Implement Backend Query Functions for Bookings",
         "description": "Build booking infrastructure from scratch by creating a POST /api/bookings endpoint in backend/src/index.ts for manual booking creation, and adding query functions in backend/src/db/query.ts: createBooking(data), getBookings(page, pageSize, searchTerm, status), getBookingWithContext(bookingId), exportBookings(searchTerm), and determineBookingStatus(booking) function, similar to existing application queries.",
         "status": "done",
@@ -140,7 +140,7 @@
         "updatedAt": "2025-11-03T17:11:03.555Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Create HubSpot Integration Module",
         "description": "Develop a new integrations/hubspot.ts file with HubSpotClient class for API interactions and data transformation utilities, focusing on contact-only sync for MVP.",
         "status": "done",
@@ -221,7 +221,7 @@
         "updatedAt": "2025-11-03T17:33:54.111Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Add WebSocket Handlers for Bookings and HubSpot Sync",
         "description": "Extend index.ts to handle new WebSocket message types for requesting bookings, syncing single bookings, and bulk syncing to HubSpot.",
         "details": "Add handlers for 'request_bookings', 'sync_booking_to_hubspot', and 'bulk_sync_bookings' messages. For sync operations, call the HubSpot integration functions, update database fields, and send results back via WebSocket. Implement rate limiting and error handling with retry logic.",
@@ -277,7 +277,7 @@
         "updatedAt": "2025-11-03T17:36:39.199Z"
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Update Frontend Data Types and Model",
         "description": "Extend Dashboard.elm with new types for BookingRow, BookingStatus, HubSpotSyncStatus, and update the Model to include bookings-related fields and view toggling. Elm requires explicit JSON decoders/encoders to compile, so include creation of decoders in BookingDecoder.elm, encoders in DataEncoder.elm, ports in Ports.elm, and wiring in main.ts.",
         "status": "done",
@@ -350,10 +350,10 @@
         "updatedAt": "2025-11-03T17:39:58.428Z"
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Implement View Toggle and Bookings Table Component",
         "description": "Add a toggle button in Dashboard.elm to switch between Applications and Bookings views, and create a bookings table with columns for Name, Email, Phone, Status, Event, Date Created, HubSpot Status, and Actions. Stay on /dashboard route with no new routing needed; toggle switches content only within Dashboard.elm.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "5"
         ],
@@ -366,7 +366,7 @@
             "title": "Create viewToggle component",
             "description": "Create a viewToggle component in Dashboard.elm that renders toggle buttons for switching between Applications and Bookings views.",
             "dependencies": [],
-            "details": "Use Elm's Html module to create two buttons labeled 'Applications' and 'Bookings'. Attach onClick handlers that update the model to switch the currentView. Style the buttons to indicate the active view, ensuring accessibility with proper ARIA attributes. Toggle switches content only within Dashboard.elm.",
+            "details": "Use Elm's Html module to create two buttons labeled 'Applications' and 'Bookings'. Attach onClick handlers that update the model to switch the currentView. Style the buttons to indicate the active view, ensuring accessibility with proper ARIA attributes. Toggle switches content only within Dashboard.elm.\n<info added on 2025-11-03T18:03:40.562Z>\nCreated viewToggle component (Dashboard.elm:619-650) with tab-style navigation between Applications and Bookings views. Active tab highlighted with purple border-bottom, inactive tabs gray with hover. Integrated into main view at line 628.\n</info added on 2025-11-03T18:03:40.562Z>",
             "status": "pending",
             "testStrategy": "UI tests to check button rendering and click functionality; accessibility checks for ARIA roles.",
             "parentId": "undefined"
@@ -378,7 +378,7 @@
             "dependencies": [
               1
             ],
-            "details": "Use Html.table and Html.thead to define the table structure with the specified columns. Make the table responsive. Ensure conditional rendering for loading, empty state, and table rows. Include hover effects on rows.",
+            "details": "Use Html.table and Html.thead to define the table structure with the specified columns. Make the table responsive. Ensure conditional rendering for loading, empty state, and table rows. Include hover effects on rows.\n<info added on 2025-11-03T18:03:53.172Z>\nImplemented complete bookings table UI in Dashboard.elm (lines 1236-1407): viewBookings container handling loading and empty states, viewBookingsTable with 7 columns (Name, Email, Phone, Status, Date, HubSpot Status, Actions), viewBookingRow for rendering rows with status badges and sync buttons, viewHubSpotSyncStatus for color-coded badges, viewBookingsPagination supporting mobile and desktop layouts, and formatDateString helper function.\n</info added on 2025-11-03T18:03:53.172Z>",
             "status": "pending",
             "testStrategy": "Visual regression tests to verify table header rendering and responsiveness; integration tests for conditional rendering.",
             "parentId": "undefined"
@@ -390,7 +390,7 @@
             "dependencies": [
               2
             ],
-            "details": "Integrate pagination controls into the viewBookingsTable component, reusing the existing pagination logic from the applications view. Ensure it handles page navigation and data fetching for bookings.",
+            "details": "Integrate pagination controls into the viewBookingsTable component, reusing the existing pagination logic from the applications view. Ensure it handles page navigation and data fetching for bookings.\n<info added on 2025-11-03T18:04:07.194Z>\nWired up pagination with ChangeBookingsPage Msg (Dashboard.elm:597-611), viewBookingsPagination component (lines 1349-1398) with mobile Previous/Next and desktop page number buttons. Uses Basics.min/max for bounds. Integrated receiveBookings subscription (line 1022-1025) to handle WebSocket responses with bookingsResponseDecoder.\n</info added on 2025-11-03T18:04:07.194Z>",
             "status": "pending",
             "testStrategy": "Integration tests for pagination functionality; end-to-end tests for page switching.",
             "parentId": "undefined"
@@ -398,10 +398,11 @@
         ],
         "complexity": 5,
         "recommendedSubtasks": 0,
-        "expansionPrompt": ""
+        "expansionPrompt": "",
+        "updatedAt": "2025-11-03T17:52:25.059Z"
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "Add HubSpot Sync UI Controls and Actions",
         "description": "Enhance the bookings table row to include buttons for syncing to HubSpot, retrying failed syncs, and viewing in HubSpot, with loading states and status indicators.",
         "details": "In viewBookingRow, add conditional buttons based on sync status (e.g., 'Sync to HubSpot' if not synced, 'Retry' if failed). Handle Msg types like SyncBookingToHubSpot, HubSpotSyncResult, and RetryHubSpotSync. Update model to track in-progress syncs.",
@@ -410,7 +411,7 @@
         "dependencies": [
           "6"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -474,10 +475,11 @@
         ],
         "complexity": 6,
         "recommendedSubtasks": 0,
-        "expansionPrompt": ""
+        "expansionPrompt": "",
+        "updatedAt": "2025-11-03T17:53:52.496Z"
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Configure HubSpot Data Mapping and Properties",
         "description": "Set up data mapping for HubSpot contacts and custom properties, ensuring proper transformation of booking and application data. Update .env.example with HubSpot environment variables and create /config directory with hubspot-properties.json.",
         "status": "pending",
@@ -563,7 +565,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Implement Automatic Sync Workflow",
         "description": "Enable manual syncing of bookings to HubSpot triggered by user clicking 'Sync to HubSpot' button in the bookings table, for MVP.",
         "status": "pending",
@@ -603,7 +605,7 @@
         "expansionPrompt": "Break into subtasks for modifying booking creation logic, integrating with webhooks, implementing retry logic, and updating notifications."
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Add Admin Features and Configuration Panel",
         "description": "Implement admin dashboard features for bulk sync, error logs, configuration settings, and test connection to HubSpot.",
         "details": "Add UI components for bulk sync with checkboxes, progress tracking, and error display. Create a configuration panel for HubSpot settings. Include a test connection button that validates API key. Ensure security by not exposing sensitive data in UI.",
@@ -663,12 +665,14 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-11-03T17:39:58.429Z",
+      "lastModified": "2025-11-03T17:53:52.497Z",
       "taskCount": 10,
-      "completedCount": 5,
+      "completedCount": 7,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2025-11-03T18:03:33.127Z",
+      "description": "Tasks for master context"
     }
   }
 }
