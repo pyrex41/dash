@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": 1,
+        "id": "1",
         "title": "Update Database Schema for Bookings Table",
         "description": "Add new columns to the bookings table to store application data and track HubSpot sync status, including data, hubspot_contact_id, hubspot_sync_status, hubspot_last_synced_at, and hubspot_sync_error fields using Drizzle ORM.",
         "status": "done",
@@ -56,7 +56,7 @@
         "updatedAt": "2025-11-03T17:07:55.282Z"
       },
       {
-        "id": 2,
+        "id": "2",
         "title": "Implement Backend Query Functions for Bookings",
         "description": "Build booking infrastructure from scratch by creating a POST /api/bookings endpoint in backend/src/index.ts for manual booking creation, and adding query functions in backend/src/db/query.ts: createBooking(data), getBookings(page, pageSize, searchTerm, status), getBookingWithContext(bookingId), exportBookings(searchTerm), and determineBookingStatus(booking) function, similar to existing application queries.",
         "status": "done",
@@ -140,7 +140,7 @@
         "updatedAt": "2025-11-03T17:11:03.555Z"
       },
       {
-        "id": 3,
+        "id": "3",
         "title": "Create HubSpot Integration Module",
         "description": "Develop a new integrations/hubspot.ts file with HubSpotClient class for API interactions and data transformation utilities, focusing on contact-only sync for MVP.",
         "status": "done",
@@ -221,7 +221,7 @@
         "updatedAt": "2025-11-03T17:33:54.111Z"
       },
       {
-        "id": 4,
+        "id": "4",
         "title": "Add WebSocket Handlers for Bookings and HubSpot Sync",
         "description": "Extend index.ts to handle new WebSocket message types for requesting bookings, syncing single bookings, and bulk syncing to HubSpot.",
         "details": "Add handlers for 'request_bookings', 'sync_booking_to_hubspot', and 'bulk_sync_bookings' messages. For sync operations, call the HubSpot integration functions, update database fields, and send results back via WebSocket. Implement rate limiting and error handling with retry logic.",
@@ -231,17 +231,18 @@
           "2",
           "3"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
             "title": "Implement WebSocket Handler for 'request_bookings' Message",
             "description": "Add a handler in index.ts to process 'request_bookings' WebSocket messages, retrieving bookings data using the query functions from db/query.ts and sending the results back via WebSocket.",
             "dependencies": [],
-            "details": "In index.ts, add a case for 'request_bookings' in the WebSocket message handler. Use getBookings or similar functions to fetch data with pagination and filters. Ensure proper error handling and send JSON responses. Integrate rate limiting to prevent abuse.",
-            "status": "pending",
+            "details": "In index.ts, add a case for 'request_bookings' in the WebSocket message handler. Use getBookings or similar functions to fetch data with pagination and filters. Ensure proper error handling and send JSON responses. Integrate rate limiting to prevent abuse.\n<info added on 2025-11-03T17:36:20.705Z>\nImplemented 'request_bookings' WebSocket handler with pagination, search, and status filtering. Calls getBookings() and returns bookings_data message with totalCount and pagination metadata.\n</info added on 2025-11-03T17:36:20.705Z>",
+            "status": "done",
             "testStrategy": "WebSocket integration tests to simulate 'request_bookings' messages and verify correct data retrieval and response sending; test rate limiting by sending multiple requests.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:36:22.018Z"
           },
           {
             "id": 2,
@@ -250,10 +251,11 @@
             "dependencies": [
               3
             ],
-            "details": "In index.ts, add a case for 'sync_booking_to_hubspot' in the WebSocket message handler. Call HubSpot integration methods like createContact or updateContact, update hubspot_sync_status and related fields in the database. Implement retry logic for failed syncs and rate limiting. Send sync results via WebSocket.",
-            "status": "pending",
+            "details": "In index.ts, add a case for 'sync_booking_to_hubspot' in the WebSocket message handler. Call HubSpot integration methods like createContact or updateContact, update hubspot_sync_status and related fields in the database. Implement retry logic for failed syncs and rate limiting. Send sync results via WebSocket.\n<info added on 2025-11-03T17:36:29.450Z>\nImplemented 'sync_booking_to_hubspot' handler that creates HubSpotClient, transforms booking data, calls createOrUpdateContact(), updates booking with hubspotContactId and sync status, handles errors by updating hubspotSyncError field.\n</info added on 2025-11-03T17:36:29.450Z>",
+            "status": "done",
             "testStrategy": "WebSocket integration tests simulating 'sync_booking_to_hubspot' messages; mock HubSpot API calls to verify database updates and error handling; test retry logic on failures.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:36:31.208Z"
           },
           {
             "id": 3,
@@ -262,18 +264,20 @@
             "dependencies": [
               2
             ],
-            "details": "In index.ts, add a case for 'bulk_sync_bookings' in the WebSocket message handler. Iterate over multiple bookings, call HubSpot sync functions, update database fields like hubspot_sync_status. Implement rate limiting to avoid API limits and retry logic for individual failures. Send bulk operation progress and final results via WebSocket.",
-            "status": "pending",
+            "details": "In index.ts, add a case for 'bulk_sync_bookings' in the WebSocket message handler. Iterate over multiple bookings, call HubSpot sync functions, update database fields like hubspot_sync_status. Implement rate limiting to avoid API limits and retry logic for individual failures. Send bulk operation progress and final results via WebSocket.\n<info added on 2025-11-03T17:36:37.930Z>\nImplemented 'bulk_sync_bookings' handler that loops through bookingIds array, syncs each to HubSpot with rate limiting, updates database statuses, tracks success/failure for each booking, returns aggregated results with successCount.\n</info added on 2025-11-03T17:36:37.930Z>",
+            "status": "done",
             "testStrategy": "WebSocket integration tests for 'bulk_sync_bookings' with multiple bookings; simulate bulk operations, verify database updates, and test rate limiting and retry mechanisms with mocked failures.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:36:39.199Z"
           }
         ],
         "complexity": 8,
         "recommendedSubtasks": 3,
-        "expansionPrompt": "Split into subtasks for adding handlers for each message type (request_bookings, sync_booking_to_hubspot, bulk_sync_bookings), implementing rate limiting and retry logic."
+        "expansionPrompt": "Split into subtasks for adding handlers for each message type (request_bookings, sync_booking_to_hubspot, bulk_sync_bookings), implementing rate limiting and retry logic.",
+        "updatedAt": "2025-11-03T17:36:39.199Z"
       },
       {
-        "id": 5,
+        "id": "5",
         "title": "Update Frontend Data Types and Model",
         "description": "Extend Dashboard.elm with new types for BookingRow, BookingStatus, HubSpotSyncStatus, and update the Model to include bookings-related fields and view toggling. Elm requires explicit JSON decoders/encoders to compile, so include creation of decoders in BookingDecoder.elm, encoders in DataEncoder.elm, ports in Ports.elm, and wiring in main.ts.",
         "status": "pending",
@@ -340,7 +344,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": 6,
+        "id": "6",
         "title": "Implement View Toggle and Bookings Table Component",
         "description": "Add a toggle button in Dashboard.elm to switch between Applications and Bookings views, and create a bookings table with columns for Name, Email, Phone, Status, Event, Date Created, HubSpot Status, and Actions. Stay on /dashboard route with no new routing needed; toggle switches content only within Dashboard.elm.",
         "status": "pending",
@@ -391,7 +395,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": 7,
+        "id": "7",
         "title": "Add HubSpot Sync UI Controls and Actions",
         "description": "Enhance the bookings table row to include buttons for syncing to HubSpot, retrying failed syncs, and viewing in HubSpot, with loading states and status indicators.",
         "details": "In viewBookingRow, add conditional buttons based on sync status (e.g., 'Sync to HubSpot' if not synced, 'Retry' if failed). Handle Msg types like SyncBookingToHubSpot, HubSpotSyncResult, and RetryHubSpotSync. Update model to track in-progress syncs.",
@@ -467,7 +471,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": 8,
+        "id": "8",
         "title": "Configure HubSpot Data Mapping and Properties",
         "description": "Set up data mapping for HubSpot contacts and custom properties, ensuring proper transformation of booking and application data. Update .env.example with HubSpot environment variables and create /config directory with hubspot-properties.json.",
         "status": "pending",
@@ -553,7 +557,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": 9,
+        "id": "9",
         "title": "Implement Automatic Sync Workflow",
         "description": "Enable manual syncing of bookings to HubSpot triggered by user clicking 'Sync to HubSpot' button in the bookings table, for MVP.",
         "status": "pending",
@@ -593,7 +597,7 @@
         "expansionPrompt": "Break into subtasks for modifying booking creation logic, integrating with webhooks, implementing retry logic, and updating notifications."
       },
       {
-        "id": 10,
+        "id": "10",
         "title": "Add Admin Features and Configuration Panel",
         "description": "Implement admin dashboard features for bulk sync, error logs, configuration settings, and test connection to HubSpot.",
         "details": "Add UI components for bulk sync with checkboxes, progress tracking, and error display. Create a configuration panel for HubSpot settings. Include a test connection button that validates API key. Ensure security by not exposing sensitive data in UI.",
@@ -653,14 +657,12 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-11-03T17:33:54.112Z",
+      "lastModified": "2025-11-03T17:36:39.200Z",
       "taskCount": 10,
-      "completedCount": 3,
+      "completedCount": 4,
       "tags": [
         "master"
-      ],
-      "created": "2025-11-03T17:33:56.693Z",
-      "description": "Tasks for master context"
+      ]
     }
   }
 }

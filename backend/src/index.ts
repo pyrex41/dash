@@ -26,7 +26,8 @@ console.log('NODE_ENV:', process.env.NODE_ENV || 'NOT SET')
 console.log('LAPRO_USERNAME:', process.env.LAPRO_USERNAME || 'NOT SET')
 console.log('===================================\n')
 
-import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats, getFormattedApplicationWithSchema, createBooking } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats, getFormattedApplicationWithSchema, createBooking, getBookings, getBookingWithContext } from './db/query'
+import { HubSpotClient, transformBookingToHubSpot, handleHubSpotError } from './integrations/hubspot'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
@@ -382,6 +383,220 @@ const app = new Elysia({
             error: error instanceof Error ? error.message : 'Failed to save application'
           }))
         })
+      }
+
+      // Handle bookings list requests
+      if (data.type === 'request_bookings') {
+        const { page = 0, pageSize = 20, searchTerm = '', statusFilter } = data
+        console.log('Fetching bookings with params:', { page, pageSize, searchTerm, statusFilter })
+
+        getBookings(page, pageSize, searchTerm, statusFilter).then(result => {
+          const response = {
+            type: 'bookings_data',
+            bookings: result.bookings,
+            totalCount: result.totalCount,
+            page: result.page,
+            pageSize: result.pageSize,
+            totalPages: result.totalPages
+          }
+          console.log('Sending bookings response:', result.bookings.length, 'bookings');
+          ws.send(JSON.stringify(response));
+        }).catch(error => {
+          const errorResponse = {
+            type: 'bookings_error',
+            error: error instanceof Error ? error.message : 'Failed to load bookings'
+          }
+          console.log('Sending bookings error:', errorResponse)
+          ws.send(JSON.stringify(errorResponse));
+        });
+      }
+
+      // Handle single booking request
+      if (data.type === 'request_booking') {
+        const { bookingId } = data
+        console.log('Fetching booking:', bookingId)
+
+        getBookingWithContext(bookingId).then(booking => {
+          if (booking) {
+            ws.send(JSON.stringify({
+              type: 'booking_data',
+              booking
+            }));
+          } else {
+            ws.send(JSON.stringify({
+              type: 'booking_error',
+              error: 'Booking not found'
+            }));
+          }
+        }).catch(error => {
+          ws.send(JSON.stringify({
+            type: 'booking_error',
+            error: error instanceof Error ? error.message : 'Failed to load booking'
+          }));
+        });
+      }
+
+      // Handle sync booking to HubSpot
+      if (data.type === 'sync_booking_to_hubspot') {
+        const { bookingId } = data
+        console.log('Syncing booking to HubSpot:', bookingId)
+
+        const hubspotClient = new HubSpotClient();
+
+        getBookingWithContext(bookingId).then(async (booking) => {
+          if (!booking) {
+            throw new Error('Booking not found');
+          }
+
+          try {
+            // Update sync status to syncing
+            const db = getDb();
+            await db.update(bookings)
+              .set({
+                hubspotSyncStatus: 'syncing',
+                updatedAt: new Date().toISOString()
+              })
+              .where(eq(bookings.id, bookingId));
+
+            // Transform booking data to HubSpot format
+            const hubspotProperties = transformBookingToHubSpot(booking);
+
+            // Create or update contact in HubSpot
+            const result = await hubspotClient.createOrUpdateContact(
+              booking.email,
+              hubspotProperties
+            );
+
+            console.log('[HubSpot] Sync successful:', result.contact.id);
+
+            // Update booking with HubSpot contact ID and sync status
+            await db.update(bookings)
+              .set({
+                hubspotContactId: result.contact.id,
+                hubspotSyncStatus: 'synced',
+                hubspotLastSyncedAt: Math.floor(Date.now() / 1000),
+                hubspotSyncError: null,
+                updatedAt: new Date().toISOString()
+              })
+              .where(eq(bookings.id, bookingId));
+
+            ws.send(JSON.stringify({
+              type: 'sync_booking_to_hubspot_response',
+              success: true,
+              bookingId,
+              hubspotContactId: result.contact.id,
+              created: result.created
+            }));
+          } catch (error) {
+            console.error('[HubSpot] Sync failed:', error);
+
+            const errorResult = handleHubSpotError(error);
+
+            // Update booking with error status
+            const db = getDb();
+            await db.update(bookings)
+              .set({
+                hubspotSyncStatus: 'failed',
+                hubspotSyncError: errorResult.error,
+                updatedAt: new Date().toISOString()
+              })
+              .where(eq(bookings.id, bookingId));
+
+            ws.send(JSON.stringify({
+              type: 'sync_booking_to_hubspot_response',
+              success: false,
+              bookingId,
+              error: errorResult.error
+            }));
+          }
+        }).catch(error => {
+          ws.send(JSON.stringify({
+            type: 'sync_booking_to_hubspot_response',
+            success: false,
+            bookingId,
+            error: error instanceof Error ? error.message : 'Failed to sync booking'
+          }));
+        });
+      }
+
+      // Handle bulk sync bookings to HubSpot
+      if (data.type === 'bulk_sync_bookings') {
+        const { bookingIds } = data
+        console.log('Bulk syncing bookings to HubSpot:', bookingIds.length, 'bookings')
+
+        const hubspotClient = new HubSpotClient();
+        const results: Array<{ bookingId: string; success: boolean; error?: string; hubspotContactId?: string }> = [];
+
+        for (const bookingId of bookingIds) {
+          try {
+            const booking = await getBookingWithContext(bookingId);
+            if (!booking) {
+              results.push({ bookingId, success: false, error: 'Booking not found' });
+              continue;
+            }
+
+            // Update sync status to syncing
+            const db = getDb();
+            await db.update(bookings)
+              .set({
+                hubspotSyncStatus: 'syncing',
+                updatedAt: new Date().toISOString()
+              })
+              .where(eq(bookings.id, bookingId));
+
+            // Transform and sync
+            const hubspotProperties = transformBookingToHubSpot(booking);
+            const result = await hubspotClient.createOrUpdateContact(
+              booking.email,
+              hubspotProperties
+            );
+
+            // Update booking with success
+            await db.update(bookings)
+              .set({
+                hubspotContactId: result.contact.id,
+                hubspotSyncStatus: 'synced',
+                hubspotLastSyncedAt: Math.floor(Date.now() / 1000),
+                hubspotSyncError: null,
+                updatedAt: new Date().toISOString()
+              })
+              .where(eq(bookings.id, bookingId));
+
+            results.push({
+              bookingId,
+              success: true,
+              hubspotContactId: result.contact.id
+            });
+          } catch (error) {
+            const errorResult = handleHubSpotError(error);
+
+            // Update booking with error
+            const db = getDb();
+            await db.update(bookings)
+              .set({
+                hubspotSyncStatus: 'failed',
+                hubspotSyncError: errorResult.error,
+                updatedAt: new Date().toISOString()
+              })
+              .where(eq(bookings.id, bookingId));
+
+            results.push({
+              bookingId,
+              success: false,
+              error: errorResult.error
+            });
+          }
+        }
+
+        const successCount = results.filter(r => r.success).length;
+        console.log('[HubSpot] Bulk sync completed:', successCount, '/', bookingIds.length, 'successful');
+
+        ws.send(JSON.stringify({
+          type: 'bulk_sync_bookings_response',
+          results,
+          totalCount: bookingIds.length,
+          successCount
+        }));
       }
 
       // Handle CSG submission requests
