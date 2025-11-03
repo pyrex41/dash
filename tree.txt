@@ -1,47 +1,170 @@
 .
+├── Ace workaround.js
+├── aetna.json
+├── after.json
+├── allstate.json
 ├── backend
 │   ├── bun.lockb
+│   ├── csg.db
 │   ├── package.json
-│   └── src
-│       ├── db
-│       │   ├── index.ts
-│       │   ├── query.ts
-│       │   └── schema.ts
-│       └── index.ts
+│   ├── repomix-output.txt
+│   ├── src
+│   │   ├── csg
+│   │   │   ├── submit.ts
+│   │   │   ├── token.ts
+│   │   │   └── verify.ts
+│   │   ├── db
+│   │   │   ├── index.ts
+│   │   │   ├── query.ts
+│   │   │   └── schema.ts
+│   │   ├── formatter.ts
+│   │   ├── index.ts
+│   │   └── utils.ts
+│   └── static
+│       └── zipData.json
+├── before.json
 ├── bun.lockb
 ├── dist
 │   ├── assets
-│   │   ├── index-DfGxPVii.css
-│   │   └── index-DngGinJE.js
-│   ├── index.html
-│   └── vite.svg
+│   │   ├── allstate-DJZlr6W7.svg
+│   │   ├── chubb-CuPiKSOV.svg
+│   │   ├── main-B3qeEY-k.css
+│   │   ├── main-BOiOXpzE.js
+│   │   └── unitedhealthcare-DeTschcP.svg
+│   └── index.html
 ├── drizzle.config.ts
 ├── frontend
+│   ├── assets
+│   │   ├── AHL 1.svg
+│   │   ├── Aetna.svg
+│   │   ├── Aflac.svg
+│   │   ├── AflacMod.svg
+│   │   ├── BlueCross-BlueShield.svg
+│   │   ├── CIGNA.svg
+│   │   ├── Humana.svg
+│   │   ├── Wellcare.svg
+│   │   ├── allstate-logo.svg
+│   │   ├── allstate.svg
+│   │   ├── americanfamily.svg
+│   │   ├── americanhome.png
+│   │   ├── chubb.svg
+│   │   ├── elevance-health-seeklogo.svg
+│   │   ├── mutual-of-omaha.svg
+│   │   ├── unitedhealthcare.svg
+│   │   └── vite.svg
 │   ├── bun.lockb
 │   ├── elm-stuff
-│   │   └── 0.19.1
-│   │       ├── Dashboard.elmi
-│   │       ├── Dashboard.elmo
-│   │       ├── d.dat
-│   │       ├── i.dat
-│   │       ├── lock
-│   │       └── o.dat
+│   │   ├── 0.19.1
+│   │   │   ├── ApplicationPage.elmi
+│   │   │   ├── ApplicationPage.elmo
+│   │   │   ├── ApplicationView.elmi
+│   │   │   ├── ApplicationView.elmo
+│   │   │   ├── CSGApplicationView.elmi
+│   │   │   ├── CSGApplicationView.elmo
+│   │   │   ├── CSGApplicationsPage.elmi
+│   │   │   ├── CSGApplicationsPage.elmo
+│   │   │   ├── CSGSchema.elmi
+│   │   │   ├── CSGSchema.elmo
+│   │   │   ├── Dashboard.elmi
+│   │   │   ├── Dashboard.elmo
+│   │   │   ├── DataEncoder.elmi
+│   │   │   ├── DataEncoder.elmo
+│   │   │   ├── Main.elmi
+│   │   │   ├── Main.elmo
+│   │   │   ├── Ports.elmi
+│   │   │   ├── Ports.elmo
+│   │   │   ├── Producer.elmi
+│   │   │   ├── Producer.elmo
+│   │   │   ├── SchemaDecoder.elmi
+│   │   │   ├── SchemaDecoder.elmo
+│   │   │   ├── d.dat
+│   │   │   ├── i.dat
+│   │   │   ├── lock
+│   │   │   └── o.dat
+│   │   └── generated-code
+│   │       └── elm-community
+│   │           └── elm-test
+│   │               └── 0.19.1-revision7
+│   │                   ├── dependencies.0e8d611d6637ac37eabe4122fa73b5df007836503b4d0520cbaa7266e9d7d43d.json
+│   │                   ├── dependencies.137044f2be0c078eb447e1a9994b88c4b1d50a5f6f65f19fa33d0ec295a37a5f.json
+│   │                   ├── dependencies.6fde560ce37904a16cf53ed52e0cd6fc295aa1d57ff44532811c16947f41e0fd.json
+│   │                   ├── dependencies.9106b2e7a0f2e8aaaec61660b291674ab59175140f9f2bb5fde3ed2c84c91a19.json
+│   │                   ├── dependencies.c2de2d9ca202d50a6fc4951ca7173cd0f601750a1a86145ff0318ac1e56bbbe6.json
+│   │                   ├── dependencies.c5678b1837931900b71b55c190c9b663f26e6f0f0a787da42d804b78142261c5.json
+│   │                   ├── elm-stuff
+│   │                   │   └── 0.19.1
+│   │                   │       ├── ApplicationPage.elmi
+│   │                   │       ├── ApplicationPage.elmo
+│   │                   │       ├── ApplicationView.elmi
+│   │                   │       ├── ApplicationView.elmo
+│   │                   │       ├── CSGApplicationView.elmi
+│   │                   │       ├── CSGApplicationView.elmo
+│   │                   │       ├── CSGApplicationsPage.elmi
+│   │                   │       ├── CSGApplicationsPage.elmo
+│   │                   │       ├── CSGSchema.elmi
+│   │                   │       ├── CSGSchema.elmo
+│   │                   │       ├── Dashboard.elmi
+│   │                   │       ├── Dashboard.elmo
+│   │                   │       ├── DataEncoder.elmi
+│   │                   │       ├── DataEncoder.elmo
+│   │                   │       ├── Main.elmi
+│   │                   │       ├── Main.elmo
+│   │                   │       ├── Ports.elmi
+│   │                   │       ├── Ports.elmo
+│   │                   │       ├── Producer.elmi
+│   │                   │       ├── Producer.elmo
+│   │                   │       ├── SchemaDecoder.elmi
+│   │                   │       ├── SchemaDecoder.elmo
+│   │                   │       ├── d.dat
+│   │                   │       ├── i.dat
+│   │                   │       ├── lock
+│   │                   │       └── o.dat
+│   │                   ├── elm.json
+│   │                   └── src
 │   ├── elm.json
 │   ├── index.html
 │   ├── package.json
 │   ├── postcss.config.cjs
+│   ├── producer_config.json
 │   ├── public
-│   │   └── vite.svg
 │   ├── src
+│   │   ├── ApplicationPage.elm
+│   │   ├── ApplicationView.elm
+│   │   ├── CSGApplicationView.elm
+│   │   ├── CSGApplicationsPage.elm
+│   │   ├── CSGSchema.elm
 │   │   ├── Dashboard.elm
+│   │   ├── DataEncoder.elm
+│   │   ├── Main.elm
+│   │   ├── Ports.elm
+│   │   ├── Producer.elm
+│   │   ├── SchemaDecoder.elm
+│   │   ├── elm.d.ts
 │   │   ├── main.ts
 │   │   ├── style.css
 │   │   ├── typescript.svg
 │   │   └── vite-env.d.ts
 │   ├── tailwind.config.js
 │   └── vite.config.ts
+├── login_navigate.js
+├── migrations
+│   ├── 0000_rare_maggott.sql
+│   ├── 0001_add_csg_verification.sql
+│   ├── 0001_lame_overlord.sql
+│   ├── 0002_previous_lila_cheney.sql
+│   ├── 0003_calm_nightcrawler.sql
+│   ├── 0004_add_csg_session.sql
+│   └── meta
+│       ├── 0000_snapshot.json
+│       ├── 0001_snapshot.json
+│       ├── 0002_snapshot.json
+│       ├── 0003_snapshot.json
+│       └── _journal.json
+├── package-lock.json
 ├── package.json
-├── repopack-output.txt
+├── replit.nix
+├── repomix-output.txt
+├── schema.json
 └── tree.txt
 
-10 directories, 34 files
+22 directories, 145 files

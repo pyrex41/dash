@@ -256,3 +256,7 @@ Elm has strong compile-time guarantees. If it compiles, it usually works. Focus 
 - JSON decoder/encoder correctness (test with real API data)
 - Routing logic (verify URL patterns in `Main.elm`)
 - Port compatibility (ensure types match between Elm and TypeScript)
+
+## Task Master AI Instructions
+**Import Task Master's development workflow commands and guidelines, treat as if import is in the main CLAUDE.md file.**
+@./.taskmaster/CLAUDE.md
