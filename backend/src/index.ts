@@ -26,7 +26,7 @@ console.log('NODE_ENV:', process.env.NODE_ENV || 'NOT SET')
 console.log('LAPRO_USERNAME:', process.env.LAPRO_USERNAME || 'NOT SET')
 console.log('===================================\n')
 
-import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats, getFormattedApplicationWithSchema } from './db/query'
+import { getApplications, exportApplications, getApplicationWithSchema, updateFormattedData, getProducerConfig, determineStatus, getApplicationStats, getFormattedApplicationWithSchema, createBooking } from './db/query'
 import { format_application, getCarrierName } from './formatter'
 import { submitToCSG } from './csg/submit'
 import { makeCSGRequest } from './csg/token'
@@ -1159,6 +1159,53 @@ const app = new Elysia({
     } catch (error) {
       console.error('Error fetching applications:', error)
       res.status(500).json({ error: 'Internal server error' })
+    }
+  })
+
+  .post('/api/bookings', async ({ body }) => {
+    try {
+      const { userId, applicationId, email, phone, url, event, status, data } = body as {
+        userId?: string;
+        applicationId?: string;
+        email: string;
+        phone?: string;
+        url: string;
+        event?: string;
+        status: string;
+        data?: Record<string, any>;
+      };
+
+      // Validate required fields
+      if (!email || !url || !status) {
+        return {
+          success: false,
+          error: 'Missing required fields: email, url, and status are required'
+        };
+      }
+
+      const result = await createBooking({
+        userId,
+        applicationId,
+        email,
+        phone,
+        url,
+        event,
+        status,
+        data
+      });
+
+      console.log('Booking created successfully:', result.id);
+
+      return {
+        success: true,
+        booking: result
+      };
+    } catch (error) {
+      console.error('Error creating booking:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to create booking'
+      };
     }
   })
 )

@@ -2,10 +2,10 @@
   "master": {
     "tasks": [
       {
-        "id": 1,
+        "id": "1",
         "title": "Update Database Schema for Bookings Table",
         "description": "Add new columns to the bookings table to store application data and track HubSpot sync status, including data, hubspot_contact_id, hubspot_sync_status, hubspot_last_synced_at, and hubspot_sync_error fields using Drizzle ORM.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [],
         "priority": "high",
         "details": "Edit backend/src/db/schema.ts to add the specified fields to the bookings table: data: text('data', { mode: 'json' }), hubspotContactId: text('hubspot_contact_id'), hubspotSyncStatus: text('hubspot_sync_status').default('pending'), hubspotLastSyncedAt: integer('hubspot_last_synced_at', { mode: 'timestamp' }), hubspotSyncError: text('hubspot_sync_error'). Then run bunx drizzle-kit generate && bunx drizzle-kit push to apply the schema changes. Add indexes: CREATE INDEX idx_bookings_hubspot_contact_id ON bookings(hubspot_contact_id); CREATE INDEX idx_bookings_hubspot_sync_status ON bookings(hubspot_sync_status). Backfill existing bookings with relevant application data by querying the applications table and updating the data field using a migration script to handle this safely without downtime.",
@@ -16,9 +16,11 @@
             "title": "Execute SQL ALTER TABLE Statements for Bookings Schema",
             "description": "Edit backend/src/db/schema.ts to add new columns (data, hubspot_contact_id, hubspot_sync_status, hubspot_last_synced_at, hubspot_sync_error) to the bookings table using Drizzle ORM definitions, ensuring the data field is text with JSON mode.",
             "dependencies": [],
-            "details": "Update the schema.ts file with the provided Drizzle column definitions. Run bunx drizzle-kit generate to create migration files, then bunx drizzle-kit push to apply changes safely without downtime. Verify that the columns are added correctly and are nullable as required. Handle any potential database locks or performance impacts during execution.",
-            "status": "pending",
-            "testStrategy": "Verify schema changes with database queries to confirm new columns exist and are of correct types; check that existing data is preserved."
+            "details": "Update the schema.ts file with the provided Drizzle column definitions. Run bunx drizzle-kit generate to create migration files, then bunx drizzle-kit push to apply changes safely without downtime. Verify that the columns are added correctly and are nullable as required. Handle any potential database locks or performance impacts during execution.\n<info added on 2025-11-03T17:06:06.791Z>\nSuccessfully updated schema.ts with new HubSpot fields (data, hubspotContactId, hubspotSyncStatus, hubspotLastSyncedAt, hubspotSyncError) and indexes. Generated migration 0004_shiny_bloodstrike.sql. Applied bookings-specific ALTER TABLE and CREATE INDEX statements directly via turso CLI to csg-nuxt database. Migration successful.\n</info added on 2025-11-03T17:06:06.791Z>",
+            "status": "done",
+            "testStrategy": "Verify schema changes with database queries to confirm new columns exist and are of correct types; check that existing data is preserved.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:06:09.863Z"
           },
           {
             "id": 2,
@@ -27,9 +29,11 @@
             "dependencies": [
               1
             ],
-            "details": "Write a script to perform the backfill operation by joining bookings with applications table, extracting necessary fields, and updating the data column with JSON. Ensure the script handles large datasets efficiently and includes rollback mechanisms if needed.\n<info added on 2025-11-03T16:56:40.449Z>\nCONCRETE BACKFILL STRATEGY: Run this SQL after schema migration: UPDATE bookings SET data = (SELECT data FROM applications WHERE id = bookings.applicationId) WHERE applicationId IS NOT NULL AND data IS NULL; For bookings without applicationId, create minimal JSON from booking fields: UPDATE bookings SET data = json_object('email', email, 'phone', phone) WHERE applicationId IS NULL AND data IS NULL; Verification: SELECT COUNT(*) FROM bookings WHERE data IS NULL (should be 0).\n</info added on 2025-11-03T16:56:40.449Z>",
-            "status": "pending",
-            "testStrategy": "Run queries to check that backfilled data matches expected application data; perform spot checks on a sample of bookings to verify JSON integrity."
+            "details": "Write a script to perform the backfill operation by joining bookings with applications table, extracting necessary fields, and updating the data column with JSON. Ensure the script handles large datasets efficiently and includes rollback mechanisms if needed.\n<info added on 2025-11-03T16:56:40.449Z>\nCONCRETE BACKFILL STRATEGY: Run this SQL after schema migration: UPDATE bookings SET data = (SELECT data FROM applications WHERE id = bookings.applicationId) WHERE applicationId IS NOT NULL AND data IS NULL; For bookings without applicationId, create minimal JSON from booking fields: UPDATE bookings SET data = json_object('email', email, 'phone', phone) WHERE applicationId IS NULL AND data IS NULL; Verification: SELECT COUNT(*) FROM bookings WHERE data IS NULL (should be 0).\n</info added on 2025-11-03T16:56:40.449Z>\n<info added on 2025-11-03T17:07:09.372Z>\nCreated UPDATE query to backfill bookings.data field from applications.data for all bookings that have application_id set. Executed via turso CLI. Verified 618 bookings were successfully backfilled with application data.\n</info added on 2025-11-03T17:07:09.372Z>",
+            "status": "done",
+            "testStrategy": "Run queries to check that backfilled data matches expected application data; perform spot checks on a sample of bookings to verify JSON integrity.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:07:11.970Z"
           },
           {
             "id": 3,
@@ -39,19 +43,25 @@
               1,
               2
             ],
-            "details": "Execute database queries to validate column additions and data types. Run integration tests to confirm joins with other tables still work. Check for any data loss or corruption during the migration and backfill processes.",
-            "status": "pending",
-            "testStrategy": "Use database queries for schema verification; run integration tests for data preservation and joins; perform end-to-end tests to ensure no downtime or errors in related operations."
+            "details": "Execute database queries to validate column additions and data types. Run integration tests to confirm joins with other tables still work. Check for any data loss or corruption during the migration and backfill processes.\n<info added on 2025-11-03T17:07:52.288Z>\nVerified schema changes: All 5 new columns present in bookings table (data, hubspot_contact_id, hubspot_sync_status with 'pending' default, hubspot_last_synced_at, hubspot_sync_error). Both HubSpot indexes created successfully (idx_bookings_hubspot_contact_id, idx_bookings_hubspot_sync_status). Data integrity confirmed - 618 bookings have backfilled data field and sync_status defaulting to 'pending'.\n</info added on 2025-11-03T17:07:52.288Z>",
+            "status": "done",
+            "testStrategy": "Use database queries for schema verification; run integration tests for data preservation and joins; perform end-to-end tests to ensure no downtime or errors in related operations.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:07:55.282Z"
           }
-        ]
+        ],
+        "complexity": 6,
+        "recommendedSubtasks": 3,
+        "expansionPrompt": "Break this task into subtasks for executing SQL ALTER statements, backfilling existing data from applications table, and verifying schema changes with tests.",
+        "updatedAt": "2025-11-03T17:07:55.282Z"
       },
       {
-        "id": 2,
+        "id": "2",
         "title": "Implement Backend Query Functions for Bookings",
         "description": "Build booking infrastructure from scratch by creating a POST /api/bookings endpoint in backend/src/index.ts for manual booking creation, and adding query functions in backend/src/db/query.ts: createBooking(data), getBookings(page, pageSize, searchTerm, status), getBookingWithContext(bookingId), exportBookings(searchTerm), and determineBookingStatus(booking) function, similar to existing application queries.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
-          1
+          "1"
         ],
         "priority": "high",
         "details": "Implement createBooking to insert new bookings into the database. For getBookings, join bookings with applications, users, and csg_applications tables, applying pagination, search, and status filters. For getBookingWithContext, merge booking.data with application data. For exportBookings, retrieve data in export format with optional filters. For determineBookingStatus, compute status based on booking data. Create the POST endpoint to handle manual booking creation using createBooking. Use TypeScript with async/await and proper error handling. Ensure queries are optimized for performance.",
@@ -62,9 +72,11 @@
             "title": "Implement createBooking function",
             "description": "Add createBooking(data) function in db/query.ts to insert new booking records into the database.",
             "dependencies": [],
-            "details": "Define the function signature with data parameter. Write SQL insert query for bookings table. Use TypeScript async/await for database execution. Include proper error handling and return the created booking ID or object.",
-            "status": "pending",
-            "testStrategy": "Unit tests with mock database to verify insertion and error handling."
+            "details": "Define the function signature with data parameter. Write SQL insert query for bookings table. Use TypeScript async/await for database execution. Include proper error handling and return the created booking ID or object.\n<info added on 2025-11-03T17:08:51.327Z>\nImplemented createBooking function in backend/src/db/query.ts. Function accepts booking data (userId, applicationId, email, phone, url, event, status, data), generates UUID, inserts into bookings table with hubspotSyncStatus='pending' and timestamps, returns the created booking object.\n</info added on 2025-11-03T17:08:51.327Z>",
+            "status": "done",
+            "testStrategy": "Unit tests with mock database to verify insertion and error handling.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:08:55.566Z"
           },
           {
             "id": 2,
@@ -73,9 +85,11 @@
             "dependencies": [
               1
             ],
-            "details": "Write SQL query joining bookings with applications, users, and csg_applications. Apply pagination, search, and status filters. Use async/await and return an array of booking objects.",
-            "status": "pending",
-            "testStrategy": "Unit tests with mock data to verify joins, filters, and pagination."
+            "details": "Write SQL query joining bookings with applications, users, and csg_applications. Apply pagination, search, and status filters. Use async/await and return an array of booking objects.\n<info added on 2025-11-03T17:09:46.586Z>\nImplemented getBookings function with pagination, search (email/phone), status filtering, joins to applications and users tables, returns enriched booking data with totalCount and pagination info.\n</info added on 2025-11-03T17:09:46.586Z>",
+            "status": "done",
+            "testStrategy": "Unit tests with mock data to verify joins, filters, and pagination.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:09:48.574Z"
           },
           {
             "id": 3,
@@ -84,9 +98,11 @@
             "dependencies": [
               1
             ],
-            "details": "Query bookings by ID, fetch related application data, and merge booking.data (JSON) with application data into a unified object. Handle missing or invalid data.",
-            "status": "pending",
-            "testStrategy": "Unit tests for data merging logic and integration tests for database retrieval."
+            "details": "Query bookings by ID, fetch related application data, and merge booking.data (JSON) with application data into a unified object. Handle missing or invalid data.\n<info added on 2025-11-03T17:09:56.659Z>\nImplemented getBookingWithContext function that fetches a single booking by ID, joins with related application and user data, merges booking.data with application data, returns enriched booking context.\n</info added on 2025-11-03T17:09:56.659Z>",
+            "status": "done",
+            "testStrategy": "Unit tests for data merging logic and integration tests for database retrieval.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:09:57.842Z"
           },
           {
             "id": 4,
@@ -95,9 +111,11 @@
             "dependencies": [
               2
             ],
-            "details": "Create query for bulk retrieval without pagination, applying search filter. Return data in CSV or JSON format suitable for export.",
-            "status": "pending",
-            "testStrategy": "Integration tests to verify export data and unit tests for formatting."
+            "details": "Create query for bulk retrieval without pagination, applying search filter. Return data in CSV or JSON format suitable for export.\n<info added on 2025-11-03T17:10:03.744Z>\nImplemented exportBookings function with optional search filtering, returns all matching bookings ordered by createdAt descending for export purposes.\n</info added on 2025-11-03T17:10:03.744Z>",
+            "status": "done",
+            "testStrategy": "Integration tests to verify export data and unit tests for formatting.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:10:04.920Z"
           },
           {
             "id": 5,
@@ -109,19 +127,25 @@
               3,
               4
             ],
-            "details": "Implement logic to determine status based on booking data. In index.ts, add route handler for POST /api/bookings using createBooking. Include error handling, performance optimizations, and integration with existing codebase.",
-            "status": "pending",
-            "testStrategy": "Unit tests for status determination; integration tests for endpoint functionality and error handling."
+            "details": "Implement logic to determine status based on booking data. In index.ts, add route handler for POST /api/bookings using createBooking. Include error handling, performance optimizations, and integration with existing codebase.\n<info added on 2025-11-03T17:11:00.397Z>\nImplemented determineBookingStatus function and POST /api/bookings endpoint in backend/src/index.ts. Endpoint validates required fields (email, url, status), calls createBooking with all booking data, returns success/error response with created booking object. Added createBooking import to index.ts.\n</info added on 2025-11-03T17:11:00.397Z>",
+            "status": "done",
+            "testStrategy": "Unit tests for status determination; integration tests for endpoint functionality and error handling.",
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:11:03.555Z"
           }
-        ]
+        ],
+        "complexity": 5,
+        "recommendedSubtasks": 0,
+        "expansionPrompt": "",
+        "updatedAt": "2025-11-03T17:11:03.555Z"
       },
       {
-        "id": 3,
+        "id": "3",
         "title": "Create HubSpot Integration Module",
         "description": "Develop a new integrations/hubspot.ts file with HubSpotClient class for API interactions and data transformation utilities, focusing on contact-only sync for MVP.",
         "status": "pending",
         "dependencies": [
-          2
+          "2"
         ],
         "priority": "high",
         "details": "Implement HubSpotClient with methods for createContact and updateContact using the HubSpot API, utilizing the create-or-update endpoint for duplicate prevention by searching email first. Add transformBookingToHubSpot function to map booking data to HubSpot properties, with fallback hierarchy: booking.data → application.data → booking fields. Use environment variables for API key and portal ID. Include rate limiting with p-queue library (10 requests per 10 seconds).",
@@ -134,7 +158,8 @@
             "dependencies": [],
             "details": "In the integrations/hubspot.ts file, create the HubSpotClient class with async methods that use the HubSpot API endpoints. Ensure methods handle authentication using environment variables for API key and portal ID, utilize create-or-update for contacts to prevent duplicates, and return appropriate responses or throw errors on failure.",
             "status": "pending",
-            "testStrategy": "Unit tests with mocked API responses to verify method calls, duplicate prevention, and error handling."
+            "testStrategy": "Unit tests with mocked API responses to verify method calls, duplicate prevention, and error handling.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -145,7 +170,8 @@
             ],
             "details": "Add the transformBookingToHubSpot function in integrations/hubspot.ts that takes booking and application data, maps fields like firstname to applicant_info.f_name, and handles missing data with the specified fallback hierarchy. Ensure the function returns a properly formatted object for HubSpot API calls.",
             "status": "pending",
-            "testStrategy": "Unit tests for various data scenarios, including missing fields and fallbacks, to validate correct mapping."
+            "testStrategy": "Unit tests for various data scenarios, including missing fields and fallbacks, to validate correct mapping.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -156,7 +182,8 @@
             ],
             "details": "In the HubSpotClient class, incorporate rate limiting logic using p-queue with a limit of 10 requests per 10 seconds to space out requests, ensuring compliance with HubSpot's API limits and avoiding throttling errors.",
             "status": "pending",
-            "testStrategy": "Integration tests simulating multiple API calls to verify delays and rate limit adherence."
+            "testStrategy": "Integration tests simulating multiple API calls to verify delays and rate limit adherence.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -169,7 +196,8 @@
             ],
             "details": "Enhance the HubSpotClient methods and transformation function with try-catch blocks to handle errors like invalid API keys, network issues, or rate limit exceedances. Log errors appropriately and return structured error responses for upstream handling.",
             "status": "pending",
-            "testStrategy": "Unit and integration tests to simulate error conditions, such as invalid API keys or network failures, and verify proper error propagation."
+            "testStrategy": "Unit and integration tests to simulate error conditions, such as invalid API keys or network failures, and verify proper error propagation.",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -178,20 +206,24 @@
             "dependencies": [],
             "details": "Create mock HubSpot API endpoints in the integrations/hubspot.ts or a separate file that simulate /contacts responses realistically. Enable toggling with HUBSPOT_MOCK_API=true env var for testing without affecting production data.",
             "status": "pending",
-            "testStrategy": "Unit tests to verify mock responses match expected API behavior; integration tests using the mock to ensure safe testing."
+            "testStrategy": "Unit tests to verify mock responses match expected API behavior; integration tests using the mock to ensure safe testing.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 7,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Divide into subtasks for implementing HubSpotClient methods (createContact, updateContact, createCustomObject), data transformation utilities, rate limiting, and error handling."
       },
       {
-        "id": 4,
+        "id": "4",
         "title": "Add WebSocket Handlers for Bookings and HubSpot Sync",
         "description": "Extend index.ts to handle new WebSocket message types for requesting bookings, syncing single bookings, and bulk syncing to HubSpot.",
         "details": "Add handlers for 'request_bookings', 'sync_booking_to_hubspot', and 'bulk_sync_bookings' messages. For sync operations, call the HubSpot integration functions, update database fields, and send results back via WebSocket. Implement rate limiting and error handling with retry logic.",
         "testStrategy": "WebSocket integration tests for message handling; simulate sync operations and verify database updates; test bulk operations with multiple bookings.",
         "priority": "high",
         "dependencies": [
-          2,
-          3
+          "2",
+          "3"
         ],
         "status": "pending",
         "subtasks": [
@@ -202,7 +234,8 @@
             "dependencies": [],
             "details": "In index.ts, add a case for 'request_bookings' in the WebSocket message handler. Use getBookings or similar functions to fetch data with pagination and filters. Ensure proper error handling and send JSON responses. Integrate rate limiting to prevent abuse.",
             "status": "pending",
-            "testStrategy": "WebSocket integration tests to simulate 'request_bookings' messages and verify correct data retrieval and response sending; test rate limiting by sending multiple requests."
+            "testStrategy": "WebSocket integration tests to simulate 'request_bookings' messages and verify correct data retrieval and response sending; test rate limiting by sending multiple requests.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -213,7 +246,8 @@
             ],
             "details": "In index.ts, add a case for 'sync_booking_to_hubspot' in the WebSocket message handler. Call HubSpot integration methods like createContact or updateContact, update hubspot_sync_status and related fields in the database. Implement retry logic for failed syncs and rate limiting. Send sync results via WebSocket.",
             "status": "pending",
-            "testStrategy": "WebSocket integration tests simulating 'sync_booking_to_hubspot' messages; mock HubSpot API calls to verify database updates and error handling; test retry logic on failures."
+            "testStrategy": "WebSocket integration tests simulating 'sync_booking_to_hubspot' messages; mock HubSpot API calls to verify database updates and error handling; test retry logic on failures.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -224,17 +258,21 @@
             ],
             "details": "In index.ts, add a case for 'bulk_sync_bookings' in the WebSocket message handler. Iterate over multiple bookings, call HubSpot sync functions, update database fields like hubspot_sync_status. Implement rate limiting to avoid API limits and retry logic for individual failures. Send bulk operation progress and final results via WebSocket.",
             "status": "pending",
-            "testStrategy": "WebSocket integration tests for 'bulk_sync_bookings' with multiple bookings; simulate bulk operations, verify database updates, and test rate limiting and retry mechanisms with mocked failures."
+            "testStrategy": "WebSocket integration tests for 'bulk_sync_bookings' with multiple bookings; simulate bulk operations, verify database updates, and test rate limiting and retry mechanisms with mocked failures.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 8,
+        "recommendedSubtasks": 3,
+        "expansionPrompt": "Split into subtasks for adding handlers for each message type (request_bookings, sync_booking_to_hubspot, bulk_sync_bookings), implementing rate limiting and retry logic."
       },
       {
-        "id": 5,
+        "id": "5",
         "title": "Update Frontend Data Types and Model",
         "description": "Extend Dashboard.elm with new types for BookingRow, BookingStatus, HubSpotSyncStatus, and update the Model to include bookings-related fields and view toggling. Elm requires explicit JSON decoders/encoders to compile, so include creation of decoders in BookingDecoder.elm, encoders in DataEncoder.elm, ports in Ports.elm, and wiring in main.ts.",
         "status": "pending",
         "dependencies": [
-          4
+          "4"
         ],
         "priority": "medium",
         "details": "Define BookingRow with fields like id, email, status, hubspotSyncStatus, etc. Update Model to include currentView (ApplicationsView or BookingsView), bookings list, pagination, and sync tracking sets. Ensure type safety with Elm's strong typing. Additionally, create BookingDecoder.elm with bookingRowDecoder, bookingStatusDecoder, hubSpotSyncStatusDecoder; create booking JSON encoders in DataEncoder.elm; add ports to Ports.elm: requestBookings, receiveBookings, syncBookingToHubSpot, hubspotSyncResult; update Model with bookings state, currentView, hubspotSyncInProgress; wire up TypeScript port subscriptions in main.ts for WebSocket message routing.",
@@ -247,7 +285,8 @@
             "dependencies": [],
             "details": "In BookingDecoder.elm, implement bookingRowDecoder to decode BookingRow records, bookingStatusDecoder for BookingStatus union type, and hubSpotSyncStatusDecoder for HubSpotSyncStatus union type. Ensure decoders handle all fields and variants accurately for type safety.",
             "status": "pending",
-            "testStrategy": "Elm unit tests for decoder functions; compile-time checks for type safety in decoding."
+            "testStrategy": "Elm unit tests for decoder functions; compile-time checks for type safety in decoding.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -256,7 +295,8 @@
             "dependencies": [],
             "details": "In DataEncoder.elm, implement encoders for BookingRow, BookingStatus, and HubSpotSyncStatus to convert Elm types to JSON. Ensure encoders match the decoders for round-trip compatibility.",
             "status": "pending",
-            "testStrategy": "Elm unit tests for encoder functions; integration tests for JSON serialization."
+            "testStrategy": "Elm unit tests for encoder functions; integration tests for JSON serialization.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -265,7 +305,8 @@
             "dependencies": [],
             "details": "In Ports.elm, define outgoing ports for requestBookings and syncBookingToHubSpot, and incoming ports for receiveBookings and hubspotSyncResult. Ensure ports are properly typed for Elm's port system.",
             "status": "pending",
-            "testStrategy": "Elm unit tests for port definitions; integration tests for port communication with JavaScript."
+            "testStrategy": "Elm unit tests for port definitions; integration tests for port communication with JavaScript.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -274,7 +315,8 @@
             "dependencies": [],
             "details": "Modify the Model record in Dashboard.elm to include bookings list, pagination, currentView (union type for ApplicationsView or BookingsView), and hubspotSyncInProgress (Set Int for tracking syncs). Ensure integration with existing model structure.",
             "status": "pending",
-            "testStrategy": "Elm unit tests for model updates and state management; integration tests for view toggling and sync tracking."
+            "testStrategy": "Elm unit tests for model updates and state management; integration tests for view toggling and sync tracking.",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -283,17 +325,21 @@
             "dependencies": [],
             "details": "In main.ts, subscribe to Elm ports and route WebSocket messages accordingly: handle requestBookings to fetch data, receiveBookings to send to Elm, syncBookingToHubSpot to initiate sync, and hubspotSyncResult to relay results. Ensure proper message handling and error management.",
             "status": "pending",
-            "testStrategy": "Integration tests for WebSocket message routing; unit tests for subscription logic."
+            "testStrategy": "Integration tests for WebSocket message routing; unit tests for subscription logic.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 4,
+        "recommendedSubtasks": 0,
+        "expansionPrompt": ""
       },
       {
-        "id": 6,
+        "id": "6",
         "title": "Implement View Toggle and Bookings Table Component",
         "description": "Add a toggle button in Dashboard.elm to switch between Applications and Bookings views, and create a bookings table with columns for Name, Email, Phone, Status, Event, Date Created, HubSpot Status, and Actions. Stay on /dashboard route with no new routing needed; toggle switches content only within Dashboard.elm.",
         "status": "pending",
         "dependencies": [
-          5
+          "5"
         ],
         "priority": "medium",
         "details": "Implement viewToggle component with buttons for Applications and Bookings. Create viewBookingsTable component with specified columns, conditional rendering for loading, empty state, and table rows. Wire up pagination for bookings reusing existing pagination pattern from applications. Use Elm's Html module for structure, ensuring responsive design and hover effects.",
@@ -306,7 +352,8 @@
             "dependencies": [],
             "details": "Use Elm's Html module to create two buttons labeled 'Applications' and 'Bookings'. Attach onClick handlers that update the model to switch the currentView. Style the buttons to indicate the active view, ensuring accessibility with proper ARIA attributes. Toggle switches content only within Dashboard.elm.",
             "status": "pending",
-            "testStrategy": "UI tests to check button rendering and click functionality; accessibility checks for ARIA roles."
+            "testStrategy": "UI tests to check button rendering and click functionality; accessibility checks for ARIA roles.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -317,7 +364,8 @@
             ],
             "details": "Use Html.table and Html.thead to define the table structure with the specified columns. Make the table responsive. Ensure conditional rendering for loading, empty state, and table rows. Include hover effects on rows.",
             "status": "pending",
-            "testStrategy": "Visual regression tests to verify table header rendering and responsiveness; integration tests for conditional rendering."
+            "testStrategy": "Visual regression tests to verify table header rendering and responsiveness; integration tests for conditional rendering.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -328,19 +376,23 @@
             ],
             "details": "Integrate pagination controls into the viewBookingsTable component, reusing the existing pagination logic from the applications view. Ensure it handles page navigation and data fetching for bookings.",
             "status": "pending",
-            "testStrategy": "Integration tests for pagination functionality; end-to-end tests for page switching."
+            "testStrategy": "Integration tests for pagination functionality; end-to-end tests for page switching.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 5,
+        "recommendedSubtasks": 0,
+        "expansionPrompt": ""
       },
       {
-        "id": 7,
+        "id": "7",
         "title": "Add HubSpot Sync UI Controls and Actions",
         "description": "Enhance the bookings table row to include buttons for syncing to HubSpot, retrying failed syncs, and viewing in HubSpot, with loading states and status indicators.",
         "details": "In viewBookingRow, add conditional buttons based on sync status (e.g., 'Sync to HubSpot' if not synced, 'Retry' if failed). Handle Msg types like SyncBookingToHubSpot, HubSpotSyncResult, and RetryHubSpotSync. Update model to track in-progress syncs.",
         "testStrategy": "End-to-end tests for button clicks and state changes; simulate WebSocket responses to verify UI updates; test disabled states for invalid syncs.",
         "priority": "medium",
         "dependencies": [
-          6
+          "6"
         ],
         "status": "pending",
         "subtasks": [
@@ -351,7 +403,8 @@
             "dependencies": [],
             "details": "Add new fields to the Booking type alias, such as hubspotSyncStatus (e.g., NotSynced, Synced, Failed), isSyncing (Bool), and lastSyncError (Maybe String). Ensure these fields are initialized properly in the model and updated via Msg handlers.",
             "status": "pending",
-            "testStrategy": "Unit tests to verify model updates and field initialization; integration tests to check state persistence across UI interactions."
+            "testStrategy": "Unit tests to verify model updates and field initialization; integration tests to check state persistence across UI interactions.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -362,7 +415,8 @@
             ],
             "details": "In the Msg union type, add SyncBookingToHubSpot with a booking ID, HubSpotSyncResult with success/error payload, and RetryHubSpotSync with booking ID. Ensure these Msgs are dispatched from button clicks and handled in the update function to modify the model accordingly.",
             "status": "pending",
-            "testStrategy": "Unit tests for Msg creation and handling; simulate Msg dispatching to verify model changes and no runtime errors."
+            "testStrategy": "Unit tests for Msg creation and handling; simulate Msg dispatching to verify model changes and no runtime errors.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -373,7 +427,8 @@
             ],
             "details": "In viewBookingRow, use pattern matching on hubspotSyncStatus to show appropriate buttons. For example, show 'Sync to HubSpot' if NotSynced and not isSyncing, 'Retry' if Failed, and 'View in HubSpot' if Synced. Attach onClick handlers to send the corresponding Msgs.",
             "status": "pending",
-            "testStrategy": "UI tests to verify button visibility based on status; end-to-end tests for button clicks triggering correct Msgs."
+            "testStrategy": "UI tests to verify button visibility based on status; end-to-end tests for button clicks triggering correct Msgs.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -384,7 +439,8 @@
             ],
             "details": "In the update function, handle HubSpotSyncResult by setting isSyncing to False, updating hubspotSyncStatus to Synced or Failed, and storing error messages if applicable. Ensure WebSocket responses are parsed correctly and UI reflects changes immediately.",
             "status": "pending",
-            "testStrategy": "Integration tests simulating WebSocket responses; verify UI updates like button states and status indicators after sync attempts."
+            "testStrategy": "Integration tests simulating WebSocket responses; verify UI updates like button states and status indicators after sync attempts.",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -396,17 +452,21 @@
             ],
             "details": "In viewBookingRow, add conditional rendering of loading spinners (e.g., via Html.div with classes) when isSyncing is True. Include status indicators like checkmarks for Synced or error icons for Failed, positioned near the buttons for clear user feedback.",
             "status": "pending",
-            "testStrategy": "Visual regression tests for loading states; end-to-end tests to confirm indicators update correctly after sync operations."
+            "testStrategy": "Visual regression tests for loading states; end-to-end tests to confirm indicators update correctly after sync operations.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 6,
+        "recommendedSubtasks": 0,
+        "expansionPrompt": ""
       },
       {
-        "id": 8,
+        "id": "8",
         "title": "Configure HubSpot Data Mapping and Properties",
         "description": "Set up data mapping for HubSpot contacts and custom properties, ensuring proper transformation of booking and application data. Update .env.example with HubSpot environment variables and create /config directory with hubspot-properties.json.",
         "status": "pending",
         "dependencies": [
-          3
+          "3"
         ],
         "priority": "medium",
         "details": "Create a configuration file (e.g., hubspot-properties.json) defining mappings like firstname to applicant_info.f_name. Implement validation in transformBookingToHubSpot to handle missing data. Set up custom properties in HubSpot portal if needed, and test mappings with sample data. Update .env.example with variables: HUBSPOT_API_KEY, HUBSPOT_PORTAL_ID, HUBSPOT_CONTACT_SYNC_ENABLED=true, HUBSPOT_MOCK_API=true, HUBSPOT_RATE_LIMIT_DELAY=100. Add VITE_ prefixed versions for frontend: VITE_HUBSPOT_CONTACT_SYNC_ENABLED, VITE_HUBSPOT_MOCK_API. Create /config directory with hubspot-properties.json file. Document: Dev uses HUBSPOT_MOCK_API=true for safe testing, Production uses HUBSPOT_MOCK_API=false carefully. Add warning about production portal testing.",
@@ -419,7 +479,8 @@
             "dependencies": [],
             "details": "In the /config directory, create a JSON file that outlines the schema for property mappings, including sections for contact properties and custom objects. Ensure the file is well-documented with comments explaining the purpose of each mapping category.",
             "status": "pending",
-            "testStrategy": "Validate the JSON file structure using a JSON schema validator to ensure it conforms to expected format."
+            "testStrategy": "Validate the JSON file structure using a JSON schema validator to ensure it conforms to expected format.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -430,7 +491,8 @@
             ],
             "details": "Add key-value pairs in the configuration file to map source fields (e.g., from booking.data or application data) to HubSpot property names. Include mappings for standard HubSpot properties like email, phone, and custom properties like application status or booking details. Use dot notation for nested fields.",
             "status": "pending",
-            "testStrategy": "Unit test the mapping definitions by loading the JSON and verifying that keys match expected HubSpot property names."
+            "testStrategy": "Unit test the mapping definitions by loading the JSON and verifying that keys match expected HubSpot property names.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -441,7 +503,8 @@
             ],
             "details": "In the integrations/hubspot.ts file, add checks within transformBookingToHubSpot to validate required fields, handle null values, and apply fallback logic (e.g., use application data if booking data is missing). Implement error logging for validation failures and ensure the function returns a properly formatted object for HubSpot API.",
             "status": "pending",
-            "testStrategy": "Unit tests for the transform function with mock data scenarios, including missing fields, invalid types, and partial data, to verify correct validation and fallback behavior."
+            "testStrategy": "Unit tests for the transform function with mock data scenarios, including missing fields, invalid types, and partial data, to verify correct validation and fallback behavior.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -452,7 +515,8 @@
             ],
             "details": "Access the HubSpot dashboard, navigate to settings, and create custom properties under contacts and relevant custom objects. Define property types (e.g., text, number, date) and labels that align with the mappings in hubspot-properties.json. Ensure properties are created for fields like booking ID, application status, and any other custom data points.",
             "status": "pending",
-            "testStrategy": "Manually verify in the HubSpot portal that custom properties are created and visible; test API calls to confirm properties are accessible via the HubSpot API."
+            "testStrategy": "Manually verify in the HubSpot portal that custom properties are created and visible; test API calls to confirm properties are accessible via the HubSpot API.",
+            "parentId": "undefined"
           },
           {
             "id": 5,
@@ -464,7 +528,8 @@
             ],
             "details": "Prepare sample JSON data representing bookings and applications, run the transformBookingToHubSpot function, and simulate API calls (or use test mode) to create/update contacts in HubSpot. Verify that mapped data appears correctly in the HubSpot portal, checking for proper handling of missing data and custom properties.",
             "status": "pending",
-            "testStrategy": "Integration tests using mock HubSpot API responses; end-to-end tests to sync sample data and validate results in HubSpot; check for error handling in cases of API failures or invalid mappings."
+            "testStrategy": "Integration tests using mock HubSpot API responses; end-to-end tests to sync sample data and validate results in HubSpot; check for error handling in cases of API failures or invalid mappings.",
+            "parentId": "undefined"
           },
           {
             "id": 6,
@@ -473,18 +538,22 @@
             "dependencies": [],
             "details": "Update .env.example with HUBSPOT_API_KEY, HUBSPOT_PORTAL_ID, HUBSPOT_CONTACT_SYNC_ENABLED=true, HUBSPOT_MOCK_API=true, HUBSPOT_RATE_LIMIT_DELAY=100. Add VITE_ prefixed versions for frontend: VITE_HUBSPOT_CONTACT_SYNC_ENABLED, VITE_HUBSPOT_MOCK_API. Document that dev uses HUBSPOT_MOCK_API=true for safe testing, production uses false carefully, and add warning about production portal testing.",
             "status": "pending",
-            "testStrategy": "Verify that the .env.example file includes all variables and documentation; test loading of variables in the application."
+            "testStrategy": "Verify that the .env.example file includes all variables and documentation; test loading of variables in the application.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 4,
+        "recommendedSubtasks": 0,
+        "expansionPrompt": ""
       },
       {
-        "id": 9,
+        "id": "9",
         "title": "Implement Automatic Sync Workflow",
         "description": "Enable manual syncing of bookings to HubSpot triggered by user clicking 'Sync to HubSpot' button in the bookings table, for MVP.",
         "status": "pending",
         "dependencies": [
-          3,
-          4
+          "3",
+          "4"
         ],
         "priority": "high",
         "details": "Implement manual sync trigger via button click in the bookings table. Use simple retry logic: 3 attempts with exponential backoff (1s, 4s, 16s). Retry on 429 (rate limit) and 500-503 (server errors). Don't retry 401 (auth) or 400 (bad data). Update bookings table with hubspotSyncStatus tracking pending/success/failed. Fire-and-forget with retries, no persistent queue needed.",
@@ -497,7 +566,8 @@
             "dependencies": [],
             "details": "Wire up the button click to call the HubSpot sync function for the booking. Ensure it handles async operations and updates hubspotSyncStatus to pending initially. Integrate with the retry logic for failures.",
             "status": "pending",
-            "testStrategy": "Unit tests for button click handler and sync trigger; integration tests to verify sync initiation and status updates without blocking UI."
+            "testStrategy": "Unit tests for button click handler and sync trigger; integration tests to verify sync initiation and status updates without blocking UI.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -508,20 +578,24 @@
             ],
             "details": "Implement 3 attempts with exponential backoff (1s, 4s, 16s). Retry only on 429 and 500-503 errors. After each attempt, update hubspotSyncStatus to success or failed. No retries for 401 or 400. Handle as fire-and-forget.",
             "status": "pending",
-            "testStrategy": "Unit tests for retry logic with mocked failures; integration tests for database status updates; simulate various error codes to verify retry behavior."
+            "testStrategy": "Unit tests for retry logic with mocked failures; integration tests for database status updates; simulate various error codes to verify retry behavior.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 8,
+        "recommendedSubtasks": 3,
+        "expansionPrompt": "Break into subtasks for modifying booking creation logic, integrating with webhooks, implementing retry logic, and updating notifications."
       },
       {
-        "id": 10,
+        "id": "10",
         "title": "Add Admin Features and Configuration Panel",
         "description": "Implement admin dashboard features for bulk sync, error logs, configuration settings, and test connection to HubSpot.",
         "details": "Add UI components for bulk sync with checkboxes, progress tracking, and error display. Create a configuration panel for HubSpot settings. Include a test connection button that validates API key. Ensure security by not exposing sensitive data in UI.",
         "testStrategy": "E2E tests for bulk operations and configuration changes; security tests to ensure no credential leakage; user acceptance tests for admin workflows.",
         "priority": "low",
         "dependencies": [
-          7,
-          8
+          "7",
+          "8"
         ],
         "status": "pending",
         "subtasks": [
@@ -532,7 +606,8 @@
             "dependencies": [],
             "details": "Create checkboxes in the bookings table for selecting multiple bookings. Add a bulk sync button that triggers the sync process, showing progress bars and displaying any errors encountered during the sync. Ensure the UI is responsive and integrates with existing WebSocket handlers for real-time updates.",
             "status": "pending",
-            "testStrategy": "UI tests for checkbox selection and progress display; integration tests for bulk sync button functionality."
+            "testStrategy": "UI tests for checkbox selection and progress display; integration tests for bulk sync button functionality.",
+            "parentId": "undefined"
           },
           {
             "id": 2,
@@ -541,7 +616,8 @@
             "dependencies": [],
             "details": "Build a UI panel where admins can input and save HubSpot API key, portal ID, and other settings. Use secure input fields to prevent exposure of sensitive data in the UI. Implement validation for inputs and save functionality that updates environment configurations.",
             "status": "pending",
-            "testStrategy": "E2E tests for saving and validating configuration changes; security tests to ensure no credential leakage."
+            "testStrategy": "E2E tests for saving and validating configuration changes; security tests to ensure no credential leakage.",
+            "parentId": "undefined"
           },
           {
             "id": 3,
@@ -550,7 +626,8 @@
             "dependencies": [],
             "details": "Include a test connection button in the configuration panel that validates the API key and portal ID by making a test API call to HubSpot. Display success or error messages based on the response, ensuring no sensitive data is logged or displayed.",
             "status": "pending",
-            "testStrategy": "Unit tests for API validation logic; integration tests for button click and response handling."
+            "testStrategy": "Unit tests for API validation logic; integration tests for button click and response handling.",
+            "parentId": "undefined"
           },
           {
             "id": 4,
@@ -559,15 +636,23 @@
             "dependencies": [],
             "details": "Create a section in the admin dashboard to show logs of sync errors, with features like filtering by date or type, pagination, and detailed error messages. Pull data from error logs stored in the database and ensure the display is user-friendly for admins.",
             "status": "pending",
-            "testStrategy": "UI tests for log display and filtering; tests for pagination and error message rendering."
+            "testStrategy": "UI tests for log display and filtering; tests for pagination and error message rendering.",
+            "parentId": "undefined"
           }
-        ]
+        ],
+        "complexity": 6,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Divide into subtasks for bulk sync UI components, configuration panel, test connection feature, and error logging displays."
       }
     ],
     "metadata": {
-      "created": "2025-11-03T15:28:00.166Z",
-      "updated": "2025-11-03T15:28:00.166Z",
-      "description": "Tasks for master context"
+      "version": "1.0.0",
+      "lastModified": "2025-11-03T17:11:03.556Z",
+      "taskCount": 10,
+      "completedCount": 2,
+      "tags": [
+        "master"
+      ]
     }
   }
 }

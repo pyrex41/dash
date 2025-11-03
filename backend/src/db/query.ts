@@ -672,3 +672,230 @@ export const getApplicationStats = async () => {
 
   return stats;
 };
+
+// Booking functions
+export const createBooking = async (bookingData: {
+  userId?: string;
+  applicationId?: string;
+  email: string;
+  phone?: string;
+  url: string;
+  event?: string;
+  status: string;
+  data?: Record<string, any>;
+}) => {
+  const db = getDb();
+  const id = crypto.randomUUID();
+
+  await db.insert(bookings).values({
+    id,
+    userId: bookingData.userId || null,
+    applicationId: bookingData.applicationId || null,
+    email: bookingData.email,
+    phone: bookingData.phone || null,
+    url: bookingData.url,
+    event: bookingData.event || null,
+    status: bookingData.status,
+    data: bookingData.data ? JSON.stringify(bookingData.data) : null,
+    hubspotSyncStatus: 'pending',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  });
+
+  return { id, ...bookingData };
+};
+
+export const getBookings = async (page: number, pageSize: number, searchTerm: string = '', statusFilter?: string) => {
+  const db = getDb();
+  const offset = page * pageSize;
+  const searchPattern = `%${searchTerm.toLowerCase()}%`;
+  const shouldSearch = searchTerm.length >= 3;
+
+  // Build WHERE conditions
+  const whereConditions = [];
+
+  if (statusFilter) {
+    whereConditions.push(sql`${bookings.hubspotSyncStatus} = ${statusFilter}`);
+  }
+
+  if (shouldSearch) {
+    whereConditions.push(sql`(
+      LOWER(${bookings.email}) LIKE ${searchPattern} OR
+      LOWER(${bookings.phone}) LIKE ${searchPattern}
+    )`);
+  }
+
+  const whereClause = whereConditions.length > 0
+    ? sql`WHERE ${sql.join(whereConditions, sql` AND `)}`
+    : sql``;
+
+  // Execute queries with joins
+  const [results, totalCount] = await Promise.all([
+    db
+      .select({
+        id: bookings.id,
+        userId: bookings.userId,
+        applicationId: bookings.applicationId,
+        email: bookings.email,
+        phone: bookings.phone,
+        url: bookings.url,
+        event: bookings.event,
+        status: bookings.status,
+        data: bookings.data,
+        hubspotContactId: bookings.hubspotContactId,
+        hubspotSyncStatus: bookings.hubspotSyncStatus,
+        hubspotLastSyncedAt: bookings.hubspotLastSyncedAt,
+        hubspotSyncError: bookings.hubspotSyncError,
+        createdAt: bookings.createdAt,
+        updatedAt: bookings.updatedAt,
+      })
+      .from(bookings)
+      .where(whereClause)
+      .orderBy(desc(bookings.createdAt))
+      .limit(pageSize)
+      .offset(offset),
+    db
+      .select({ count: sql<number>`cast(count(*) as integer)` })
+      .from(bookings)
+      .where(whereClause)
+      .then(rows => rows[0]?.count || 0)
+  ]);
+
+  // Fetch related data for each booking
+  const applicationIds = results
+    .map(r => r.applicationId)
+    .filter((id): id is string => id !== null);
+
+  const [relatedApplications, relatedUsers] = await Promise.all([
+    applicationIds.length > 0
+      ? db
+          .select({
+            id: applications.id,
+            name: applications.name,
+            naic: applications.naic,
+            data: applications.data,
+          })
+          .from(applications)
+          .where(sql`${applications.id} IN ${applicationIds}`)
+      : [],
+    db
+      .select({
+        id: user.id,
+        email: user.email,
+      })
+      .from(user)
+      .where(sql`${user.id} IN ${results.map(r => r.userId).filter(Boolean)}`)
+  ]);
+
+  const appMap = new Map(relatedApplications.map(app => [app.id, app]));
+  const userMap = new Map(relatedUsers.map(u => [u.id, u]));
+
+  const enrichedResults = results.map(booking => ({
+    ...booking,
+    application: booking.applicationId ? appMap.get(booking.applicationId) : null,
+    user: booking.userId ? userMap.get(booking.userId) : null,
+  }));
+
+  return {
+    bookings: enrichedResults,
+    totalCount,
+    page,
+    pageSize,
+    totalPages: Math.ceil(totalCount / pageSize),
+  };
+};
+
+export const getBookingWithContext = async (bookingId: string) => {
+  const db = getDb();
+
+  const [booking] = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.id, bookingId));
+
+  if (!booking) {
+    return null;
+  }
+
+  // Fetch related application and user
+  const [relatedApplication, relatedUser] = await Promise.all([
+    booking.applicationId
+      ? db
+          .select({
+            id: applications.id,
+            name: applications.name,
+            naic: applications.naic,
+            data: applications.data,
+            formattedData: applications.formattedData,
+          })
+          .from(applications)
+          .where(eq(applications.id, booking.applicationId))
+          .then(rows => rows[0] || null)
+      : null,
+    booking.userId
+      ? db
+          .select({
+            id: user.id,
+            email: user.email,
+          })
+          .from(user)
+          .where(eq(user.id, booking.userId))
+          .then(rows => rows[0] || null)
+      : null,
+  ]);
+
+  // Merge booking data with application data if available
+  const mergedData = {
+    ...booking,
+    data: booking.data
+      ? typeof booking.data === 'string'
+        ? JSON.parse(booking.data)
+        : booking.data
+      : {},
+    application: relatedApplication,
+    user: relatedUser,
+  };
+
+  return mergedData;
+};
+
+export const exportBookings = async (searchTerm: string = '') => {
+  const db = getDb();
+  const searchPattern = `%${searchTerm.toLowerCase()}%`;
+  const shouldSearch = searchTerm.length >= 3;
+
+  const whereClause = shouldSearch
+    ? sql`WHERE (
+        LOWER(${bookings.email}) LIKE ${searchPattern} OR
+        LOWER(${bookings.phone}) LIKE ${searchPattern}
+      )`
+    : sql``;
+
+  const results = await db
+    .select()
+    .from(bookings)
+    .where(whereClause)
+    .orderBy(desc(bookings.createdAt));
+
+  return results;
+};
+
+export const determineBookingStatus = (booking: {
+  status: string;
+  hubspotSyncStatus: string | null;
+  hubspotContactId: string | null;
+}) => {
+  if (booking.hubspotContactId) {
+    return 'synced';
+  }
+
+  switch (booking.hubspotSyncStatus) {
+    case 'syncing':
+      return 'syncing';
+    case 'failed':
+      return 'sync_failed';
+    case 'pending':
+    default:
+      return booking.status || 'pending';
+  }
+};

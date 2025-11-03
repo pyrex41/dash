@@ -156,6 +156,11 @@ export const bookings = sqliteTable('bookings', {
   url: text('url').notNull(),
   event: text('event'),
   status: text('status').notNull(),
+  data: text('data', { mode: 'json' }).$type<Record<string, any>>(),
+  hubspotContactId: text('hubspot_contact_id'),
+  hubspotSyncStatus: text('hubspot_sync_status').default('pending'),
+  hubspotLastSyncedAt: integer('hubspot_last_synced_at', { mode: 'timestamp' }),
+  hubspotSyncError: text('hubspot_sync_error'),
   createdAt: text('created_at')
     .notNull()
     .default(sql`CURRENT_TIMESTAMP`),
@@ -166,6 +171,8 @@ export const bookings = sqliteTable('bookings', {
   userIdIndex: index('idx_bookings_user_id').on(table.userId),
   emailIndex: index('idx_bookings_email').on(table.email),
   applicationIdIndex: index('idx_bookings_application_id').on(table.applicationId),
+  hubspotContactIdIndex: index('idx_bookings_hubspot_contact_id').on(table.hubspotContactId),
+  hubspotSyncStatusIndex: index('idx_bookings_hubspot_sync_status').on(table.hubspotSyncStatus),
 }));
 
 export const producers = sqliteTable('producers', {
