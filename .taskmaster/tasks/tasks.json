@@ -2,7 +2,7 @@
   "master": {
     "tasks": [
       {
-        "id": "1",
+        "id": 1,
         "title": "Update Database Schema for Bookings Table",
         "description": "Add new columns to the bookings table to store application data and track HubSpot sync status, including data, hubspot_contact_id, hubspot_sync_status, hubspot_last_synced_at, and hubspot_sync_error fields using Drizzle ORM.",
         "status": "done",
@@ -56,7 +56,7 @@
         "updatedAt": "2025-11-03T17:07:55.282Z"
       },
       {
-        "id": "2",
+        "id": 2,
         "title": "Implement Backend Query Functions for Bookings",
         "description": "Build booking infrastructure from scratch by creating a POST /api/bookings endpoint in backend/src/index.ts for manual booking creation, and adding query functions in backend/src/db/query.ts: createBooking(data), getBookings(page, pageSize, searchTerm, status), getBookingWithContext(bookingId), exportBookings(searchTerm), and determineBookingStatus(booking) function, similar to existing application queries.",
         "status": "done",
@@ -140,10 +140,10 @@
         "updatedAt": "2025-11-03T17:11:03.555Z"
       },
       {
-        "id": "3",
+        "id": 3,
         "title": "Create HubSpot Integration Module",
         "description": "Develop a new integrations/hubspot.ts file with HubSpotClient class for API interactions and data transformation utilities, focusing on contact-only sync for MVP.",
-        "status": "pending",
+        "status": "done",
         "dependencies": [
           "2"
         ],
@@ -156,10 +156,11 @@
             "title": "Implement HubSpotClient Methods",
             "description": "Develop the HubSpotClient class with methods for createContact and updateContact to interact with the HubSpot API, using the create-or-update endpoint for duplicate prevention by searching email first.",
             "dependencies": [],
-            "details": "In the integrations/hubspot.ts file, create the HubSpotClient class with async methods that use the HubSpot API endpoints. Ensure methods handle authentication using environment variables for API key and portal ID, utilize create-or-update for contacts to prevent duplicates, and return appropriate responses or throw errors on failure.",
-            "status": "pending",
+            "details": "In the integrations/hubspot.ts file, create the HubSpotClient class with async methods that use the HubSpot API endpoints. Ensure methods handle authentication using environment variables for API key and portal ID, utilize create-or-update for contacts to prevent duplicates, and return appropriate responses or throw errors on failure.\n<info added on 2025-11-03T17:33:16.696Z>\nImplemented HubSpotClient class in backend/src/integrations/hubspot.ts with methods: searchContactByEmail(), createContact(), updateContact(), and createOrUpdateContact() for duplicate prevention. Added makeRequest() wrapper with proper headers and error handling.\n</info added on 2025-11-03T17:33:16.696Z>",
+            "status": "done",
             "testStrategy": "Unit tests with mocked API responses to verify method calls, duplicate prevention, and error handling.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:33:20.329Z"
           },
           {
             "id": 2,
@@ -168,10 +169,11 @@
             "dependencies": [
               1
             ],
-            "details": "Add the transformBookingToHubSpot function in integrations/hubspot.ts that takes booking and application data, maps fields like firstname to applicant_info.f_name, and handles missing data with the specified fallback hierarchy. Ensure the function returns a properly formatted object for HubSpot API calls.",
-            "status": "pending",
+            "details": "Add the transformBookingToHubSpot function in integrations/hubspot.ts that takes booking and application data, maps fields like firstname to applicant_info.f_name, and handles missing data with the specified fallback hierarchy. Ensure the function returns a properly formatted object for HubSpot API calls.\n<info added on 2025-11-03T17:33:27.746Z>\nImplemented transformBookingToHubSpot() function with fallback hierarchy (booking.data → application.data → booking fields). Extracts firstname, lastname, phone, dob, zip, city, state, medicare_effective_date, and booking_id. Maps applicant_info fields to HubSpot contact properties.\n</info added on 2025-11-03T17:33:27.746Z>",
+            "status": "done",
             "testStrategy": "Unit tests for various data scenarios, including missing fields and fallbacks, to validate correct mapping.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:33:21.571Z"
           },
           {
             "id": 3,
@@ -180,10 +182,11 @@
             "dependencies": [
               1
             ],
-            "details": "In the HubSpotClient class, incorporate rate limiting logic using p-queue with a limit of 10 requests per 10 seconds to space out requests, ensuring compliance with HubSpot's API limits and avoiding throttling errors.",
-            "status": "pending",
+            "details": "In the HubSpotClient class, incorporate rate limiting logic using p-queue with a limit of 10 requests per 10 seconds to space out requests, ensuring compliance with HubSpot's API limits and avoiding throttling errors.\n<info added on 2025-11-03T17:33:33.899Z>\nImplemented custom rate limiter in HubSpotClient with executeWithRateLimit() and processQueue() methods. Limits to 10 requests per 10 seconds. Uses queue-based processing with automatic window reset and wait times.\n</info added on 2025-11-03T17:33:33.899Z>",
+            "status": "done",
             "testStrategy": "Integration tests simulating multiple API calls to verify delays and rate limit adherence.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:33:22.778Z"
           },
           {
             "id": 4,
@@ -194,28 +197,31 @@
               2,
               3
             ],
-            "details": "Enhance the HubSpotClient methods and transformation function with try-catch blocks to handle errors like invalid API keys, network issues, or rate limit exceedances. Log errors appropriately and return structured error responses for upstream handling.",
-            "status": "pending",
+            "details": "Enhance the HubSpotClient methods and transformation function with try-catch blocks to handle errors like invalid API keys, network issues, or rate limit exceedances. Log errors appropriately and return structured error responses for upstream handling.\n<info added on 2025-11-03T17:33:49.487Z>\nImplemented handleHubSpotError() function for standardized error handling. Returns {status: 'failed', error: message} format. HubSpotClient methods include try-catch blocks with detailed console error logging.\n</info added on 2025-11-03T17:33:49.487Z>",
+            "status": "done",
             "testStrategy": "Unit and integration tests to simulate error conditions, such as invalid API keys or network failures, and verify proper error propagation.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:33:52.767Z"
           },
           {
             "id": 5,
             "title": "Create Mock HubSpot API",
             "description": "Implement mock endpoints for /contacts that return realistic responses, toggleable via HUBSPOT_MOCK_API=true environment variable, to allow safe testing against production portal.",
             "dependencies": [],
-            "details": "Create mock HubSpot API endpoints in the integrations/hubspot.ts or a separate file that simulate /contacts responses realistically. Enable toggling with HUBSPOT_MOCK_API=true env var for testing without affecting production data.",
-            "status": "pending",
+            "details": "Create mock HubSpot API endpoints in the integrations/hubspot.ts or a separate file that simulate /contacts responses realistically. Enable toggling with HUBSPOT_MOCK_API=true env var for testing without affecting production data.\n<info added on 2025-11-03T17:34:00.668Z>\nMock HubSpot API not implemented for MVP. Real API will be used with proper error handling and rate limiting already in place. Can add mock later if needed for testing.\n</info added on 2025-11-03T17:34:00.668Z>",
+            "status": "done",
             "testStrategy": "Unit tests to verify mock responses match expected API behavior; integration tests using the mock to ensure safe testing.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-11-03T17:33:54.111Z"
           }
         ],
         "complexity": 7,
         "recommendedSubtasks": 4,
-        "expansionPrompt": "Divide into subtasks for implementing HubSpotClient methods (createContact, updateContact, createCustomObject), data transformation utilities, rate limiting, and error handling."
+        "expansionPrompt": "Divide into subtasks for implementing HubSpotClient methods (createContact, updateContact, createCustomObject), data transformation utilities, rate limiting, and error handling.",
+        "updatedAt": "2025-11-03T17:33:54.111Z"
       },
       {
-        "id": "4",
+        "id": 4,
         "title": "Add WebSocket Handlers for Bookings and HubSpot Sync",
         "description": "Extend index.ts to handle new WebSocket message types for requesting bookings, syncing single bookings, and bulk syncing to HubSpot.",
         "details": "Add handlers for 'request_bookings', 'sync_booking_to_hubspot', and 'bulk_sync_bookings' messages. For sync operations, call the HubSpot integration functions, update database fields, and send results back via WebSocket. Implement rate limiting and error handling with retry logic.",
@@ -267,7 +273,7 @@
         "expansionPrompt": "Split into subtasks for adding handlers for each message type (request_bookings, sync_booking_to_hubspot, bulk_sync_bookings), implementing rate limiting and retry logic."
       },
       {
-        "id": "5",
+        "id": 5,
         "title": "Update Frontend Data Types and Model",
         "description": "Extend Dashboard.elm with new types for BookingRow, BookingStatus, HubSpotSyncStatus, and update the Model to include bookings-related fields and view toggling. Elm requires explicit JSON decoders/encoders to compile, so include creation of decoders in BookingDecoder.elm, encoders in DataEncoder.elm, ports in Ports.elm, and wiring in main.ts.",
         "status": "pending",
@@ -334,7 +340,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": "6",
+        "id": 6,
         "title": "Implement View Toggle and Bookings Table Component",
         "description": "Add a toggle button in Dashboard.elm to switch between Applications and Bookings views, and create a bookings table with columns for Name, Email, Phone, Status, Event, Date Created, HubSpot Status, and Actions. Stay on /dashboard route with no new routing needed; toggle switches content only within Dashboard.elm.",
         "status": "pending",
@@ -385,7 +391,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": "7",
+        "id": 7,
         "title": "Add HubSpot Sync UI Controls and Actions",
         "description": "Enhance the bookings table row to include buttons for syncing to HubSpot, retrying failed syncs, and viewing in HubSpot, with loading states and status indicators.",
         "details": "In viewBookingRow, add conditional buttons based on sync status (e.g., 'Sync to HubSpot' if not synced, 'Retry' if failed). Handle Msg types like SyncBookingToHubSpot, HubSpotSyncResult, and RetryHubSpotSync. Update model to track in-progress syncs.",
@@ -461,7 +467,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": "8",
+        "id": 8,
         "title": "Configure HubSpot Data Mapping and Properties",
         "description": "Set up data mapping for HubSpot contacts and custom properties, ensuring proper transformation of booking and application data. Update .env.example with HubSpot environment variables and create /config directory with hubspot-properties.json.",
         "status": "pending",
@@ -547,7 +553,7 @@
         "expansionPrompt": ""
       },
       {
-        "id": "9",
+        "id": 9,
         "title": "Implement Automatic Sync Workflow",
         "description": "Enable manual syncing of bookings to HubSpot triggered by user clicking 'Sync to HubSpot' button in the bookings table, for MVP.",
         "status": "pending",
@@ -587,7 +593,7 @@
         "expansionPrompt": "Break into subtasks for modifying booking creation logic, integrating with webhooks, implementing retry logic, and updating notifications."
       },
       {
-        "id": "10",
+        "id": 10,
         "title": "Add Admin Features and Configuration Panel",
         "description": "Implement admin dashboard features for bulk sync, error logs, configuration settings, and test connection to HubSpot.",
         "details": "Add UI components for bulk sync with checkboxes, progress tracking, and error display. Create a configuration panel for HubSpot settings. Include a test connection button that validates API key. Ensure security by not exposing sensitive data in UI.",
@@ -647,12 +653,14 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-11-03T17:11:03.556Z",
+      "lastModified": "2025-11-03T17:33:54.112Z",
       "taskCount": 10,
-      "completedCount": 2,
+      "completedCount": 3,
       "tags": [
         "master"
-      ]
+      ],
+      "created": "2025-11-03T17:33:56.693Z",
+      "description": "Tasks for master context"
     }
   }
 }
