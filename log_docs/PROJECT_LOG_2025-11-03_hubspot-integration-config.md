@@ -20,8 +20,8 @@ Configured complete HubSpot integration including fixing bugs in the sync schedu
 
 Added HubSpot credentials and configuration:
 ```bash
-HUBSPOT_API_KEY=REDACTED_HUBSPOT_API_KEY
-HUBSPOT_CLIENT_SECRET=REDACTED_HUBSPOT_CLIENT_SECRET
+HUBSPOT_API_KEY=<redacted>
+HUBSPOT_CLIENT_SECRET=<redacted>
 HUBSPOT_PORTAL_ID=7879306
 HUBSPOT_SYNC_INTERVAL_MS=300000  # 5 minutes
 HUBSPOT_RETRY_DELAY_MS=60000     # 1 minute
